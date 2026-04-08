@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenShape3D — Design 19: Ember</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anybody:wght@200;400;600;700;900&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d0600;--s1:#160a00;--s2:#1e0e00;--p:#ea580c;--p2:#fb923c;--y:#eab308;--v:#7c3aed;--text:#fff7ed;--muted:#7a5533;--border:#2d1400}
+body{background:var(--bg);color:var(--text);font-family:'Manrope',sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 65% 55% at 40% 0%,#ea580c1a,transparent 65%),
+             radial-gradient(ellipse 40% 40% at 90% 70%,#7c3aed12,transparent 55%),
+             radial-gradient(ellipse 30% 30% at 10% 80%,#eab3080e,transparent 50%)}
+
+/* Ember particles */
+.embers{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.em{position:absolute;border-radius:50%;animation:rise linear infinite;opacity:0}
+@keyframes rise{0%{transform:translateY(100vh) scale(0) rotate(0deg);opacity:0}
+  15%{opacity:.8}85%{opacity:.2}100%{transform:translateY(-10vh) scale(.5) rotate(180deg);opacity:0}}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:66px;
+  background:rgba(13,6,0,.92);backdrop-filter:blur(24px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{font-family:'Anybody',sans-serif;font-size:1.1rem;font-weight:900;letter-spacing:.08em}
+.brand em{color:var(--p2);font-style:normal}
+.nl{display:flex}
+.nl a{font-size:.86rem;font-weight:500;color:var(--muted);padding:.4rem .9rem;transition:.15s;border-radius:6px}
+.nl a:hover{color:var(--text);background:var(--s2)}
+.bp{font-family:'Anybody',sans-serif;font-size:.86rem;font-weight:700;letter-spacing:.06em;padding:.5rem 1.4rem;border-radius:8px;
+  background:linear-gradient(135deg,var(--p),#c2410c);border:none;color:#fff;cursor:pointer;transition:.15s}
+.bp:hover{filter:brightness(1.15);transform:translateY(-1px);box-shadow:0 6px 24px var(--p)55}
+.bo{font-size:.86rem;font-weight:500;padding:.5rem 1.2rem;border-radius:8px;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s;margin-right:.5rem}
+.bo:hover{border-color:var(--p)44;color:var(--text)}
+
+.hero{min-height:92vh;display:flex;align-items:center;padding:6rem 3rem;gap:5rem;max-width:1280px;margin:0 auto}
+.hero-l{flex:1.15}
+.spark{display:inline-flex;align-items:center;gap:.5rem;background:var(--p)14;border:1px solid var(--p)2a;
+  border-radius:20px;padding:.32rem .9rem;font-size:.74rem;font-weight:600;color:var(--p2);margin-bottom:1.75rem}
+h1{font-family:'Anybody',sans-serif;font-size:clamp(2.8rem,5vw,4.4rem);font-weight:900;line-height:1.08;letter-spacing:.02em;margin-bottom:1.5rem}
+.hf{background:linear-gradient(135deg,var(--p),var(--y));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hv{color:var(--v);filter:drop-shadow(0 0 20px var(--v)88)}
+.hero-l p{font-size:.95rem;font-weight:400;color:var(--muted);line-height:1.8;max-width:460px;margin-bottom:2.5rem}
+.ctas{display:flex;gap:.75rem;align-items:center}
+.c1{font-family:'Anybody',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.04em;padding:.8rem 2rem;border-radius:8px;
+  background:linear-gradient(135deg,var(--p),#c2410c);border:none;color:#fff;cursor:pointer;transition:.2s}
+.c1:hover{filter:brightness(1.15);transform:translateY(-2px);box-shadow:0 10px 30px var(--p)55}
+.c2{font-size:.88rem;font-weight:500;color:var(--muted);border:none;background:none;cursor:pointer;transition:.15s}
+.c2:hover{color:var(--p2)}
+.heat-stats{display:flex;gap:0;margin-top:3rem;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.hs{flex:1;padding:1.1rem 1.25rem;border-right:1px solid var(--border);position:relative}
+.hs:last-child{border-right:none}
+.hs::before{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--p),var(--y))}
+.hsn{font-family:'Anybody',sans-serif;font-size:1.65rem;font-weight:900;color:var(--p2)}
+.hsl{font-size:.7rem;font-weight:600;color:var(--muted);margin-top:.15rem;letter-spacing:.06em;text-transform:uppercase}
+
+/* Ember visual */
+.hero-r{flex:1;display:flex;align-items:center;justify-content:center;position:relative;min-height:460px}
+.ember-frame{width:380px;height:440px;position:relative;border-radius:18px;overflow:hidden;
+  background:linear-gradient(160deg,var(--s2),var(--bg));border:1px solid var(--border)}
+.ef-heat{position:absolute;bottom:-50px;left:50%;transform:translateX(-50%);
+  width:350px;height:250px;border-radius:50%;
+  background:radial-gradient(ellipse,var(--p)28,var(--y)14,transparent 65%);
+  filter:blur(40px);animation:heat-pulse 4s ease-in-out infinite}
+@keyframes heat-pulse{0%,100%{opacity:.5;transform:translateX(-50%) scaleY(1)}50%{opacity:.9;transform:translateX(-50%) scaleY(1.15)}}
+.ef-ring{position:absolute;top:50%;left:50%;border-radius:50%;border:1px solid;animation:rot linear infinite}
+.efr1{width:290px;height:290px;margin:-145px 0 0 -145px;border-color:var(--p)44;animation-duration:14s}
+.efr2{width:210px;height:210px;margin:-105px 0 0 -105px;border-color:var(--y)33;animation-duration:9s;animation-direction:reverse;border-style:dashed}
+@keyframes rot{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.ef-icon{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%);
+  font-size:5rem;filter:drop-shadow(0 0 30px var(--p)cc);animation:fl 4s ease-in-out infinite;z-index:2}
+@keyframes fl{0%,100%{transform:translate(-50%,-50%) translateY(0)}50%{transform:translate(-50%,-50%) translateY(-10px)}}
+.ef-panel{position:absolute;top:1rem;left:1rem;right:1rem;background:var(--bg)cc;backdrop-filter:blur(10px);
+  border-radius:8px;border:1px solid var(--border);padding:.75rem 1rem;display:flex;justify-content:space-between;
+  font-size:.72rem}
+.efp-l{color:var(--muted)}
+.efp-r{color:var(--p2);font-weight:600}
+.ef-progress{position:absolute;bottom:3.5rem;left:1.5rem;right:1.5rem}
+.efpb{height:4px;background:var(--border);border-radius:2px;margin-top:.35rem;overflow:hidden}
+.efpb-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--p),var(--y));width:72%}
+.ef-label{font-size:.65rem;color:var(--muted);font-weight:500;letter-spacing:.08em}
+.ef-pct{font-size:.65rem;color:var(--p2);font-weight:700;float:right}
+
+.feats{padding:5rem 3rem;background:var(--s1);border-top:1px solid var(--border)}
+.fi{max-width:1100px;margin:0 auto}
+.fl{font-size:.72rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--p);margin-bottom:.5rem}
+.ft{font-family:'Anybody',sans-serif;font-size:clamp(1.6rem,2.5vw,2.2rem);font-weight:900;letter-spacing:.02em;margin-bottom:3rem}
+.fg{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
+.fc{padding:2rem;border-radius:14px;background:var(--bg);border:1px solid var(--border);transition:.2s;position:relative;overflow:hidden}
+.fc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--p),var(--y))}
+.fc:hover{border-color:var(--p)44;transform:translateY(-3px);box-shadow:0 10px 28px var(--p)18}
+.fn{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem}
+.ftt{font-family:'Anybody',sans-serif;font-size:1.05rem;font-weight:700;margin-bottom:.5rem}
+.fd{font-size:.85rem;font-weight:400;color:var(--muted);line-height:1.7}
+
+footer{padding:2rem 3rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+.fb{font-family:'Anybody',sans-serif;font-weight:900;color:var(--text);font-size:.95rem}
+</style>
+</head>
+<body>
+<div class="embers">
+  <div class="em" style="left:20%;width:3px;height:3px;background:#fb923c;animation-duration:10s;animation-delay:-3s"></div>
+  <div class="em" style="left:45%;width:2px;height:2px;background:#eab308;animation-duration:14s;animation-delay:-7s"></div>
+  <div class="em" style="left:70%;width:4px;height:4px;background:#ea580c;animation-duration:11s;animation-delay:-4s"></div>
+  <div class="em" style="left:85%;width:2px;height:2px;background:#fb923c;animation-duration:16s;animation-delay:-9s"></div>
+  <div class="em" style="left:10%;width:3px;height:3px;background:#eab308;animation-duration:12s;animation-delay:-1s"></div>
+</div>
+<nav>
+  <div class="brand">Gen<em>Shape3D</em></div>
+  <div class="nl"><a href="#">Features</a><a href="#">Workflow</a><a href="#">Pricing</a></div>
+  <div><button class="bo">Sign in</button><button class="bp">Ignite now</button></div>
+</nav>
+
+<section class="hero">
+  <div class="hero-l">
+    <div class="spark">🔥 AI Mesh Forge · Ignited</div>
+    <h1>Forge <span class="hf">fire</span> into<br><span class="hv">flawless</span> form</h1>
+    <p>GenShape3D harnesses raw generative power to turn any description or image into production-ready 3D geometry — blazing fast, precision-crafted, game-ready.</p>
+    <div class="ctas">
+      <button class="c1">Ignite the forge</button>
+      <button class="c2">Explore gallery →</button>
+    </div>
+    <div class="heat-stats">
+      <div class="hs"><div class="hsn">50K+</div><div class="hsl">Meshes forged</div></div>
+      <div class="hs"><div class="hsn">12K</div><div class="hsl">Creators</div></div>
+      <div class="hs"><div class="hsn">&lt;30s</div><div class="hsl">Gen time</div></div>
+    </div>
+  </div>
+  <div class="hero-r">
+    <div class="ember-frame">
+      <div class="ef-panel"><span class="efp-l">dragon_bust.glb</span><span class="efp-r">PBR 2K</span></div>
+      <div class="ef-heat"></div>
+      <div class="ef-ring efr1"></div>
+      <div class="ef-ring efr2"></div>
+      <div class="ef-icon">⬡</div>
+      <div class="ef-progress">
+        <div class="ef-label">Forging geometry<span class="ef-pct">72%</span></div>
+        <div class="efpb"><div class="efpb-fill"></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="feats">
+  <div class="fi">
+    <div class="fl">Forge protocols</div>
+    <div class="ft">Three ways to ignite</div>
+    <div class="fg">
+      <div class="fc"><div class="fn">Protocol 01 · Text</div><div class="ftt">Text to 3D</div><div class="fd">Describe any object or scene. Receive optimised 3D geometry with clean topology and correct UVs.</div></div>
+      <div class="fc"><div class="fn">Protocol 02 · Image</div><div class="ftt">Image to 3D</div><div class="fd">Upload any reference image. AI reconstructs full 3D geometry with accurate surface and depth data.</div></div>
+      <div class="fc"><div class="fn">Protocol 03 · Surface</div><div class="ftt">PBR Textures</div><div class="fd">Physically-based material maps generated automatically — diffuse, normal, roughness, metalness, AO.</div></div>
+    </div>
+  </div>
+</section>
+<footer><div class="fb">GenShape3D</div><div>© 2026 · Privacy · Terms</div></footer>
+</body>
+</html>

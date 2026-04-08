@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenShape3D — Design 13: BioGlow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@200;300;400;600;700;800&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#020b0b;--s1:#041414;--s2:#071c1c;--p:#0d9488;--p2:#5eead4;--v:#7c3aed;--v2:#a78bfa;--text:#e0faf8;--muted:#4a8580;--border:#0f2f2d}
+body{background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 60% 55% at 20% 10%,#0d948820,transparent 65%),
+             radial-gradient(ellipse 40% 40% at 85% 80%,#7c3aed18,transparent 60%)}
+
+/* Floating particles */
+.particles{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.p{position:absolute;border-radius:50%;animation:drift linear infinite;opacity:0}
+@keyframes drift{0%{transform:translateY(100vh) scale(0);opacity:0}10%{opacity:.6}90%{opacity:.3}100%{transform:translateY(-10vh) scale(1.5);opacity:0}}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:66px;
+  background:rgba(2,11,11,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{font-family:'Exo 2',sans-serif;font-size:1.1rem;font-weight:800;letter-spacing:.04em}
+.brand em{color:var(--p2);font-style:normal}
+.nl{display:flex}
+.nl a{font-size:.86rem;font-weight:400;color:var(--muted);padding:.4rem .9rem;border-radius:8px;transition:.15s}
+.nl a:hover{color:var(--text);background:var(--s2)}
+.bp{font-family:'Exo 2',sans-serif;font-size:.86rem;font-weight:700;padding:.5rem 1.4rem;border-radius:999px;
+  background:linear-gradient(135deg,var(--p),#0f766e);border:none;color:#fff;cursor:pointer;transition:.15s}
+.bp:hover{filter:brightness(1.12);transform:translateY(-1px);box-shadow:0 6px 20px var(--p)55}
+.bo{font-size:.86rem;font-weight:600;padding:.5rem 1.2rem;border-radius:999px;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s;margin-right:.5rem}
+.bo:hover{border-color:var(--p)44;color:var(--text)}
+
+.hero{min-height:92vh;display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:4rem;padding:6rem 2.5rem 3rem;max-width:1280px;margin:0 auto}
+.badge{display:inline-flex;align-items:center;gap:.5rem;padding:.35rem 1rem;border-radius:999px;
+  background:var(--p)18;border:1px solid var(--p)33;font-size:.76rem;font-weight:700;color:var(--p2);margin-bottom:1.75rem}
+.bd{width:7px;height:7px;border-radius:50%;background:var(--p2);animation:glow 2s ease infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 4px var(--p2)66}50%{box-shadow:0 0 12px var(--p2)cc}}
+h1{font-family:'Exo 2',sans-serif;font-size:clamp(2.6rem,4.5vw,3.8rem);font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-bottom:1.5rem}
+.gp{background:linear-gradient(135deg,var(--p2),var(--p));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.gv{background:linear-gradient(135deg,var(--v2),var(--v));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-l p{font-size:.95rem;color:var(--muted);line-height:1.8;max-width:460px;margin-bottom:2.5rem;font-weight:300}
+.ctas{display:flex;gap:.75rem;flex-wrap:wrap}
+.c1{font-family:'Exo 2',sans-serif;font-size:.92rem;font-weight:700;padding:.8rem 2rem;border-radius:12px;
+  background:linear-gradient(135deg,var(--p),#0f766e);border:none;color:#fff;cursor:pointer;transition:.2s}
+.c1:hover{filter:brightness(1.1);transform:translateY(-2px);box-shadow:0 8px 24px var(--p)44}
+.c2{font-size:.9rem;font-weight:500;padding:.8rem 1.75rem;border-radius:12px;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.2s}
+.c2:hover{border-color:var(--p)44;color:var(--text)}
+.stats{display:flex;gap:2rem;margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border)}
+.sn{font-family:'Exo 2',sans-serif;font-size:1.6rem;font-weight:800;color:var(--p2)}
+.sl{font-size:.72rem;color:var(--muted);margin-top:.1rem;font-weight:300}
+
+/* Bio visual */
+.hero-r{display:flex;align-items:center;justify-content:center;position:relative;min-height:440px}
+.bio-container{position:relative;width:400px;height:400px}
+.cell{position:absolute;border-radius:50%;border:1px solid;animation:bio-pulse ease-in-out infinite}
+.cell1{inset:0;border-color:var(--p)33;animation-duration:4s}
+.cell2{inset:12%;border-color:var(--p2)22;animation-duration:6s;animation-delay:-2s}
+.cell3{inset:25%;border-color:var(--v)18;animation-duration:5s;animation-delay:-1s}
+.cell4{inset:38%;border-color:var(--p2)22;animation-duration:3s}
+@keyframes bio-pulse{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.04);opacity:1}}
+.bio-glow{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,var(--p)28,var(--v)14,transparent 65%);
+  animation:bio-pulse 4s ease-in-out infinite}
+.bio-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:5rem;filter:drop-shadow(0 0 24px var(--p2)88);animation:fl 5s ease-in-out infinite;z-index:2}
+@keyframes fl{0%,100%{transform:translate(-50%,-50%) translateY(0)}50%{transform:translate(-50%,-50%) translateY(-12px)}}
+.bio-node{position:absolute;width:10px;height:10px;border-radius:50%;animation:bio-pulse ease-in-out infinite}
+.bn1{top:5%;left:50%;background:var(--p2);box-shadow:0 0 10px var(--p2);animation-duration:3s}
+.bn2{bottom:5%;left:50%;background:var(--v2);box-shadow:0 0 10px var(--v2);animation-duration:5s}
+.bn3{left:5%;top:50%;background:var(--p);box-shadow:0 0 10px var(--p);animation-duration:4s;animation-delay:-1s}
+.bn4{right:5%;top:50%;background:var(--p2);box-shadow:0 0 10px var(--p2);animation-duration:6s;animation-delay:-2s}
+.chip{position:absolute;background:var(--s1)ee;border:1px solid var(--border);border-radius:10px;padding:.6rem .9rem;font-size:.76rem;font-weight:600;backdrop-filter:blur(8px)}
+.chip1{top:8%;right:-5%}
+.chip2{bottom:15%;left:-8%}
+.cd{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:.4rem}
+
+.feats{padding:5rem 2.5rem;background:var(--s1);border-top:1px solid var(--border)}
+.fi{max-width:1100px;margin:0 auto}
+.fl{font-size:.7rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--p);margin-bottom:.5rem}
+.ft{font-family:'Exo 2',sans-serif;font-size:clamp(1.6rem,2.5vw,2.2rem);font-weight:800;letter-spacing:-.02em;margin-bottom:3rem}
+.fg{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
+.fc{padding:2rem;border-radius:16px;background:var(--bg);border:1px solid var(--border);transition:.2s;overflow:hidden;position:relative}
+.fc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--p),var(--v2))}
+.fc:hover{border-color:var(--p)44;transform:translateY(-4px)}
+.fic{width:44px;height:44px;border-radius:10px;background:var(--p)18;border:1px solid var(--p)33;display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:1.25rem}
+.ftt{font-family:'Exo 2',sans-serif;font-size:.95rem;font-weight:700;margin-bottom:.5rem}
+.fd{font-size:.83rem;color:var(--muted);line-height:1.65;font-weight:300}
+
+footer{padding:2rem 2.5rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+.fb{font-family:'Exo 2',sans-serif;font-weight:800;color:var(--text)}
+</style>
+</head>
+<body>
+<div class="particles">
+  <div class="p" style="left:15%;width:4px;height:4px;background:#5eead4;animation-duration:12s;animation-delay:-3s"></div>
+  <div class="p" style="left:35%;width:3px;height:3px;background:#0d9488;animation-duration:18s;animation-delay:-8s"></div>
+  <div class="p" style="left:60%;width:5px;height:5px;background:#a78bfa;animation-duration:14s;animation-delay:-5s"></div>
+  <div class="p" style="left:80%;width:3px;height:3px;background:#5eead4;animation-duration:20s;animation-delay:-12s"></div>
+</div>
+<nav>
+  <div class="brand">GenShape<em>3D</em></div>
+  <div class="nl"><a href="#">Features</a><a href="#">Workflow</a><a href="#">Pricing</a></div>
+  <div><button class="bo">Sign in</button><button class="bp">Start free</button></div>
+</nav>
+
+<section class="hero">
+  <div>
+    <div class="badge"><span class="bd"></span>AI 3D Generation · Bioluminescent Series</div>
+    <h1>Where <span class="gp">organic</span> meets <span class="gv">digital</span> geometry</h1>
+    <p>GenShape3D grows your ideas into living 3D structures — detailed, textured and export-ready in seconds. Inspired by nature, built by AI.</p>
+    <div class="ctas">
+      <button class="c1">Start creating free</button>
+      <button class="c2">Explore gallery →</button>
+    </div>
+    <div class="stats">
+      <div><div class="sn">50K+</div><div class="sl">Meshes grown</div></div>
+      <div><div class="sn">12K+</div><div class="sl">Creators</div></div>
+      <div><div class="sn">&lt;30s</div><div class="sl">Gen time</div></div>
+    </div>
+  </div>
+  <div class="hero-r">
+    <div class="bio-container">
+      <div class="cell cell1"></div><div class="cell cell2"></div><div class="cell cell3"></div><div class="cell cell4"></div>
+      <div class="bio-glow"></div>
+      <div class="bio-node bn1"></div><div class="bio-node bn2"></div><div class="bio-node bn3"></div><div class="bio-node bn4"></div>
+      <div class="bio-icon">⬡</div>
+    </div>
+    <div class="chip chip1"><span class="cd" style="background:var(--p2)"></span>Generating... 84%</div>
+    <div class="chip chip2"><span class="cd" style="background:var(--v2)"></span>287k polys · PBR</div>
+  </div>
+</section>
+
+<section class="feats">
+  <div class="fi">
+    <div class="fl">Capabilities</div>
+    <div class="ft">Grow any 3D form from a single seed</div>
+    <div class="fg">
+      <div class="fc"><div class="fic">✦</div><div class="ftt">Text to 3D</div><div class="fd">Describe any form — organic or mechanical — and receive optimised 3D geometry in seconds.</div></div>
+      <div class="fc"><div class="fic">⬡</div><div class="ftt">Image to 3D</div><div class="fd">Upload any reference. AI reconstructs full 3D geometry with accurate depth and surface detail.</div></div>
+      <div class="fc"><div class="fic">◈</div><div class="ftt">PBR Textures</div><div class="fd">Physically-based maps auto-generated — diffuse, normal, roughness, metalness and AO ready.</div></div>
+    </div>
+  </div>
+</section>
+<footer><div class="fb">GenShape3D</div><div>© 2026 · Privacy · Terms</div></footer>
+</body>
+</html>

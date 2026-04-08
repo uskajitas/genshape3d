@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -106,6 +106,72 @@ const NavActions = styled.div`
   display: flex;
   align-items: center;
   gap: 0.75rem;
+`;
+
+const StylesDropdownWrapper = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+`;
+
+const StylesBtn = styled.button`
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: ${p => p.theme.colors.textMuted};
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  &:hover {
+    color: ${p => p.theme.colors.text};
+    background: ${p => p.theme.colors.surface};
+    border-color: ${p => p.theme.colors.border};
+  }
+`;
+
+const DropdownMenu = styled.div<{ open: boolean }>`
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  background: ${p => p.theme.colors.surface};
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px;
+  padding: 0.4rem;
+  display: ${p => (p.open ? 'block' : 'none')};
+  box-shadow: 0 16px 40px #00000066;
+  z-index: 200;
+  max-height: 420px;
+  overflow-y: auto;
+`;
+
+const DropdownItem = styled.a`
+  display: block;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: ${p => p.theme.colors.textMuted};
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+  text-decoration: none;
+  &:hover {
+    color: ${p => p.theme.colors.text};
+    background: ${p => p.theme.colors.primary}18;
+  }
+`;
+
+const DropdownLabel = styled.div`
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: ${p => p.theme.colors.primary};
+  padding: 0.4rem 0.75rem 0.25rem;
 `;
 
 const BtnOutline = styled(Link)`
@@ -767,9 +833,33 @@ const LINES: [number, number][] = [
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const DESIGNS = [
+  { id: 1, name: 'Obsidian' },
+  { id: 2, name: 'Neon Circuit' },
+  { id: 5, name: 'Emerald Core' },
+  { id: 6, name: 'Crystalline' },
+  { id: 7, name: 'Plasma' },
+  { id: 11, name: 'Titanium' },
+  { id: 13, name: 'BioGlow' },
+  { id: 16, name: 'CyberHex' },
+  { id: 19, name: 'Ember' },
+];
+
 const Landing: React.FC = () => {
   const { loginWithRedirect, isAuthenticated } = useAuth0();
   const navigate = useNavigate();
+  const [stylesOpen, setStylesOpen] = useState(false);
+  const stylesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (stylesRef.current && !stylesRef.current.contains(e.target as Node)) {
+        setStylesOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   const handleStartFree = () => {
     if (isAuthenticated) {
@@ -793,6 +883,25 @@ const Landing: React.FC = () => {
           <NavLink to="#features">Features</NavLink>
           <NavLink to="#how">How it works</NavLink>
           <NavLink to="#pricing">Pricing</NavLink>
+          <StylesDropdownWrapper ref={stylesRef}>
+            <StylesBtn onClick={() => setStylesOpen(o => !o)}>
+              Styles {stylesOpen ? '▲' : '▼'}
+            </StylesBtn>
+            <DropdownMenu open={stylesOpen}>
+              <DropdownLabel>Design explorations</DropdownLabel>
+              {DESIGNS.map(d => (
+                <DropdownItem
+                  key={d.id}
+                  href={`/designs/design-${String(d.id).padStart(2, '0')}.html`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setStylesOpen(false)}
+                >
+                  {String(d.id).padStart(2, '0')} — {d.name}
+                </DropdownItem>
+              ))}
+            </DropdownMenu>
+          </StylesDropdownWrapper>
         </NavLinks>
         <NavActions>
           <BtnOutline to="/login">Sign in</BtnOutline>

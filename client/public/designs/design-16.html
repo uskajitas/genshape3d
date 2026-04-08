@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenShape3D — Design 16: CyberHex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#07000d;--s1:#0f0018;--s2:#160022;--p:#c026d3;--p2:#e879f9;--g:#4ade80;--g2:#86efac;--text:#fdf4ff;--muted:#8a4fa0;--border:#2d0040}
+body{background:var(--bg);color:var(--text);font-family:'Chakra Petch',sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 60% 50% at 50% 0%,#c026d320,transparent 60%),
+             radial-gradient(ellipse 35% 35% at 5% 80%,#4ade8014,transparent 55%),
+             radial-gradient(ellipse 30% 30% at 95% 60%,#c026d318,transparent 50%)}
+
+/* Hex grid bg */
+.hexbg{position:fixed;inset:0;pointer-events:none;opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50V16L28 0l28 16v34L28 66z' fill='none' stroke='%23c026d3' stroke-width='.5'/%3E%3C/svg%3E");
+  background-size:56px 100px}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:64px;
+  background:rgba(7,0,13,.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{font-family:'Chakra Petch',sans-serif;font-size:1.05rem;font-weight:700;letter-spacing:.1em}
+.brand em{color:var(--p2);font-style:normal}
+.nl{display:flex}
+.nl a{font-family:'Space Mono',monospace;font-size:.72rem;color:var(--muted);padding:.4rem .85rem;transition:.15s;letter-spacing:.04em}
+.nl a:hover{color:var(--g)}
+.bp{font-family:'Chakra Petch',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.1em;padding:.48rem 1.4rem;
+  background:var(--p);border:none;color:#fff;cursor:pointer;clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%);transition:.15s}
+.bp:hover{background:var(--p2);color:#1a0022;filter:brightness(1.1)}
+.bo{font-family:'Space Mono',monospace;font-size:.72rem;padding:.48rem 1.2rem;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s;margin-right:.5rem;letter-spacing:.04em}
+.bo:hover{border-color:var(--p)55;color:var(--text)}
+
+/* HERO */
+.hero{min-height:92vh;display:flex;align-items:center;padding:6rem 2.5rem;gap:4rem;max-width:1280px;margin:0 auto}
+.hero-l{flex:1.1}
+.hex-badge{display:inline-flex;align-items:center;gap:.6rem;margin-bottom:1.75rem;
+  font-family:'Space Mono',monospace;font-size:.68rem;letter-spacing:.12em;color:var(--g);
+  padding:.3rem .8rem .3rem .3rem;border:1px solid var(--g)33;clip-path:polygon(12px 0%,100% 0%,calc(100% - 12px) 100%,0% 100%);background:var(--g)0a}
+.hb-hex{width:20px;height:20px;background:var(--g)22;border:1px solid var(--g)55;display:flex;align-items:center;justify-content:center;font-size:.7rem}
+h1{font-family:'Chakra Petch',sans-serif;font-size:clamp(2.8rem,5vw,4.5rem);font-weight:700;line-height:1.08;letter-spacing:.04em;margin-bottom:1.5rem}
+.hp{color:var(--p2);text-shadow:0 0 30px var(--p)88}
+.hg{color:var(--g);text-shadow:0 0 20px var(--g)66}
+.hero-l p{font-family:'Space Mono',monospace;font-size:.78rem;color:var(--muted);line-height:2;max-width:460px;margin-bottom:2.5rem}
+.ctas{display:flex;gap:.75rem}
+.c1{font-family:'Chakra Petch',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;padding:.75rem 2rem;
+  background:var(--p);border:none;color:#fff;cursor:pointer;clip-path:polygon(10px 0%,100% 0%,calc(100% - 10px) 100%,0% 100%);transition:.2s}
+.c1:hover{background:var(--p2);color:#1a0022;transform:translateY(-2px);box-shadow:0 8px 30px var(--p)66}
+.c2{font-family:'Space Mono',monospace;font-size:.78rem;padding:.75rem 1.5rem;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.2s;letter-spacing:.04em}
+.c2:hover{border-color:var(--g)44;color:var(--g)}
+
+/* Hex meter */
+.hex-meters{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);margin-top:3rem}
+.hm{background:var(--bg);padding:1.25rem 1rem;position:relative}
+.hm::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--p),var(--g))}
+.hmn{font-family:'Chakra Petch',sans-serif;font-size:1.8rem;font-weight:700;color:var(--p2)}
+.hml{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.1em;color:var(--muted);margin-top:.2rem}
+
+/* Cyber visual */
+.hero-r{flex:1;display:flex;align-items:center;justify-content:center;position:relative;min-height:440px}
+.cyber-frame{width:380px;height:420px;position:relative;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border);background:var(--s1);clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px))}
+.cf-deco{position:absolute;top:0;right:0;width:20px;height:20px;border-bottom:1px solid var(--p)66;border-left:1px solid var(--p)66}
+.cf-deco2{position:absolute;bottom:0;left:0;width:20px;height:20px;border-top:1px solid var(--p)66;border-right:1px solid var(--p)66}
+.cf-glow{position:absolute;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,var(--p)18,transparent 65%)}
+.cf-hex-rings{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.chr{position:absolute;border-radius:50%;border:1px solid var(--p)33;animation:rot linear infinite}
+.chr1{width:300px;height:300px;animation-duration:15s}
+.chr2{width:220px;height:220px;border-color:var(--g)22;animation-duration:10s;animation-direction:reverse;border-style:dashed}
+@keyframes rot{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.cf-icon{position:relative;z-index:2;font-size:5rem;filter:drop-shadow(0 0 24px var(--p)cc);animation:fl 4s ease-in-out infinite}
+@keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.cf-scan{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--g)66,transparent);animation:scan 3s ease-in-out infinite}
+@keyframes scan{0%{top:0;opacity:0}5%{opacity:1}95%{opacity:1}100%{top:100%;opacity:0}}
+.cf-tags{position:absolute;bottom:1rem;left:1rem;right:1rem;border-top:1px solid var(--border);padding-top:.75rem;
+  display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:.65rem;color:var(--muted)}
+.cf-tags em{color:var(--g);font-style:normal}
+
+.feats{padding:5rem 2.5rem;background:var(--s1);border-top:1px solid var(--border)}
+.fi{max-width:1100px;margin:0 auto}
+.fl{font-family:'Space Mono',monospace;font-size:.65rem;letter-spacing:.14em;color:var(--p2);margin-bottom:.5rem}
+.ft{font-family:'Chakra Petch',sans-serif;font-size:clamp(1.6rem,2.5vw,2.2rem);font-weight:700;letter-spacing:.04em;margin-bottom:3rem}
+.fg{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)}
+.fc{background:var(--bg);padding:2rem;transition:.2s;position:relative;overflow:hidden;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px))}
+.fc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--p),var(--g))}
+.fc:hover{background:var(--s2)}
+.fn{font-family:'Space Mono',monospace;font-size:.62rem;letter-spacing:.14em;color:var(--muted);margin-bottom:.75rem}
+.ftt{font-family:'Chakra Petch',sans-serif;font-size:1rem;font-weight:700;letter-spacing:.06em;margin-bottom:.5rem}
+.fd{font-family:'Space Mono',monospace;font-size:.72rem;color:var(--muted);line-height:1.8}
+
+footer{padding:2rem 2.5rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:.7rem;color:var(--muted)}
+.fb{font-family:'Chakra Petch',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.1em;color:var(--text)}
+</style>
+</head>
+<body>
+<div class="hexbg"></div>
+<nav>
+  <div class="brand">GEN<em>SHAPE</em>3D</div>
+  <div class="nl"><a href="#">Features</a><a href="#">Workflow</a><a href="#">Pricing</a></div>
+  <div><button class="bo">// SIGN_IN</button><button class="bp">FORGE_NOW</button></div>
+</nav>
+
+<section class="hero">
+  <div class="hero-l">
+    <div class="hex-badge"><div class="hb-hex">⬡</div>AI_3D_GENERATION // ONLINE</div>
+    <h1>Hack <span class="hp">reality</span><br>forge <span class="hg">geometry</span></h1>
+    <p>// INPUT: text or image prompt<br>// OUTPUT: production 3D mesh + PBR textures<br>// TIME: under 30 seconds<br>// SKILLS_REQUIRED: none</p>
+    <div class="ctas">
+      <button class="c1">[ INITIATE FORGE ]</button>
+      <button class="c2">// view_gallery</button>
+    </div>
+    <div class="hex-meters">
+      <div class="hm"><div class="hmn">50K+</div><div class="hml">MESHES</div></div>
+      <div class="hm"><div class="hmn">12K</div><div class="hml">OPERATORS</div></div>
+      <div class="hm"><div class="hmn">&lt;30s</div><div class="hml">GEN_TIME</div></div>
+    </div>
+  </div>
+  <div class="hero-r">
+    <div class="cyber-frame">
+      <div class="cf-deco"></div><div class="cf-deco2"></div>
+      <div class="cf-glow"></div>
+      <div class="cf-hex-rings"><div class="chr chr1"></div><div class="chr chr2"></div></div>
+      <div class="cf-scan"></div>
+      <div class="cf-icon">⬡</div>
+      <div class="cf-tags"><span>OBJ: dragon_bust</span><span><em>287K polys</em></span><span><em>PBR 2K</em></span></div>
+    </div>
+  </div>
+</section>
+
+<section class="feats">
+  <div class="fi">
+    <div class="fl">// CAPABILITY_MATRIX</div>
+    <div class="ft">Three forge protocols</div>
+    <div class="fg">
+      <div class="fc"><div class="fn">PROTO_01 // text_input</div><div class="ftt">Text to 3D</div><div class="fd">// Natural language → precise geometry<br>// Optimised topology, game-ready output</div></div>
+      <div class="fc"><div class="fn">PROTO_02 // image_input</div><div class="ftt">Image to 3D</div><div class="fd">// Reference photo → full 3D reconstruction<br>// Accurate depth and surface data</div></div>
+      <div class="fc"><div class="fn">PROTO_03 // surface_gen</div><div class="ftt">PBR Textures</div><div class="fd">// Auto-generated PBR maps<br>// Diffuse, normal, roughness, metalness, AO</div></div>
+    </div>
+  </div>
+</section>
+<footer><div class="fb">GENSHAPE3D</div><div>© 2026 · PRIVACY · TERMS</div></footer>
+</body>
+</html>

@@ -324,12 +324,14 @@ const PromptBox = styled.textarea`
   }
 `;
 
-const UploadZone = styled.div`
+const UploadZone = styled.div<{ $active?: boolean; $hasFile?: boolean }>`
   margin-top: 0.75rem;
-  border: 1px dashed ${p => p.theme.colors.border};
+  border: 1px dashed ${p => p.$hasFile ? p.theme.colors.green : p.$active ? p.theme.colors.primary : p.theme.colors.border};
   border-radius: 10px;
   padding: 1rem;
   text-align: center;
+  cursor: pointer;
+  background: ${p => p.$hasFile ? p.theme.colors.green + '08' : p.$active ? p.theme.colors.primary + '08' : 'transparent'};
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   &:hover {
@@ -341,6 +343,82 @@ const UploadZone = styled.div`
 const UploadLabel = styled.div`
   font-size: 0.78rem;
   color: ${p => p.theme.colors.textMuted};
+`;
+
+const UploadPreview = styled.img`
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 7px;
+  margin-bottom: 0.5rem;
+`;
+
+const UploadStatus = styled.div<{ $color?: string }>`
+  font-size: 0.72rem;
+  color: ${p => p.$color || p.theme.colors.textMuted};
+  margin-top: 0.25rem;
+`;
+
+const JobList = styled.div`
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const JobItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: ${p => p.theme.colors.surfaceHigh};
+  border-radius: 8px;
+  border: 1px solid ${p => p.theme.colors.border};
+`;
+
+const JobThumb = styled.img`
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 5px;
+  flex-shrink: 0;
+`;
+
+const JobInfo = styled.div`
+  flex: 1;
+  overflow: hidden;
+`;
+
+const JobName = styled.div`
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.text};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const JobMeta = styled.div`
+  font-size: 0.68rem;
+  color: ${p => p.theme.colors.textMuted};
+  margin-top: 0.15rem;
+`;
+
+const JobBadge = styled.span<{ $status: string }>`
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: ${p =>
+    p.$status === 'done' ? p.theme.colors.green + '22' :
+    p.$status === 'failed' ? '#ef444422' :
+    p.$status === 'processing' ? p.theme.colors.violet + '22' :
+    p.theme.colors.primary + '22'};
+  color: ${p =>
+    p.$status === 'done' ? p.theme.colors.green :
+    p.$status === 'failed' ? '#ef4444' :
+    p.$status === 'processing' ? p.theme.colors.violet :
+    p.theme.colors.primaryLight};
 `;
 
 const SettingsGrid = styled.div`
@@ -780,6 +858,114 @@ const RECENT_MESHES = [
 
 type GenState = 'idle' | 'generating' | 'done';
 
+// ── Admin Panel ───────────────────────────────────────────────────────────────
+
+const AdminWrap = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+`;
+
+const AdminTitle = styled.h2`
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.text};
+  margin-bottom: 0.25rem;
+`;
+
+const AdminSub = styled.div`
+  font-size: 0.8rem;
+  color: ${p => p.theme.colors.textMuted};
+  margin-bottom: 1.75rem;
+`;
+
+const AdminTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+`;
+
+const ATHead = styled.thead`
+  th {
+    text-align: left;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: ${p => p.theme.colors.textMuted};
+    border-bottom: 1px solid ${p => p.theme.colors.border};
+  }
+`;
+
+const ATBody = styled.tbody`
+  tr {
+    border-bottom: 1px solid ${p => p.theme.colors.border}55;
+    transition: background 0.12s;
+    &:hover { background: ${p => p.theme.colors.surfaceHigh}; }
+  }
+  td {
+    padding: 0.75rem 0.9rem;
+    color: ${p => p.theme.colors.text};
+    vertical-align: middle;
+  }
+`;
+
+const AThumb = styled.img`
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+`;
+
+const AStatusBadge = styled.span<{ $s: string }>`
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.22rem 0.6rem;
+  border-radius: 4px;
+  background: ${p =>
+    p.$s === 'done' ? '#10b98122' :
+    p.$s === 'failed' ? '#ef444422' :
+    p.$s === 'processing' ? '#8b5cf622' : '#7c3aed22'};
+  color: ${p =>
+    p.$s === 'done' ? '#10b981' :
+    p.$s === 'failed' ? '#ef4444' :
+    p.$s === 'processing' ? '#a78bfa' : '#c4b5fd'};
+`;
+
+const AActionBtn = styled.button`
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.65rem;
+  border-radius: 5px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: transparent;
+  color: ${p => p.theme.colors.textMuted};
+  cursor: pointer;
+  margin-right: 0.35rem;
+  transition: all 0.12s;
+  &:hover { border-color: ${p => p.theme.colors.primary}; color: ${p => p.theme.colors.primaryLight}; }
+`;
+
+const AdminFilter = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+`;
+
+const AFilterBtn = styled.button<{ $active?: boolean }>`
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.primary : p.theme.colors.border};
+  background: ${p => p.$active ? p.theme.colors.primary + '18' : 'transparent'};
+  color: ${p => p.$active ? p.theme.colors.primaryLight : p.theme.colors.textMuted};
+  cursor: pointer;
+  transition: all 0.12s;
+`;
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Dashboard: React.FC = () => {
@@ -794,12 +980,82 @@ const Dashboard: React.FC = () => {
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('forge');
 
+  const isAdmin = appUser.role === 'admin';
+
+  // Admin state
+  const [adminJobs, setAdminJobs] = useState<any[]>([]);
+  const [adminFilter, setAdminFilter] = useState<'all' | 'pending'>('pending');
+
+  React.useEffect(() => {
+    if (!isAdmin || !email) return;
+    fetch(`/api/admin/jobs?filter=${adminFilter}`, {
+      headers: { 'x-user-email': email },
+    })
+      .then(r => r.json())
+      .then(d => setAdminJobs(d.jobs || []))
+      .catch(() => {});
+  }, [isAdmin, email, adminFilter]);
+
+  const handleUpdateJobStatus = async (id: string, status: string) => {
+    await fetch(`/api/admin/jobs/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-user-email': email },
+      body: JSON.stringify({ status }),
+    });
+    setAdminJobs(prev => prev.map(j => j.id === id ? { ...j, status } : j));
+  };
+
+  // Upload state
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
+  const [dragOver, setDragOver] = useState(false);
+  const [jobs, setJobs] = useState<any[]>([]);
+
   const isGuest = !isAuthenticated;
   const isFree = appUser.role === 'free';
   const isPro = appUser.role === 'pro';
   const credits = isGuest ? 0 : appUser.credits;
   const maxCredits = isFree ? 10 : isPro ? 200 : 0;
   const creditPct = maxCredits > 0 ? Math.round((credits / maxCredits) * 100) : 0;
+
+  const email = user?.email || '';
+
+  // Load jobs on mount
+  React.useEffect(() => {
+    if (!email) return;
+    fetch(`/api/jobs?email=${encodeURIComponent(email)}`)
+      .then(r => r.json())
+      .then(d => setJobs(d.jobs || []))
+      .catch(() => {});
+  }, [email]);
+
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith('image/')) return;
+    setUploadFile(file);
+    setUploadPreview(URL.createObjectURL(file));
+    setUploadStatus('idle');
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile || !email || uploadStatus === 'uploading') return;
+    setUploadStatus('uploading');
+    const form = new FormData();
+    form.append('image', uploadFile);
+    form.append('email', email);
+    form.append('prompt', prompt);
+    form.append('style', selectedStyle);
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setJobs(prev => [data.job, ...prev]);
+      setUploadStatus('done');
+    } catch {
+      setUploadStatus('error');
+    }
+  };
 
   const handleForge = () => {
     if (isGuest || !prompt.trim()) return;
@@ -870,6 +1126,20 @@ const Dashboard: React.FC = () => {
             ))}
           </SideGroup>
 
+          {isAdmin && (
+            <SideGroup>
+              <SideGroupLabel>Admin</SideGroupLabel>
+              <NavItem
+                $active={activeNavItem === 'admin'}
+                $accent="#f59e0b"
+                onClick={() => setActiveNavItem('admin')}
+              >
+                <NavIcon>⚠</NavIcon>
+                Jobs Queue
+              </NavItem>
+            </SideGroup>
+          )}
+
           {!isGuest && (
             <SideGroup>
               <SideGroupLabel>Account</SideGroupLabel>
@@ -930,8 +1200,59 @@ const Dashboard: React.FC = () => {
         </Topbar>
 
         <Body>
+          {/* ── Admin Panel ── */}
+          {activeNavItem === 'admin' && isAdmin && (
+            <AdminWrap>
+              <AdminTitle>Jobs Queue</AdminTitle>
+              <AdminSub>Review and manage incoming generation requests.</AdminSub>
+              <AdminFilter>
+                <AFilterBtn $active={adminFilter === 'pending'} onClick={() => setAdminFilter('pending')}>Pending</AFilterBtn>
+                <AFilterBtn $active={adminFilter === 'all'} onClick={() => setAdminFilter('all')}>All jobs</AFilterBtn>
+              </AdminFilter>
+              <AdminTable>
+                <ATHead>
+                  <tr>
+                    <th>Image</th>
+                    <th>User</th>
+                    <th>Prompt</th>
+                    <th>Style</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                  </tr>
+                </ATHead>
+                <ATBody>
+                  {adminJobs.length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', opacity: 0.4, padding: '2rem' }}>No jobs found</td></tr>
+                  )}
+                  {adminJobs.map(job => (
+                    <tr key={job.id}>
+                      <td>{job.imageUrl ? <AThumb src={job.imageUrl} alt="" /> : '—'}</td>
+                      <td>{job.userEmail}</td>
+                      <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.prompt || '—'}</td>
+                      <td>{job.style}</td>
+                      <td><AStatusBadge $s={job.status}>{job.status}</AStatusBadge></td>
+                      <td style={{ opacity: 0.5 }}>{new Date(job.createdAt).toLocaleString()}</td>
+                      <td>
+                        {job.status === 'pending' && (
+                          <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'processing')}>Start</AActionBtn>
+                        )}
+                        {job.status === 'processing' && (
+                          <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'done')}>Mark done</AActionBtn>
+                        )}
+                        {job.status !== 'failed' && (
+                          <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'failed')}>Fail</AActionBtn>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </ATBody>
+              </AdminTable>
+            </AdminWrap>
+          )}
+
           {/* ── Generator Panel ── */}
-          <GenPanel>
+          {activeNavItem !== 'admin' && <GenPanel>
             <PanelSection>
               <PanelTitle>Prompt</PanelTitle>
               <PromptBox
@@ -942,9 +1263,63 @@ const Dashboard: React.FC = () => {
                 onChange={e => setPrompt(e.target.value)}
                 disabled={isGuest}
               />
-              <UploadZone>
-                <UploadLabel>📎 Drop an image reference or click to upload</UploadLabel>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+              />
+              <UploadZone
+                $active={dragOver}
+                $hasFile={!!uploadFile}
+                onClick={() => !isGuest && fileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); if (!isGuest) setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (!isGuest) {
+                    const file = e.dataTransfer.files[0];
+                    if (file) handleFileSelect(file);
+                  }
+                }}
+              >
+                {uploadPreview ? (
+                  <>
+                    <UploadPreview src={uploadPreview} alt="preview" />
+                    <UploadStatus $color={
+                      uploadStatus === 'done' ? '#10b981' :
+                      uploadStatus === 'error' ? '#ef4444' :
+                      uploadStatus === 'uploading' ? '#8b5cf6' : undefined
+                    }>
+                      {uploadStatus === 'uploading' ? '⏳ Uploading…' :
+                       uploadStatus === 'done' ? '✓ Uploaded — job created' :
+                       uploadStatus === 'error' ? '✕ Upload failed' :
+                       `${uploadFile?.name} · Click "Forge Mesh" to submit`}
+                    </UploadStatus>
+                  </>
+                ) : (
+                  <UploadLabel>
+                    {isGuest ? '🔒 Sign in to upload images' : '📎 Drop an image or click to upload'}
+                  </UploadLabel>
+                )}
               </UploadZone>
+
+              {jobs.length > 0 && (
+                <JobList>
+                  {jobs.slice(0, 5).map(job => (
+                    <JobItem key={job.id}>
+                      {job.imageUrl && <JobThumb src={job.imageUrl} alt="" />}
+                      <JobInfo>
+                        <JobName>{job.prompt || 'Image upload'}</JobName>
+                        <JobMeta>{new Date(job.createdAt).toLocaleString()}</JobMeta>
+                      </JobInfo>
+                      <JobBadge $status={job.status}>{job.status}</JobBadge>
+                    </JobItem>
+                  ))}
+                </JobList>
+              )}
             </PanelSection>
 
             <Divider />
@@ -1019,8 +1394,8 @@ const Dashboard: React.FC = () => {
             ) : null}
 
             <ForgeBtn
-              $disabled={isGuest || !prompt.trim() || genState === 'generating' || (credits === 0 && isFree)}
-              onClick={handleForge}
+              $disabled={isGuest || (!prompt.trim() && !uploadFile) || genState === 'generating' || uploadStatus === 'uploading' || (credits === 0 && isFree)}
+              onClick={() => { if (uploadFile && uploadStatus !== 'done') handleUpload(); else handleForge(); }}
             >
               {genState === 'generating' ? (
                 <><span style={{ animation: `${spin} 1s linear infinite`, display: 'inline-block' }}>⬡</span> Forging…</>
@@ -1041,10 +1416,10 @@ const Dashboard: React.FC = () => {
                 </BarTrack>
               </CreditBar>
             )}
-          </GenPanel>
+          </GenPanel>}
 
           {/* ── Viewport ── */}
-          <Viewport>
+          {activeNavItem !== 'admin' && <Viewport>
             <ViewTabs>
               <Tab $active={activeTab === 'generate'} onClick={() => setActiveTab('generate')}>3D View</Tab>
               <Tab $active={activeTab === 'history'} onClick={() => setActiveTab('history')}>Texture maps</Tab>
@@ -1097,10 +1472,10 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </Canvas>
-          </Viewport>
+          </Viewport>}
 
           {/* ── Right panel ── */}
-          <RightPanel>
+          {activeNavItem !== 'admin' && <RightPanel>
             <RPSection>
               <RPTitle>Recent meshes</RPTitle>
             </RPSection>
@@ -1154,7 +1529,7 @@ const Dashboard: React.FC = () => {
                 </div>
               ))}
             </RPSection>
-          </RightPanel>
+          </RightPanel>}
         </Body>
       </Main>
     </Shell>

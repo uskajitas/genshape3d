@@ -3,12 +3,15 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { expressjwt as jwt } from 'express-jwt';
 import jwksRsa from 'jwks-rsa';
+import multer from 'multer';
 import { initSqlite } from './sqlite';
 import {
   upsertOnLogin, recordLoginEvent, getAppUser,
   listAppUsers, setUserRole, deductCredit,
   isAdminEmail, UserRole,
 } from './usersRepo';
+import { uploadToR2 } from './r2';
+import { createJob, getJobsByUser, listAllJobs, listPendingJobs, updateJobStatus } from './jobsRepo';
 
 dotenv.config();
 
@@ -18,6 +21,8 @@ const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3001';
 
 app.use(cors({ origin: clientOrigin, credentials: true }));
 app.use(express.json());
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ── JWT middleware (only used on protected routes) ─────────────────────────────
 
@@ -67,6 +72,34 @@ app.get('/api/auth/me', (req, res) => {
   });
 });
 
+// ── Upload image → R2 → create job ───────────────────────────────────────────
+
+app.post('/api/upload', upload.single('image'), async (req, res) => {
+  const email = req.body.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  if (!req.file) return res.status(400).json({ error: 'image required' });
+
+  try {
+    const { url } = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
+    const job = createJob({
+      userEmail: email,
+      imageUrl: url,
+      prompt: req.body.prompt || '',
+      style: req.body.style || 'Realistic',
+    });
+    res.json({ job });
+  } catch (err: any) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: 'Upload failed', detail: err.message });
+  }
+});
+
+app.get('/api/jobs', (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  res.json({ jobs: getJobsByUser(email) });
+});
+
 // ── Generations ───────────────────────────────────────────────────────────────
 
 app.post('/api/generate', checkJwt, (req, res) => {
@@ -96,6 +129,22 @@ app.patch('/api/mgmt/users/:id/role', (req, res) => {
   const validRoles: UserRole[] = ['free', 'pro', 'admin'];
   if (!validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
   setUserRole(req.params.id, role);
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/jobs', (req, res) => {
+  const caller = req.headers['x-user-email'] as string;
+  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  const filter = req.query.filter as string;
+  const jobs = filter === 'pending' ? listPendingJobs() : listAllJobs();
+  res.json({ jobs });
+});
+
+app.patch('/api/admin/jobs/:id/status', (req, res) => {
+  const caller = req.headers['x-user-email'] as string;
+  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  const { status, resultUrl } = req.body as { status: string; resultUrl?: string };
+  updateJobStatus(req.params.id as any, status as any, resultUrl);
   res.json({ ok: true });
 });
 

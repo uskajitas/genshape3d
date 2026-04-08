@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenShape3D — Design 11: Titanium</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400;600;700;800&family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#090a0f;--s1:#0e0f16;--s2:#13141d;--p:#a855f7;--p2:#d8b4fe;--g:#6ee7b7;--grey:#94a3b8;--text:#e2e8f0;--muted:#64748b;--border:#1e2030}
+body{background:var(--bg);color:var(--text);font-family:'Roboto',sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 40% 50% at 85% 20%,#a855f718,transparent 60%),
+             radial-gradient(ellipse 30% 30% at 15% 80%,#6ee7b710,transparent 55%)}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 3rem;height:64px;
+  background:var(--bg)f0;backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{font-family:'Saira',sans-serif;font-size:1rem;font-weight:800;letter-spacing:.08em;color:var(--text)}
+.brand span{color:var(--p)}
+.nl{display:flex}
+.nl a{font-family:'Saira',sans-serif;font-size:.8rem;font-weight:400;letter-spacing:.06em;color:var(--muted);padding:.4rem .9rem;transition:.15s}
+.nl a:hover{color:var(--text)}
+.bp{font-family:'Saira',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.08em;padding:.48rem 1.4rem;
+  background:var(--p);border:none;color:#fff;cursor:pointer;transition:.15s}
+.bp:hover{background:var(--p2);color:#1a0a2e}
+.bo{font-family:'Saira',sans-serif;font-size:.82rem;font-weight:600;letter-spacing:.06em;padding:.48rem 1.2rem;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s;margin-right:.5rem}
+.bo:hover{border-color:var(--grey)44;color:var(--text)}
+
+/* HERO — industrial split */
+.hero{display:grid;grid-template-columns:1fr 1fr;min-height:92vh;align-items:stretch}
+.hero-l{padding:7rem 3rem;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--border);position:relative}
+.hero-l::before{content:'';position:absolute;top:0;left:0;bottom:0;width:3px;background:linear-gradient(to bottom,transparent,var(--p),transparent)}
+.spec{font-family:'Saira',sans-serif;font-size:.68rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--grey);margin-bottom:1.75rem;display:flex;align-items:center;gap:.75rem}
+.spec-line{flex:1;max-width:40px;height:1px;background:var(--border)}
+h1{font-family:'Saira',sans-serif;font-size:clamp(2.5rem,4vw,3.8rem);font-weight:800;line-height:1.1;letter-spacing:-.01em;margin-bottom:1.5rem}
+.ph{background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.gh{color:var(--g)}
+.hero-l p{font-size:.9rem;color:var(--muted);line-height:1.75;max-width:440px;margin-bottom:2.5rem;font-weight:300}
+.ctas{display:flex;gap:.75rem}
+.c1{font-family:'Saira',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.08em;padding:.75rem 2rem;
+  background:var(--p);border:none;color:#fff;cursor:pointer;transition:.2s}
+.c1:hover{background:var(--p2);color:#1a0a2e;transform:translateY(-2px)}
+.c2{font-family:'Saira',sans-serif;font-size:.88rem;font-weight:400;padding:.75rem 1.5rem;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.2s}
+.c2:hover{border-color:var(--grey)44;color:var(--text)}
+.spec-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);margin-top:3rem}
+.sg{background:var(--bg);padding:1.25rem 1rem}
+.sgn{font-family:'Saira',sans-serif;font-size:1.6rem;font-weight:800;color:var(--p)}
+.sgl{font-family:'Saira',sans-serif;font-size:.65rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:.1rem}
+
+/* Hero right — titanium panel */
+.hero-r{background:var(--s1);display:flex;flex-direction:column;position:relative;overflow:hidden}
+.ti-header{padding:1.5rem 2rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.75rem}
+.ti-dot{width:8px;height:8px;border-radius:50%;background:var(--p)}
+.ti-title{font-family:'Saira',sans-serif;font-size:.75rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--grey)}
+.ti-body{flex:1;display:flex;align-items:center;justify-content:center;position:relative;padding:2rem}
+.ti-glow{position:absolute;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,var(--p)14,transparent 65%)}
+.ti-mesh{font-size:6rem;position:relative;z-index:2;filter:drop-shadow(0 0 24px var(--p)88);animation:fl 5s ease-in-out infinite}
+@keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+.ti-panels{padding:1.5rem 2rem;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+.ti-panel{background:var(--bg);border:1px solid var(--border);padding:1rem;border-radius:2px}
+.tp-label{font-family:'Saira',sans-serif;font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.tp-val{font-family:'Saira',sans-serif;font-size:.9rem;font-weight:700;color:var(--text);margin-top:.2rem}
+.tp-bar{height:3px;background:var(--border);border-radius:999px;margin-top:.6rem;overflow:hidden}
+.tp-fill{height:100%;border-radius:999px;background:var(--p)}
+
+.feats{padding:5rem 3rem;border-top:1px solid var(--border)}
+.fi{max-width:1200px;margin:0 auto}
+.fl{font-family:'Saira',sans-serif;font-size:.68rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--p);margin-bottom:.5rem}
+.ft{font-family:'Saira',sans-serif;font-size:clamp(1.6rem,2.5vw,2.2rem);font-weight:800;letter-spacing:-.01em;margin-bottom:3rem}
+.fg{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)}
+.fc{background:var(--bg);padding:2rem;transition:.2s}
+.fc:hover{background:var(--s2)}
+.fn{font-family:'Saira',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--grey);margin-bottom:.75rem}
+.ftt{font-family:'Saira',sans-serif;font-size:1rem;font-weight:700;margin-bottom:.5rem}
+.fd{font-size:.83rem;color:var(--muted);line-height:1.7;font-weight:300}
+
+footer{padding:2rem 3rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted);font-family:'Saira',sans-serif}
+.fb{font-weight:800;letter-spacing:.08em;color:var(--text)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="brand">GenShape<span>3D</span></div>
+  <div class="nl"><a href="#">Features</a><a href="#">Workflow</a><a href="#">Pricing</a></div>
+  <div><button class="bo">Sign in</button><button class="bp">Get started</button></div>
+</nav>
+
+<section class="hero">
+  <div class="hero-l">
+    <div class="spec"><div class="spec-line"></div>AI 3D Mesh Generation<div class="spec-line"></div></div>
+    <h1>Precision <span class="ph">3D</span> from <span class="gh">pure input</span></h1>
+    <p>Industrial-grade 3D generation. Describe or upload — receive an optimised, PBR-textured, export-ready mesh in under 30 seconds.</p>
+    <div class="ctas">
+      <button class="c1">Start generating</button>
+      <button class="c2">View gallery</button>
+    </div>
+    <div class="spec-grid">
+      <div class="sg"><div class="sgn">50K+</div><div class="sgl">Meshes</div></div>
+      <div class="sg"><div class="sgn">12K</div><div class="sgl">Creators</div></div>
+      <div class="sg"><div class="sgn">&lt;30s</div><div class="sgl">Gen time</div></div>
+    </div>
+  </div>
+  <div class="hero-r">
+    <div class="ti-header"><div class="ti-dot"></div><div class="ti-title">Generation preview — Dragon bust</div></div>
+    <div class="ti-body">
+      <div class="ti-glow"></div>
+      <div class="ti-mesh">⬡</div>
+    </div>
+    <div class="ti-panels">
+      <div class="ti-panel"><div class="tp-label">Polygons</div><div class="tp-val">287K</div><div class="tp-bar"><div class="tp-fill" style="width:72%"></div></div></div>
+      <div class="ti-panel"><div class="tp-label">Texture</div><div class="tp-val">2K PBR</div><div class="tp-bar"><div class="tp-fill" style="width:55%;background:var(--g)"></div></div></div>
+      <div class="ti-panel"><div class="tp-label">Progress</div><div class="tp-val">94%</div><div class="tp-bar"><div class="tp-fill" style="width:94%"></div></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="feats">
+  <div class="fi">
+    <div class="fl">Capabilities</div>
+    <div class="ft">Full pipeline. Zero compromise.</div>
+    <div class="fg">
+      <div class="fc"><div class="fn">Spec 01 — Input</div><div class="ftt">Text to 3D</div><div class="fd">Natural language descriptions become precise, game-ready 3D geometry with optimised topology.</div></div>
+      <div class="fc"><div class="fn">Spec 02 — Input</div><div class="ftt">Image to 3D</div><div class="fd">Reference photos reconstructed into full 3D geometry with accurate surface detail and depth.</div></div>
+      <div class="fc"><div class="fn">Spec 03 — Output</div><div class="ftt">PBR Textures</div><div class="fd">Physically-based material maps auto-generated — diffuse, normal, roughness, metalness, AO.</div></div>
+    </div>
+  </div>
+</section>
+
+<footer><div class="fb">GenShape3D</div><div>© 2026 · Privacy · Terms</div></footer>
+</body>
+</html>

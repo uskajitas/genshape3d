@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenShape3D — Design 07: Plasma</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#08000e;--s1:#100018;--s2:#180024;--p:#d946ef;--p2:#e879f9;--g:#4ade80;--text:#fdf4ff;--muted:#9c6aac;--border:#2e0040}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 60% 70% at 50% -20%,#d946ef22,transparent 65%),
+             radial-gradient(ellipse 40% 40% at 10% 80%,#4ade8014,transparent 55%),
+             radial-gradient(ellipse 30% 30% at 90% 70%,#9333ea18,transparent 50%)}
+
+nav{display:flex;align-items:center;justify-content:space-between;padding:0 3rem;height:64px;
+  background:var(--bg)cc;backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.brand{font-family:'Bebas Neue',cursive;font-size:1.6rem;letter-spacing:.12em;color:var(--text)}
+.brand em{color:var(--p);font-style:normal}
+.nl{display:flex;gap:.5rem}
+.nl a{font-size:.82rem;font-weight:500;color:var(--muted);padding:.4rem .85rem;border-radius:4px;transition:.15s}
+.nl a:hover{color:var(--text)}
+.bp{font-family:'Bebas Neue',cursive;font-size:1rem;letter-spacing:.12em;padding:.5rem 1.5rem;
+  background:linear-gradient(135deg,var(--p),#a21caf);border:none;color:#fff;cursor:pointer;transition:.15s;border-radius:3px}
+.bp:hover{filter:brightness(1.2)}
+.bo{font-family:'Bebas Neue',cursive;font-size:1rem;letter-spacing:.12em;padding:.5rem 1.25rem;
+  background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:.15s;border-radius:3px;margin-right:.5rem}
+.bo:hover{border-color:var(--p)66;color:var(--text)}
+
+/* HERO */
+.hero{min-height:92vh;display:flex;align-items:center;padding:6rem 3rem;gap:4rem;max-width:1280px;margin:0 auto}
+.hero-l{flex:1.1}
+.kicker{font-size:.75rem;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--g);margin-bottom:1.5rem;display:flex;align-items:center;gap:.5rem}
+.kicker::before{content:'';width:30px;height:1px;background:var(--g)66}
+h1{font-family:'Bebas Neue',cursive;font-size:clamp(5rem,9vw,9rem);line-height:.9;letter-spacing:.04em;margin-bottom:1.75rem}
+.pl{color:var(--p);text-shadow:0 0 40px var(--p)66}
+.gl{color:var(--g);text-shadow:0 0 30px var(--g)44}
+.hero-l p{font-size:.95rem;color:var(--muted);line-height:1.8;max-width:440px;margin-bottom:2.5rem;font-weight:300}
+.ctas{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.c1{font-family:'Bebas Neue',cursive;font-size:1.1rem;letter-spacing:.1em;padding:.75rem 2.5rem;
+  background:linear-gradient(135deg,var(--p),#a21caf);border:none;color:#fff;cursor:pointer;transition:.2s;border-radius:3px}
+.c1:hover{filter:brightness(1.2);transform:translateY(-2px);box-shadow:0 8px 30px var(--p)55}
+.c2{font-size:.88rem;color:var(--muted);font-weight:500;border:none;background:none;cursor:pointer;letter-spacing:.04em}
+.c2:hover{color:var(--text)}
+.metrics{display:flex;gap:2rem;margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border)}
+.mn{font-family:'Bebas Neue',cursive;font-size:2.2rem;letter-spacing:.06em;color:var(--p)}
+.ml{font-size:.72rem;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+/* Hero right — plasma display */
+.hero-r{flex:1;display:flex;align-items:center;justify-content:center;position:relative}
+.plasma-ring{position:absolute;border-radius:50%;border:1px solid}
+.pr1{width:360px;height:360px;border-color:var(--p)33;animation:spin 12s linear infinite}
+.pr2{width:280px;height:280px;border-color:var(--g)22;animation:spin 8s linear infinite reverse;border-style:dashed}
+.pr3{width:200px;height:200px;border-color:var(--p)22;animation:spin 5s linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.plasma-core{width:140px;height:140px;border-radius:50%;
+  background:radial-gradient(circle,var(--p)44,transparent 70%);
+  display:flex;align-items:center;justify-content:center;font-size:4rem;
+  animation:pulse 3s ease-in-out infinite;position:relative;z-index:2}
+@keyframes pulse{0%,100%{box-shadow:0 0 30px var(--p)44}50%{box-shadow:0 0 80px var(--p)88}}
+.plasma-label{position:absolute;bottom:-70px;left:50%;transform:translateX(-50%);
+  font-size:.78rem;color:var(--muted);text-align:center;white-space:nowrap}
+.plasma-label strong{color:var(--text);display:block;margin-bottom:.2rem}
+
+.features{background:var(--s1);border-top:1px solid var(--border);padding:5rem 3rem}
+.fi{max-width:1200px;margin:0 auto}
+.fl{font-family:'Bebas Neue',cursive;font-size:.9rem;letter-spacing:.2em;color:var(--p);margin-bottom:.5rem}
+.ft{font-family:'Bebas Neue',cursive;font-size:clamp(2.5rem,4vw,3.5rem);letter-spacing:.06em;margin-bottom:3rem;line-height:1}
+.fg{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border)}
+.fc{background:var(--bg);padding:2.5rem 2rem;transition:.2s;position:relative;overflow:hidden}
+.fc::before{content:'';position:absolute;top:0;left:0;bottom:0;width:2px;background:linear-gradient(to bottom,transparent,var(--p)66,transparent);opacity:0;transition:.2s}
+.fc:hover{background:var(--s2)}.fc:hover::before{opacity:1}
+.fn{font-family:'Bebas Neue',cursive;font-size:.8rem;letter-spacing:.18em;color:var(--p);margin-bottom:.6rem}
+.ftt{font-family:'Bebas Neue',cursive;font-size:1.4rem;letter-spacing:.08em;margin-bottom:.75rem}
+.fd{font-size:.83rem;color:var(--muted);line-height:1.7;font-weight:300}
+
+footer{padding:2rem 3rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:.8rem;color:var(--muted)}
+.fb{font-family:'Bebas Neue',cursive;font-size:1.1rem;letter-spacing:.12em;color:var(--text)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="brand">Gen<em>Shape</em>3D</div>
+  <div class="nl"><a href="#">Features</a><a href="#">Workflow</a><a href="#">Pricing</a></div>
+  <div><button class="bo">Sign in</button><button class="bp">Launch app</button></div>
+</nav>
+
+<section class="hero">
+  <div class="hero-l">
+    <div class="kicker">AI 3D generation platform</div>
+    <h1><span class="pl">Forge</span><br><span class="gl">3D</span><br>Instantly</h1>
+    <p>Text or image in — production-ready 3D mesh out. PBR textures, optimised topology, every export format. Under 30 seconds.</p>
+    <div class="ctas">
+      <button class="c1">Start generating</button>
+      <button class="c2">View gallery →</button>
+    </div>
+    <div class="metrics">
+      <div><div class="mn">50K+</div><div class="ml">Meshes</div></div>
+      <div><div class="mn">12K</div><div class="ml">Creators</div></div>
+      <div><div class="mn">&lt;30s</div><div class="ml">Gen time</div></div>
+    </div>
+  </div>
+  <div class="hero-r">
+    <div class="plasma-ring pr1"></div>
+    <div class="plasma-ring pr2"></div>
+    <div class="plasma-ring pr3"></div>
+    <div class="plasma-core">⬡</div>
+    <div class="plasma-label"><strong>Dragon bust — 287k polys</strong>PBR textures · GLB export ready</div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="fi">
+    <div class="fl">// Capabilities</div>
+    <div class="ft">Full 3D pipeline. Zero friction.</div>
+    <div class="fg">
+      <div class="fc"><div class="fn">01 // Text</div><div class="ftt">Text to 3D</div><div class="fd">Natural language becomes precise, optimised 3D geometry with game-ready topology in seconds.</div></div>
+      <div class="fc"><div class="fn">02 // Image</div><div class="ftt">Image to 3D</div><div class="fd">Drop any reference photo. AI reconstructs full geometry, depth and surface detail automatically.</div></div>
+      <div class="fc"><div class="fn">03 // Texture</div><div class="ftt">PBR Textures</div><div class="fd">Physically-based material maps auto-generated — diffuse, normal, roughness, metalness, AO.</div></div>
+    </div>
+  </div>
+</section>
+
+<footer><div class="fb">GenShape3D</div><div>© 2026 · Privacy · Terms</div></footer>
+</body>
+</html>

@@ -44,5 +44,17 @@ export function initSqlite() {
       fileUrl    TEXT NOT NULL DEFAULT '',
       createdAt  TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS genshape3d_jobs (
+      id         TEXT PRIMARY KEY,
+      userEmail  TEXT NOT NULL,
+      imageUrl   TEXT NOT NULL DEFAULT '',
+      prompt     TEXT NOT NULL DEFAULT '',
+      style      TEXT NOT NULL DEFAULT 'Realistic',
+      status     TEXT NOT NULL DEFAULT 'pending',
+      resultUrl  TEXT NOT NULL DEFAULT '',
+      createdAt  TEXT NOT NULL,
+      updatedAt  TEXT NOT NULL
+    );
   `);
 }
