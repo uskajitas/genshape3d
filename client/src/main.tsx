@@ -85,7 +85,7 @@ function Root() {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Auth0ProviderWithNavigate>
         <Root />
       </Auth0ProviderWithNavigate>

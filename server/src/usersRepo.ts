@@ -22,10 +22,12 @@ const CREDIT_DEFAULTS: Record<UserRole, number> = {
   admin: 9999,
 };
 
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+}
 
 export function isAdminEmail(email: string): boolean {
-  return ADMIN_EMAILS.includes(email);
+  return getAdminEmails().includes(email);
 }
 
 export function upsertOnLogin(email: string, name: string, picture: string): AppUser {
@@ -34,8 +36,10 @@ export function upsertOnLogin(email: string, name: string, picture: string): App
   const existing = db.prepare('SELECT * FROM app_users WHERE email = ?').get(email) as AppUser | undefined;
 
   if (existing) {
-    db.prepare('UPDATE app_users SET name = ?, picture = ?, lastLoginAt = ? WHERE email = ?')
-      .run(name || existing.name, picture || existing.picture, now, email);
+    const role: UserRole = isAdminEmail(email) ? 'admin' : existing.role;
+    const credits = role === 'admin' && existing.role !== 'admin' ? CREDIT_DEFAULTS['admin'] : existing.credits;
+    db.prepare('UPDATE app_users SET name = ?, picture = ?, role = ?, credits = ?, lastLoginAt = ? WHERE email = ?')
+      .run(name || existing.name, picture || existing.picture, role, credits, now, email);
     return db.prepare('SELECT * FROM app_users WHERE email = ?').get(email) as AppUser;
   }
 

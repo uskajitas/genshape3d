@@ -970,7 +970,7 @@ const AFilterBtn = styled.button<{ $active?: boolean }>`
 
 const Dashboard: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth0();
-  const { appUser } = useAppUser();
+  const { appUser, refresh } = useAppUser();
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'settings'>('generate');
@@ -980,7 +980,24 @@ const Dashboard: React.FC = () => {
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('forge');
 
+  const email = user?.email || '';
+  const isGuest = !isAuthenticated;
+  const isFree = appUser.role === 'free';
+  const isPro = appUser.role === 'pro';
   const isAdmin = appUser.role === 'admin';
+  const credits = isGuest ? 0 : appUser.credits;
+  const maxCredits = isFree ? 10 : isPro ? 200 : 0;
+  const creditPct = maxCredits > 0 ? Math.round((credits / maxCredits) * 100) : 0;
+
+  // Register user in DB + load their role on login
+  React.useEffect(() => {
+    if (!isAuthenticated || !email || appUser.loaded) return;
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name: user?.name || '', picture: user?.picture || '' }),
+    }).then(() => refresh(email)).catch(() => {});
+  }, [isAuthenticated, email, appUser.loaded]);
 
   // Admin state
   const [adminJobs, setAdminJobs] = useState<any[]>([]);
@@ -1012,15 +1029,6 @@ const Dashboard: React.FC = () => {
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
   const [dragOver, setDragOver] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
-
-  const isGuest = !isAuthenticated;
-  const isFree = appUser.role === 'free';
-  const isPro = appUser.role === 'pro';
-  const credits = isGuest ? 0 : appUser.credits;
-  const maxCredits = isFree ? 10 : isPro ? 200 : 0;
-  const creditPct = maxCredits > 0 ? Math.round((credits / maxCredits) * 100) : 0;
-
-  const email = user?.email || '';
 
   // Load jobs on mount
   React.useEffect(() => {
