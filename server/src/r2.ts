@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
@@ -37,4 +37,10 @@ export async function uploadToR2(
   }));
 
   return { key, url: `${publicUrl}/${key}` };
+}
+
+export async function getR2Stream(key: string) {
+  const bucket = process.env.R2_BUCKET || 'genshape3d';
+  const result = await getS3().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  return result;
 }

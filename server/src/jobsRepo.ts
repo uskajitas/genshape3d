@@ -1,4 +1,4 @@
-import { getSqliteDb } from './sqlite';
+import { getDb } from './db';
 import { randomUUID } from 'node:crypto';
 
 export interface Job {
@@ -13,54 +13,44 @@ export interface Job {
   updatedAt: string;
 }
 
-export function createJob(data: {
+export async function createJob(data: {
   userEmail: string;
   imageUrl: string;
   prompt?: string;
   style?: string;
-}): Job {
-  const db = getSqliteDb();
+}): Promise<Job> {
   const now = new Date().toISOString();
-  const job: Job = {
-    id: randomUUID(),
-    userEmail: data.userEmail,
-    imageUrl: data.imageUrl,
-    prompt: data.prompt || '',
-    style: data.style || 'Realistic',
-    status: 'pending',
-    resultUrl: '',
-    createdAt: now,
-    updatedAt: now,
-  };
-  db.prepare(`
-    INSERT INTO genshape3d_jobs
-      (id, userEmail, imageUrl, prompt, style, status, resultUrl, createdAt, updatedAt)
-    VALUES
-      (@id, @userEmail, @imageUrl, @prompt, @style, @status, @resultUrl, @createdAt, @updatedAt)
-  `).run(job);
-  return job;
+  const { rows } = await getDb().query(
+    `INSERT INTO genshape3d_jobs (id, "userEmail", "imageUrl", prompt, style, status, "resultUrl", "createdAt", "updatedAt")
+     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7) RETURNING *`,
+    [randomUUID(), data.userEmail, data.imageUrl, data.prompt || '', data.style || 'Realistic', now, now]
+  );
+  return rows[0];
 }
 
-export function getJobsByUser(userEmail: string): Job[] {
-  return getSqliteDb()
-    .prepare('SELECT * FROM genshape3d_jobs WHERE userEmail = ? ORDER BY createdAt DESC')
-    .all(userEmail) as Job[];
+export async function getJobsByUser(userEmail: string): Promise<Job[]> {
+  const { rows } = await getDb().query(
+    'SELECT * FROM genshape3d_jobs WHERE "userEmail"=$1 ORDER BY "createdAt" DESC',
+    [userEmail]
+  );
+  return rows;
 }
 
-export function updateJobStatus(id: string, status: Job['status'], resultUrl = ''): void {
-  getSqliteDb()
-    .prepare('UPDATE genshape3d_jobs SET status = ?, resultUrl = ?, updatedAt = ? WHERE id = ?')
-    .run(status, resultUrl, new Date().toISOString(), id);
+export async function listAllJobs(): Promise<Job[]> {
+  const { rows } = await getDb().query('SELECT * FROM genshape3d_jobs ORDER BY "createdAt" DESC');
+  return rows;
 }
 
-export function listAllJobs(): Job[] {
-  return getSqliteDb()
-    .prepare('SELECT * FROM genshape3d_jobs ORDER BY createdAt DESC')
-    .all() as Job[];
+export async function listPendingJobs(): Promise<Job[]> {
+  const { rows } = await getDb().query(
+    `SELECT * FROM genshape3d_jobs WHERE status='pending' ORDER BY "createdAt" ASC`
+  );
+  return rows;
 }
 
-export function listPendingJobs(): Job[] {
-  return getSqliteDb()
-    .prepare("SELECT * FROM genshape3d_jobs WHERE status = 'pending' ORDER BY createdAt ASC")
-    .all() as Job[];
+export async function updateJobStatus(id: string, status: Job['status'], resultUrl = ''): Promise<void> {
+  await getDb().query(
+    `UPDATE genshape3d_jobs SET status=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
+    [status, resultUrl, new Date().toISOString(), id]
+  );
 }
