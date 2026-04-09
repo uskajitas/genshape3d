@@ -404,6 +404,37 @@ const JobMeta = styled.div`
   margin-top: 0.15rem;
 `;
 
+const JobProgressBar = styled.div<{ $pct: number }>`
+  height: 3px;
+  background: ${p => p.theme.colors.border};
+  border-radius: 2px;
+  margin-top: 0.3rem;
+  overflow: hidden;
+  &::after {
+    content: '';
+    display: block;
+    height: 100%;
+    width: ${p => p.$pct}%;
+    background: linear-gradient(90deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.green});
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+`;
+
+const JobCancelBtn = styled.button`
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 0.18rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ef444444;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+  &:hover { background: #ef444418; }
+`;
+
 const JobBadge = styled.span<{ $status: string }>`
   font-size: 0.65rem;
   font-weight: 600;
@@ -1051,6 +1082,27 @@ const Dashboard: React.FC = () => {
       .catch(() => {});
   }, [email]);
 
+  // Poll jobs every 10s to pick up worker progress updates
+  React.useEffect(() => {
+    if (!email) return;
+    const id = setInterval(() => {
+      fetch(`/api/jobs?email=${encodeURIComponent(email)}`)
+        .then(r => r.json())
+        .then(d => setJobs(d.jobs || []))
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(id);
+  }, [email]);
+
+  const handleCancel = async (jobId: string) => {
+    await fetch(`/api/jobs/${jobId}/cancel`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, requestCancel: true } : j));
+  };
+
   const handleFileSelect = (file: File) => {
     if (!file.type.startsWith('image/')) return;
     setUploadFile(file);
@@ -1246,6 +1298,7 @@ const Dashboard: React.FC = () => {
                     <th>Format</th>
                     <th>Detail</th>
                     <th>Texture</th>
+                    <th>Progress</th>
                     <th>Status</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -1253,7 +1306,7 @@ const Dashboard: React.FC = () => {
                 </ATHead>
                 <ATBody>
                   {adminJobs.length === 0 && (
-                    <tr><td colSpan={12} style={{ textAlign: 'center', opacity: 0.4, padding: '2rem' }}>No jobs found</td></tr>
+                    <tr><td colSpan={13} style={{ textAlign: 'center', opacity: 0.4, padding: '2rem' }}>No jobs found</td></tr>
                   )}
                   {adminJobs.map(job => {
                     const key = job.imageUrl ? job.imageUrl.split('/uploads/')[1] : null;
@@ -1269,8 +1322,13 @@ const Dashboard: React.FC = () => {
                       <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.exportFormat || '—'}</td>
                       <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.detailLevel || '—'}</td>
                       <td style={{ fontSize: '0.7rem' }}>{job.doTexture ? '✓' : '—'}</td>
-                      <td><AStatusBadge $s={job.status}>{job.status}</AStatusBadge></td>
-                      <td style={{ opacity: 0.5 }}>{new Date(job.createdAt).toLocaleString()}</td>
+                      <td style={{ fontSize: '0.7rem' }}>
+                        {job.progressPct > 0 && `${job.progressPct}%`}
+                        {job.progressPhase && ` ${job.progressPhase}`}
+                        {!job.progressPct && !job.progressPhase && '—'}
+                      </td>
+                      <td><AStatusBadge $s={job.requestCancel ? 'failed' : job.status}>{job.requestCancel ? 'cancelling' : job.status}</AStatusBadge></td>
+                      <td style={{ opacity: 0.5, fontSize: '0.72rem' }}>{new Date(job.createdAt).toLocaleString()}</td>
                       <td>
                         {job.status === 'pending' && (
                           <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'processing')}>Start</AActionBtn>
@@ -1350,16 +1408,37 @@ const Dashboard: React.FC = () => {
 
               {jobs.length > 0 && (
                 <JobList>
-                  {jobs.slice(0, 5).map(job => (
-                    <JobItem key={job.id}>
-                      {job.imageUrl && <JobThumb src={job.imageUrl} alt="" />}
-                      <JobInfo>
-                        <JobName>{job.prompt || 'Image upload'}</JobName>
-                        <JobMeta>{new Date(job.createdAt).toLocaleString()}</JobMeta>
-                      </JobInfo>
-                      <JobBadge $status={job.status}>{job.status}</JobBadge>
-                    </JobItem>
-                  ))}
+                  {jobs.slice(0, 5).map(job => {
+                    const isProcessing = job.status === 'processing';
+                    const phase = job.progressPhase
+                      ? `${job.progressPhase}${job.progressTotal > 0 ? ` ${job.progressStep}/${job.progressTotal}` : ''}`
+                      : job.status;
+                    const duration = job.startedAt && job.completedAt
+                      ? `${Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)}s`
+                      : null;
+                    return (
+                      <JobItem key={job.id}>
+                        {job.imageUrl && <JobThumb src={`/api/image?key=uploads/${job.imageUrl.split('/uploads/')[1]}`} alt="" />}
+                        <JobInfo>
+                          <JobName>{job.prompt || 'Image upload'}</JobName>
+                          <JobMeta>
+                            {phase}
+                            {duration && ` · ${duration}`}
+                          </JobMeta>
+                          {isProcessing && <JobProgressBar $pct={job.progressPct || 0} />}
+                        </JobInfo>
+                        {isProcessing && !job.requestCancel && (
+                          <JobCancelBtn onClick={() => handleCancel(job.id)}>Cancel</JobCancelBtn>
+                        )}
+                        {job.requestCancel && (
+                          <JobBadge $status="pending">cancelling…</JobBadge>
+                        )}
+                        {!job.requestCancel && (
+                          <JobBadge $status={job.status}>{job.status}</JobBadge>
+                        )}
+                      </JobItem>
+                    );
+                  })}
                 </JobList>
               )}
             </PanelSection>
@@ -1389,9 +1468,9 @@ const Dashboard: React.FC = () => {
                 <SettingItem>
                   <SettingLabel>Polygon budget</SettingLabel>
                   <Select disabled={isGuest} value={polygonBudget} onChange={e => setPolygonBudget(e.target.value)}>
-                    <option>Low (10k–50k)</option>
-                    <option>Medium (50k–200k)</option>
-                    {isPro && <option>High (200k–1M)</option>}
+                    <option value="Low (10k-50k)">Low (10k-50k)</option>
+                    <option value="Medium (50k-200k)">Medium (50k-200k)</option>
+                    {isPro && <option value="High (200k-1M)">High (200k-1M)</option>}
                   </Select>
                 </SettingItem>
                 <SettingItem>

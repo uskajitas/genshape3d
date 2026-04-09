@@ -61,7 +61,12 @@ export async function initDb(): Promise<void> {
       "textureRes"    TEXT NOT NULL DEFAULT '1K',
       "exportFormat"  TEXT NOT NULL DEFAULT 'GLB',
       "detailLevel"   TEXT NOT NULL DEFAULT 'Standard',
-      "doTexture"     BOOLEAN NOT NULL DEFAULT false
+      "doTexture"     BOOLEAN NOT NULL DEFAULT false,
+      "progressPct"   INTEGER NOT NULL DEFAULT 0,
+      "progressPhase" TEXT NOT NULL DEFAULT '',
+      "progressStep"  INTEGER NOT NULL DEFAULT 0,
+      "progressTotal" INTEGER NOT NULL DEFAULT 0,
+      "requestCancel" BOOLEAN NOT NULL DEFAULT false
     );
   `);
   console.log('PostgreSQL tables ready');

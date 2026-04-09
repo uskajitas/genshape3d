@@ -13,7 +13,7 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
-import { createJob, getJobsByUser, listAllJobs, listPendingJobs, updateJobStatus } from './jobsRepo';
+import { createJob, getJobsByUser, listAllJobs, listPendingJobs, updateJobStatus, cancelJob } from './jobsRepo';
 
 const app = express();
 const port = process.env.PORT || 4242;
@@ -119,6 +119,17 @@ app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   res.json({ jobs: await getJobsByUser(email) });
+});
+
+app.patch('/api/jobs/:id/cancel', async (req, res) => {
+  const email = req.body.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    await cancelJob(req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Generate ──────────────────────────────────────────────────────────────────

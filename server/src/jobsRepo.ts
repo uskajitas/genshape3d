@@ -18,6 +18,18 @@ export interface Job {
   exportFormat: string;
   detailLevel: string;
   doTexture: boolean;
+  progressPct: number;
+  progressPhase: string;
+  progressStep: number;
+  progressTotal: number;
+  requestCancel: boolean;
+}
+
+export async function cancelJob(id: string): Promise<void> {
+  await getDb().query(
+    `UPDATE genshape3d_jobs SET "requestCancel" = true WHERE id = $1`,
+    [id]
+  );
 }
 
 export async function createJob(data: {
