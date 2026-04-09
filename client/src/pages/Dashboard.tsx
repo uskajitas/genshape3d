@@ -976,6 +976,11 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'settings'>('generate');
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState('Realistic');
+  const [polygonBudget, setPolygonBudget] = useState('Medium (50k-200k)');
+  const [textureRes, setTextureRes] = useState('1K');
+  const [exportFormat, setExportFormat] = useState('GLB');
+  const [detailLevel, setDetailLevel] = useState('Standard');
+  const [doTexture, setDoTexture] = useState(false);
   const [genState, setGenState] = useState<GenState>('idle');
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('forge');
@@ -990,18 +995,25 @@ const Dashboard: React.FC = () => {
   const creditPct = maxCredits > 0 ? Math.round((credits / maxCredits) * 100) : 0;
 
   // Register user in DB + load their role on login
+  const loginCalledRef = React.useRef(false);
   React.useEffect(() => {
-    if (!isAuthenticated || !email || appUser.loaded) return;
+    if (!isAuthenticated || !email || loginCalledRef.current) return;
+    loginCalledRef.current = true;
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, name: user?.name || '', picture: user?.picture || '' }),
-    }).then(() => refresh(email)).catch(() => {});
-  }, [isAuthenticated, email, appUser.loaded]);
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.user) refresh(email);
+      })
+      .catch(() => { loginCalledRef.current = false; });
+  }, [isAuthenticated, email]);
 
   // Admin state
   const [adminJobs, setAdminJobs] = useState<any[]>([]);
-  const [adminFilter, setAdminFilter] = useState<'all' | 'pending'>('pending');
+  const [adminFilter, setAdminFilter] = useState<'all' | 'pending'>('all');
 
   React.useEffect(() => {
     if (!isAdmin || !email) return;
@@ -1054,6 +1066,11 @@ const Dashboard: React.FC = () => {
     form.append('email', email);
     form.append('prompt', prompt);
     form.append('style', selectedStyle);
+    form.append('polygonBudget', polygonBudget);
+    form.append('textureRes', textureRes);
+    form.append('exportFormat', exportFormat);
+    form.append('detailLevel', detailLevel);
+    form.append('doTexture', String(doTexture));
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: form });
       const data = await res.json();
@@ -1224,6 +1241,11 @@ const Dashboard: React.FC = () => {
                     <th>User</th>
                     <th>Prompt</th>
                     <th>Style</th>
+                    <th>Polys</th>
+                    <th>Tex</th>
+                    <th>Format</th>
+                    <th>Detail</th>
+                    <th>Texture</th>
                     <th>Status</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -1231,14 +1253,22 @@ const Dashboard: React.FC = () => {
                 </ATHead>
                 <ATBody>
                   {adminJobs.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', opacity: 0.4, padding: '2rem' }}>No jobs found</td></tr>
+                    <tr><td colSpan={12} style={{ textAlign: 'center', opacity: 0.4, padding: '2rem' }}>No jobs found</td></tr>
                   )}
-                  {adminJobs.map(job => (
+                  {adminJobs.map(job => {
+                    const key = job.imageUrl ? job.imageUrl.split('/uploads/')[1] : null;
+                    const proxyUrl = key ? `/api/image?key=uploads/${key}` : null;
+                    return (
                     <tr key={job.id}>
-                      <td>{job.imageUrl ? <AThumb src={job.imageUrl} alt="" /> : '—'}</td>
+                      <td>{proxyUrl ? <AThumb src={proxyUrl} alt="" /> : '—'}</td>
                       <td>{job.userEmail}</td>
-                      <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.prompt || '—'}</td>
+                      <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.prompt || '—'}</td>
                       <td>{job.style}</td>
+                      <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.polygonBudget || '—'}</td>
+                      <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.textureRes || '—'}</td>
+                      <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.exportFormat || '—'}</td>
+                      <td style={{ fontSize: '0.7rem', opacity: 0.8 }}>{job.detailLevel || '—'}</td>
+                      <td style={{ fontSize: '0.7rem' }}>{job.doTexture ? '✓' : '—'}</td>
                       <td><AStatusBadge $s={job.status}>{job.status}</AStatusBadge></td>
                       <td style={{ opacity: 0.5 }}>{new Date(job.createdAt).toLocaleString()}</td>
                       <td>
@@ -1248,12 +1278,16 @@ const Dashboard: React.FC = () => {
                         {job.status === 'processing' && (
                           <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'done')}>Mark done</AActionBtn>
                         )}
+                        {job.status === 'failed' && (
+                          <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'pending')}>↺ Retry</AActionBtn>
+                        )}
                         {job.status !== 'failed' && (
                           <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'failed')}>Fail</AActionBtn>
                         )}
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </ATBody>
               </AdminTable>
             </AdminWrap>
@@ -1354,7 +1388,7 @@ const Dashboard: React.FC = () => {
               <SettingsGrid>
                 <SettingItem>
                   <SettingLabel>Polygon budget</SettingLabel>
-                  <Select disabled={isGuest}>
+                  <Select disabled={isGuest} value={polygonBudget} onChange={e => setPolygonBudget(e.target.value)}>
                     <option>Low (10k–50k)</option>
                     <option>Medium (50k–200k)</option>
                     {isPro && <option>High (200k–1M)</option>}
@@ -1362,7 +1396,7 @@ const Dashboard: React.FC = () => {
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Texture res.</SettingLabel>
-                  <Select disabled={isGuest}>
+                  <Select disabled={isGuest} value={textureRes} onChange={e => setTextureRes(e.target.value)}>
                     <option>1K</option>
                     <option>2K</option>
                     {isPro && <option>4K</option>}
@@ -1370,7 +1404,7 @@ const Dashboard: React.FC = () => {
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Export format</SettingLabel>
-                  <Select disabled={isGuest}>
+                  <Select disabled={isGuest} value={exportFormat} onChange={e => setExportFormat(e.target.value)}>
                     <option>GLB</option>
                     <option>OBJ</option>
                     {isPro && <option>FBX</option>}
@@ -1379,11 +1413,24 @@ const Dashboard: React.FC = () => {
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Detail level</SettingLabel>
-                  <Select disabled={isGuest}>
+                  <Select disabled={isGuest} value={detailLevel} onChange={e => setDetailLevel(e.target.value)}>
                     <option>Standard</option>
                     {!isGuest && <option>Fine</option>}
                     {isPro && <option>Ultra</option>}
                   </Select>
+                </SettingItem>
+                <SettingItem style={{ gridColumn: '1 / -1' }}>
+                  <SettingLabel>Generate textures</SettingLabel>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: isGuest ? 'not-allowed' : 'pointer', fontSize: '0.82rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={doTexture}
+                      disabled={isGuest}
+                      onChange={e => setDoTexture(e.target.checked)}
+                      style={{ accentColor: '#7c3aed', width: 14, height: 14 }}
+                    />
+                    Include PBR texture maps with mesh
+                  </label>
                 </SettingItem>
               </SettingsGrid>
             </PanelSection>

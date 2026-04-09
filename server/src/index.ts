@@ -97,7 +97,17 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'image required' });
   try {
     const { url } = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
-    const job = await createJob({ userEmail: email, imageUrl: url, prompt: req.body.prompt || '', style: req.body.style || 'Realistic' });
+    const job = await createJob({
+      userEmail:     email,
+      imageUrl:      url,
+      prompt:        req.body.prompt        || '',
+      style:         req.body.style         || 'Realistic',
+      polygonBudget: req.body.polygonBudget || 'Medium (50k-200k)',
+      textureRes:    req.body.textureRes    || '1K',
+      exportFormat:  req.body.exportFormat  || 'GLB',
+      detailLevel:   req.body.detailLevel   || 'Standard',
+      doTexture:     req.body.doTexture === 'true' || req.body.doTexture === true,
+    });
     res.json({ job });
   } catch (err: any) {
     console.error('Upload error:', err);

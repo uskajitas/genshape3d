@@ -46,15 +46,22 @@ export async function initDb(): Promise<void> {
     );
 
     CREATE TABLE IF NOT EXISTS genshape3d_jobs (
-      id          TEXT PRIMARY KEY,
-      "userEmail" TEXT NOT NULL,
-      "imageUrl"  TEXT NOT NULL DEFAULT '',
-      prompt      TEXT NOT NULL DEFAULT '',
-      style       TEXT NOT NULL DEFAULT 'Realistic',
-      status      TEXT NOT NULL DEFAULT 'pending',
-      "resultUrl" TEXT NOT NULL DEFAULT '',
-      "createdAt" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL
+      id              TEXT PRIMARY KEY,
+      "userEmail"     TEXT NOT NULL,
+      "imageUrl"      TEXT NOT NULL DEFAULT '',
+      prompt          TEXT NOT NULL DEFAULT '',
+      style           TEXT NOT NULL DEFAULT 'Realistic',
+      status          TEXT NOT NULL DEFAULT 'pending',
+      "resultUrl"     TEXT NOT NULL DEFAULT '',
+      "createdAt"     TEXT NOT NULL,
+      "updatedAt"     TEXT NOT NULL,
+      "startedAt"     TIMESTAMPTZ DEFAULT NULL,
+      "completedAt"   TIMESTAMPTZ DEFAULT NULL,
+      "polygonBudget" TEXT NOT NULL DEFAULT 'Medium (50k-200k)',
+      "textureRes"    TEXT NOT NULL DEFAULT '1K',
+      "exportFormat"  TEXT NOT NULL DEFAULT 'GLB',
+      "detailLevel"   TEXT NOT NULL DEFAULT 'Standard',
+      "doTexture"     BOOLEAN NOT NULL DEFAULT false
     );
   `);
   console.log('PostgreSQL tables ready');

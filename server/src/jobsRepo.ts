@@ -11,6 +11,13 @@ export interface Job {
   resultUrl: string;
   createdAt: string;
   updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  polygonBudget: string;
+  textureRes: string;
+  exportFormat: string;
+  detailLevel: string;
+  doTexture: boolean;
 }
 
 export async function createJob(data: {
@@ -18,12 +25,27 @@ export async function createJob(data: {
   imageUrl: string;
   prompt?: string;
   style?: string;
+  polygonBudget?: string;
+  textureRes?: string;
+  exportFormat?: string;
+  detailLevel?: string;
+  doTexture?: boolean;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
-    `INSERT INTO genshape3d_jobs (id, "userEmail", "imageUrl", prompt, style, status, "resultUrl", "createdAt", "updatedAt")
-     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7) RETURNING *`,
-    [randomUUID(), data.userEmail, data.imageUrl, data.prompt || '', data.style || 'Realistic', now, now]
+    `INSERT INTO genshape3d_jobs
+      (id, "userEmail", "imageUrl", prompt, style, status, "resultUrl", "createdAt", "updatedAt",
+       "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture")
+     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+    [
+      randomUUID(), data.userEmail, data.imageUrl,
+      data.prompt || '', data.style || 'Realistic', now, now,
+      data.polygonBudget || 'Medium (50k-200k)',
+      data.textureRes    || '1K',
+      data.exportFormat  || 'GLB',
+      data.detailLevel   || 'Standard',
+      data.doTexture     ?? false,
+    ]
   );
   return rows[0];
 }

@@ -1,10 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth0 } from '@auth0/auth0-react';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import { UserProvider } from './context/UserContext';
+import { UserProvider, useAppUser } from './context/UserContext';
+
+const AuthSync: React.FC = () => {
+  const { isAuthenticated, user } = useAuth0();
+  const { refresh } = useAppUser();
+  const called = useRef(false);
+  useEffect(() => {
+    const email = user?.email;
+    if (!isAuthenticated || !email || called.current) return;
+    called.current = true;
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name: user?.name || '', picture: user?.picture || '' }),
+    }).then(() => refresh(email)).catch(() => { called.current = false; });
+  }, [isAuthenticated, user?.email]);
+  return null;
+};
 
 const App: React.FC = () => {
   const { isLoading } = useAuth0();
@@ -37,6 +54,7 @@ const App: React.FC = () => {
 
   return (
     <UserProvider>
+      <AuthSync />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
