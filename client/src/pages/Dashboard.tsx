@@ -39,6 +39,91 @@ const Shell = styled.div`
   background: ${p => p.theme.colors.background};
 `;
 
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
+const ModalOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: ${fadeIn} 0.15s ease;
+`;
+
+const ModalBox = styled.div`
+  background: ${p => p.theme.colors.surface};
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 16px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+`;
+
+const ModalIcon = styled.div`
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #ef444420;
+  border: 1px solid #ef444440;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+`;
+
+const ModalTitle = styled.div`
+  font-size: 1rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.text};
+`;
+
+const ModalDesc = styled.div`
+  font-size: 0.85rem;
+  color: ${p => p.theme.colors.textMuted};
+  line-height: 1.5;
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+`;
+
+const ModalCancelBtn = styled.button`
+  flex: 1;
+  padding: 0.7rem;
+  border-radius: 10px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: transparent;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover { border-color: ${p => p.theme.colors.borderHigh}; color: ${p => p.theme.colors.text}; }
+`;
+
+const ModalDeleteBtn = styled.button`
+  flex: 1;
+  padding: 0.7rem;
+  border-radius: 10px;
+  border: none;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover { background: #dc2626; }
+`;
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 const Sidebar = styled.aside`
@@ -1170,6 +1255,7 @@ const Dashboard: React.FC = () => {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameVal, setEditingNameVal] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const handleDeleteJob = async (id: string) => {
     await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
@@ -1809,7 +1895,7 @@ const Dashboard: React.FC = () => {
                             : <GalleryThumbEmpty>⬡</GalleryThumbEmpty>
                           }
                           <div
-                            onClick={e => { e.stopPropagation(); if (window.confirm('Delete this mesh?')) handleDeleteJob(job.id); }}
+                            onClick={e => { e.stopPropagation(); setConfirmDeleteId(job.id); }}
                             style={{
                               position: 'absolute', top: 6, right: 6,
                               width: 22, height: 22, borderRadius: '50%',
@@ -1993,6 +2079,29 @@ const Dashboard: React.FC = () => {
         </Body>
       </Main>
     </Shell>
+
+    {confirmDeleteId && (
+      <ModalOverlay onClick={() => setConfirmDeleteId(null)}>
+        <ModalBox onClick={e => e.stopPropagation()}>
+          <ModalIcon>🗑</ModalIcon>
+          <div>
+            <ModalTitle>Delete mesh</ModalTitle>
+            <ModalDesc style={{ marginTop: '0.4rem' }}>
+              {(() => {
+                const job = jobs.find(j => j.id === confirmDeleteId);
+                return `"${job?.name || job?.prompt || 'This mesh'}" will be permanently deleted and cannot be recovered.`;
+              })()}
+            </ModalDesc>
+          </div>
+          <ModalActions>
+            <ModalCancelBtn onClick={() => setConfirmDeleteId(null)}>Cancel</ModalCancelBtn>
+            <ModalDeleteBtn onClick={() => { handleDeleteJob(confirmDeleteId); setConfirmDeleteId(null); }}>
+              Delete
+            </ModalDeleteBtn>
+          </ModalActions>
+        </ModalBox>
+      </ModalOverlay>
+    )}
   );
 };
 
