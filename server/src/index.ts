@@ -61,15 +61,22 @@ app.get('/api/image', async (req, res) => {
 });
 
 app.get('/api/mesh', async (req, res) => {
-  const key = req.query.key as string;
+  let key = req.query.key as string;
   if (!key) return res.status(400).json({ error: 'key required' });
+  // If a full URL was passed, extract just the key (everything after /<bucket>/)
+  if (key.startsWith('http')) {
+    const bucket = process.env.R2_BUCKET || 'genshape3d';
+    const marker = `/${bucket}/`;
+    const idx = key.indexOf(marker);
+    if (idx !== -1) key = key.slice(idx + marker.length);
+  }
   try {
     const obj = await getR2Stream(key);
     res.setHeader('Content-Type', (obj.ContentType as string) || 'model/gltf-binary');
     res.setHeader('Cache-Control', 'public, max-age=86400');
     (obj.Body as any).pipe(res);
-  } catch {
-    res.status(404).json({ error: 'not found' });
+  } catch (e: any) {
+    res.status(404).json({ error: 'not found', detail: e.message });
   }
 });
 

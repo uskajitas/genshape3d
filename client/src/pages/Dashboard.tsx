@@ -1717,7 +1717,7 @@ const Dashboard: React.FC = () => {
                 }
 
                 if (doneJob) {
-                  const meshUrl = `/api/mesh?key=${encodeURIComponent(doneJob.resultUrl)}`;
+                  const meshUrl = `/api/mesh?key=${encodeURIComponent(doneJob.resultUrl || '')}`;
                   return (
                     <Suspense fallback={<GeneratingWrap><Spinner /><GenStatus>Loading mesh…</GenStatus></GeneratingWrap>}>
                       <div style={{ width: '100%', height: '100%', position: 'relative' }}>
