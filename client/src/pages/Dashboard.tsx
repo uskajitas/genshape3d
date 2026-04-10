@@ -1039,7 +1039,7 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'generate' | 'history' | 'settings'>('generate');
   const [prompt, setPrompt] = useState('');
   const [selectedStyle, setSelectedStyle] = useState('Realistic');
-  const [polygonBudget, setPolygonBudget] = useState('Medium (50k-200k)');
+  const [polygonBudget, setPolygonBudget] = useState('Low (10k-50k)');
   const [textureRes, setTextureRes] = useState('1K');
   const [exportFormat, setExportFormat] = useState('GLB');
   const [detailLevel, setDetailLevel] = useState('Standard');
