@@ -1307,6 +1307,7 @@ const Dashboard: React.FC = () => {
       if (!res.ok) throw new Error(data.error);
       setJobs(prev => [data.job, ...prev]);
       setUploadStatus('done');
+      setSelectedJobId(null);
     } catch {
       setUploadStatus('error');
     }
@@ -1864,7 +1865,7 @@ const Dashboard: React.FC = () => {
             <Canvas>
               {(() => {
                 const activeJob = jobs.find(j => j.status === 'processing' || j.status === 'pending');
-                const doneJob = selectedJobId
+                const doneJob = (activeNavItem === 'gallery' && selectedJobId)
                   ? jobs.find(j => j.id === selectedJobId && j.resultUrl)
                   : jobs.find(j => j.status === 'done' && j.resultUrl);
 
