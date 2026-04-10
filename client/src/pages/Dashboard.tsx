@@ -738,6 +738,45 @@ const Tab = styled.button<{ $active?: boolean }>`
   &:hover { background: ${p => p.theme.colors.surfaceHigh}; color: ${p => p.theme.colors.text}; }
 `;
 
+const ViewSpacer = styled.div`
+  flex: 1;
+`;
+
+const ViewToggle = styled.button<{ $on?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid ${p => p.$on ? '#6d28d9' : p.theme.colors.border};
+  background: ${p => p.$on ? 'rgba(109,40,217,0.12)' : 'transparent'};
+  color: ${p => p.$on ? '#a78bfa' : p.theme.colors.textMuted};
+  font-size: 0.78rem;
+  font-weight: ${p => p.$on ? 600 : 400};
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover {
+    border-color: #6d28d9;
+    color: #a78bfa;
+    background: rgba(109,40,217,0.08);
+  }
+`;
+
+const ViewTickBox = styled.span<{ $on?: boolean }>`
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1.5px solid ${p => p.$on ? '#a78bfa' : 'currentColor'};
+  background: ${p => p.$on ? 'rgba(167,139,250,0.15)' : 'transparent'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: all 0.15s;
+`;
+
 const Canvas = styled.div`
   flex: 1;
   position: relative;
@@ -1257,6 +1296,8 @@ const Dashboard: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameVal, setEditingNameVal] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [wireframe, setWireframe] = useState(false);
+  const [showGrid, setShowGrid] = useState(true);
 
   const handleDeleteJob = async (id: string) => {
     await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
@@ -1950,7 +1991,15 @@ const Dashboard: React.FC = () => {
             <ViewTabs>
               <Tab $active={activeTab === 'generate'} onClick={() => setActiveTab('generate')}>3D View</Tab>
               <Tab $active={activeTab === 'history'} onClick={() => setActiveTab('history')}>Texture maps</Tab>
-              <Tab $active={activeTab === 'settings'} onClick={() => setActiveTab('settings')}>Wireframe</Tab>
+              <ViewSpacer />
+              <ViewToggle $on={wireframe} onClick={() => setWireframe(v => !v)}>
+                <ViewTickBox $on={wireframe}>{wireframe && '✓'}</ViewTickBox>
+                Wireframe
+              </ViewToggle>
+              <ViewToggle $on={!showGrid} onClick={() => setShowGrid(v => !v)}>
+                <ViewTickBox $on={!showGrid}>{!showGrid && '✓'}</ViewTickBox>
+                Hide floor
+              </ViewToggle>
             </ViewTabs>
 
             <Canvas>
@@ -1982,7 +2031,7 @@ const Dashboard: React.FC = () => {
                   return (
                     <Suspense fallback={<GeneratingWrap><Spinner /><GenStatus>Loading mesh…</GenStatus></GeneratingWrap>}>
                       <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                        <MeshViewer url={meshUrl} />
+                        <MeshViewer url={meshUrl} wireframe={wireframe} showGrid={showGrid} />
                         <div style={{
                           position: 'absolute', bottom: 0, left: 0, right: 0,
                           padding: '0.75rem 1rem',

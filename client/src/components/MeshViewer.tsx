@@ -5,14 +5,23 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 interface MeshViewerProps {
   url: string;
+  wireframe?: boolean;
+  showGrid?: boolean;
 }
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url }) => {
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGrid = true }) => {
   const mountRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const meshesRef = useRef<THREE.Mesh[]>([]);
 
+  // ── Main scene effect — only re-runs on URL change ──────────────────────
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+
+    // Reset mesh refs for new load
+    meshesRef.current = [];
+    gridRef.current = null;
 
     // Scene
     const scene = new THREE.Scene();
@@ -49,9 +58,11 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url }) => {
     rim.position.set(0, -3, -5);
     scene.add(rim);
 
-    // Grid
+    // Grid / floor plane
     const grid = new THREE.GridHelper(4, 20, 0x1e1b2e, 0x1e1b2e);
+    grid.visible = showGrid;
     scene.add(grid);
+    gridRef.current = grid;
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -79,12 +90,23 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url }) => {
         model.position.sub(center.multiplyScalar(scale));
         model.position.y += 0.05; // slightly above grid
 
+        const collectedMeshes: THREE.Mesh[] = [];
         model.traverse(child => {
           if ((child as THREE.Mesh).isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
+            const mesh = child as THREE.Mesh;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            // Apply current wireframe state to newly loaded materials
+            const mat = mesh.material;
+            if (Array.isArray(mat)) {
+              mat.forEach(m => { (m as THREE.MeshStandardMaterial).wireframe = wireframe; });
+            } else if (mat) {
+              (mat as THREE.MeshStandardMaterial).wireframe = wireframe;
+            }
+            collectedMeshes.push(mesh);
           }
         });
+        meshesRef.current = collectedMeshes;
 
         scene.add(model);
 
@@ -120,9 +142,31 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url }) => {
       resizeObserver.disconnect();
       controls.dispose();
       renderer.dispose();
-      mount.removeChild(renderer.domElement);
+      if (mount.contains(renderer.domElement)) {
+        mount.removeChild(renderer.domElement);
+      }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
+
+  // ── Wireframe toggle — no mesh reload ───────────────────────────────────
+  useEffect(() => {
+    meshesRef.current.forEach(mesh => {
+      const mat = mesh.material;
+      if (Array.isArray(mat)) {
+        mat.forEach(m => { (m as THREE.MeshStandardMaterial).wireframe = wireframe; });
+      } else if (mat) {
+        (mat as THREE.MeshStandardMaterial).wireframe = wireframe;
+      }
+    });
+  }, [wireframe]);
+
+  // ── Grid / floor plane toggle — no mesh reload ──────────────────────────
+  useEffect(() => {
+    if (gridRef.current) {
+      gridRef.current.visible = showGrid;
+    }
+  }, [showGrid]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;
 };
