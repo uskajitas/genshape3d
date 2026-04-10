@@ -1020,7 +1020,7 @@ const Dashboard: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [genState, setGenState] = useState<GenState>('idle');
   const [genPct, setGenPct] = useState(0);
-  const [activeNavItem, setActiveNavItem] = useState('forge');
+  const [activeNavItem, setActiveNavItem] = useState('gen');
 
   const email = user?.email || '';
   const isGuest = !isAuthenticated;
@@ -1175,14 +1175,14 @@ const Dashboard: React.FC = () => {
           <SideGroup>
             <SideGroupLabel>Workspace</SideGroupLabel>
             {[
-              { id: 'forge', icon: '⚡', label: 'Forge' },
+              { id: 'gen', icon: '⚡', label: 'Gen' },
               { id: 'gallery', icon: '⬡', label: 'My meshes' },
               { id: 'history', icon: '◷', label: 'History' },
             ].map(item => (
               <NavItem
                 key={item.id}
                 $active={activeNavItem === item.id}
-                $accent={item.id === 'forge' ? '#7c3aed' : undefined}
+                $accent={item.id === 'gen' ? '#7c3aed' : undefined}
                 onClick={() => setActiveNavItem(item.id)}
               >
                 <NavIcon>{item.icon}</NavIcon>
@@ -1266,7 +1266,7 @@ const Dashboard: React.FC = () => {
         {/* Topbar */}
         <Topbar>
           <TopbarLeft>
-            <PageTitle>Forge</PageTitle>
+            <PageTitle>Gen</PageTitle>
             <Breadcrumb>/ Text to 3D</Breadcrumb>
           </TopbarLeft>
           <TopbarRight>
@@ -1403,7 +1403,7 @@ const Dashboard: React.FC = () => {
                       {uploadStatus === 'uploading' ? '⏳ Uploading…' :
                        uploadStatus === 'done' ? '✓ Uploaded — job created' :
                        uploadStatus === 'error' ? '✕ Upload failed' :
-                       `${uploadFile?.name} · Click "Forge Mesh" to submit`}
+                       `${uploadFile?.name} · Click "Generate" to submit`}
                     </UploadStatus>
                   </>
                 ) : (
@@ -1413,42 +1413,50 @@ const Dashboard: React.FC = () => {
                 )}
               </UploadZone>
 
-              {jobs.length > 0 && (
-                <JobList>
-                  {jobs.slice(0, 5).map(job => {
-                    const isProcessing = job.status === 'processing';
-                    const phase = job.progressPhase
-                      ? `${job.progressPhase}${job.progressTotal > 0 ? ` ${job.progressStep}/${job.progressTotal}` : ''}`
-                      : job.status;
-                    const duration = job.startedAt && job.completedAt
-                      ? `${Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)}s`
-                      : null;
-                    return (
-                      <JobItem key={job.id}>
-                        {job.imageUrl && <JobThumb src={`/api/image?key=uploads/${job.imageUrl.split('/uploads/')[1]}`} alt="" />}
-                        <JobInfo>
-                          <JobName>{job.prompt || 'Image upload'}</JobName>
-                          <JobMeta>
-                            {phase}
-                            {duration && ` · ${duration}`}
-                          </JobMeta>
-                          {isProcessing && <JobProgressBar $pct={job.progressPct || 0} />}
-                        </JobInfo>
-                        {isProcessing && !job.requestCancel && (
-                          <JobCancelBtn onClick={() => handleCancel(job.id)}>Cancel</JobCancelBtn>
-                        )}
-                        {job.requestCancel && (
-                          <JobBadge $status="pending">cancelling…</JobBadge>
-                        )}
-                        {!job.requestCancel && (
-                          <JobBadge $status={job.status}>{job.status}</JobBadge>
-                        )}
-                      </JobItem>
-                    );
-                  })}
-                </JobList>
-              )}
             </PanelSection>
+
+            {activeNavItem === 'history' && (
+              <PanelSection>
+                <PanelTitle>Your history</PanelTitle>
+                {jobs.length === 0 ? (
+                  <JobMeta style={{ padding: '0.5rem 0' }}>No jobs yet.</JobMeta>
+                ) : (
+                  <JobList>
+                    {jobs.map(job => {
+                      const isProcessing = job.status === 'processing';
+                      const phase = job.progressPhase
+                        ? `${job.progressPhase}${job.progressTotal > 0 ? ` ${job.progressStep}/${job.progressTotal}` : ''}`
+                        : job.status;
+                      const duration = job.startedAt && job.completedAt
+                        ? `${Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)}s`
+                        : null;
+                      return (
+                        <JobItem key={job.id}>
+                          {job.imageUrl && <JobThumb src={`/api/image?key=uploads/${job.imageUrl.split('/uploads/')[1]}`} alt="" />}
+                          <JobInfo>
+                            <JobName>{job.prompt || 'Image upload'}</JobName>
+                            <JobMeta>
+                              {phase}
+                              {duration && ` · ${duration}`}
+                            </JobMeta>
+                            {isProcessing && <JobProgressBar $pct={job.progressPct || 0} />}
+                          </JobInfo>
+                          {isProcessing && !job.requestCancel && (
+                            <JobCancelBtn onClick={() => handleCancel(job.id)}>Cancel</JobCancelBtn>
+                          )}
+                          {job.requestCancel && (
+                            <JobBadge $status="pending">cancelling…</JobBadge>
+                          )}
+                          {!job.requestCancel && (
+                            <JobBadge $status={job.status}>{job.status}</JobBadge>
+                          )}
+                        </JobItem>
+                      );
+                    })}
+                  </JobList>
+                )}
+              </PanelSection>
+            )}
 
             <Divider />
 
@@ -1526,7 +1534,7 @@ const Dashboard: React.FC = () => {
             {isGuest ? (
               <GuestBanner>
                 🔒 Generation is locked for guests.<br />
-                <GuestSignIn to="/login">Sign in for free</GuestSignIn> to start forging 3D meshes.
+                <GuestSignIn to="/login">Sign in for free</GuestSignIn> to start generating 3D meshes.
               </GuestBanner>
             ) : credits === 0 && isFree ? (
               <CreditWarn>
@@ -1535,12 +1543,12 @@ const Dashboard: React.FC = () => {
             ) : null}
 
             <ForgeBtn
-              $disabled={isGuest || (!prompt.trim() && !uploadFile) || genState === 'generating' || uploadStatus === 'uploading' || (credits === 0 && isFree)}
+              $disabled={isGuest || (!prompt.trim() && !uploadFile) || genState === 'generating' || uploadStatus === 'uploading' || (credits === 0 && isFree) || jobs.some(j => j.status === 'pending' || j.status === 'processing')}
               onClick={() => { if (uploadFile && uploadStatus !== 'done') handleUpload(); else handleForge(); }}
             >
               {genState === 'generating' ? (
-                <><span style={{ animation: `${spin} 1s linear infinite`, display: 'inline-block' }}>⬡</span> Forging…</>
-              ) : '⚡ Forge Mesh'}
+                <><span style={{ animation: `${spin} 1s linear infinite`, display: 'inline-block' }}>⬡</span> Generating…</>
+              ) : '⚡ Generate'}
             </ForgeBtn>
 
             {!isGuest && (
@@ -1577,7 +1585,7 @@ const Dashboard: React.FC = () => {
                   <EmptyDesc>
                     {isGuest
                       ? 'Create a free account to start generating stunning 3D meshes from text or images.'
-                      : 'Write a prompt on the left panel and click Forge Mesh to start generating your 3D model.'}
+                      : 'Write a prompt on the left panel and click Generate to start generating your 3D model.'}
                   </EmptyDesc>
                 </EmptyState>
               )}
