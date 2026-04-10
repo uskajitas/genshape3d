@@ -1,5 +1,6 @@
 import React, { useState, lazy, Suspense } from 'react';
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
+import Dropdown from '../components/Dropdown';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
@@ -1738,36 +1739,39 @@ const Dashboard: React.FC = () => {
               <SettingsGrid>
                 <SettingItem>
                   <SettingLabel>Polygon budget</SettingLabel>
-                  <Select disabled={isGuest} value={polygonBudget} onChange={e => setPolygonBudget(e.target.value)}>
-                    <option value="Low (10k-50k)">Low (10k-50k)</option>
-                    <option value="Medium (50k-200k)">Medium (50k-200k)</option>
-                    {isPro && <option value="High (200k-1M)">High (200k-1M)</option>}
-                  </Select>
+                  <Dropdown
+                    disabled={isGuest}
+                    value={polygonBudget}
+                    options={['Low (10k-50k)', 'Medium (50k-200k)', ...(isPro ? ['High (200k-1M)'] : [])]}
+                    onChange={setPolygonBudget}
+                  />
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Texture res.</SettingLabel>
-                  <Select disabled={isGuest} value={textureRes} onChange={e => setTextureRes(e.target.value)}>
-                    <option>1K</option>
-                    <option>2K</option>
-                    {isPro && <option>4K</option>}
-                  </Select>
+                  <Dropdown
+                    disabled={isGuest}
+                    value={textureRes}
+                    options={['1K', '2K', ...(isPro ? ['4K'] : [])]}
+                    onChange={setTextureRes}
+                  />
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Export format</SettingLabel>
-                  <Select disabled={isGuest} value={exportFormat} onChange={e => setExportFormat(e.target.value)}>
-                    <option>GLB</option>
-                    <option>OBJ</option>
-                    {isPro && <option>FBX</option>}
-                    {isPro && <option>USDZ</option>}
-                  </Select>
+                  <Dropdown
+                    disabled={isGuest}
+                    value={exportFormat}
+                    options={['GLB', 'OBJ', ...(isPro ? ['FBX', 'USDZ'] : [])]}
+                    onChange={setExportFormat}
+                  />
                 </SettingItem>
                 <SettingItem>
                   <SettingLabel>Detail level</SettingLabel>
-                  <Select disabled={isGuest} value={detailLevel} onChange={e => setDetailLevel(e.target.value)}>
-                    <option>Standard</option>
-                    {!isGuest && <option>Fine</option>}
-                    {isPro && <option>Ultra</option>}
-                  </Select>
+                  <Dropdown
+                    disabled={isGuest}
+                    value={detailLevel}
+                    options={['Standard', ...(!isGuest ? ['Fine'] : []), ...(isPro ? ['Ultra'] : [])]}
+                    onChange={setDetailLevel}
+                  />
                 </SettingItem>
                 <SettingItem style={{ gridColumn: '1 / -1' }}>
                   <SettingLabel>Generate textures</SettingLabel>
