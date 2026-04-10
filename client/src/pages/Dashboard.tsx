@@ -1558,20 +1558,20 @@ const Dashboard: React.FC = () => {
 
               <SliderRow>
                 <SliderHeader>
-                  <SettingLabel>Octree resolution <span style={{ fontWeight: 400, opacity: 0.6 }}>(quality vs speed)</span></SettingLabel>
-                  <SliderValue>{octreeResolution}</SliderValue>
+                  <SettingLabel>Mesh detail</SettingLabel>
+                  <SliderValue>{octreeResolution <= 128 ? 'Low' : octreeResolution <= 256 ? 'Medium' : octreeResolution <= 384 ? 'High' : 'Ultra'}</SliderValue>
                 </SliderHeader>
                 <Slider type="range" min={16} max={512} step={16}
                   value={octreeResolution} disabled={isGuest}
                   onChange={e => setOctreeResolution(Number(e.target.value))} />
                 <SettingLabel style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 0 }}>
-                  <span>Fast (16)</span><span>High quality (512)</span>
+                  <span>Fast</span><span>Ultra quality</span>
                 </SettingLabel>
               </SliderRow>
 
               <SliderRow>
                 <SliderHeader>
-                  <SettingLabel>Target face count</SettingLabel>
+                  <SettingLabel>Polygon count</SettingLabel>
                   <SliderValue>{targetFaceCount >= 1000 ? `${(targetFaceCount / 1000).toFixed(0)}k` : targetFaceCount}</SliderValue>
                 </SliderHeader>
                 <Slider type="range" min={1000} max={500000} step={1000}
@@ -1584,14 +1584,14 @@ const Dashboard: React.FC = () => {
 
               <SliderRow>
                 <SliderHeader>
-                  <SettingLabel>Inference steps <span style={{ fontWeight: 400, opacity: 0.6 }}>(shape quality)</span></SettingLabel>
-                  <SliderValue>{inferenceSteps}</SliderValue>
+                  <SettingLabel>Generation quality</SettingLabel>
+                  <SliderValue>{inferenceSteps <= 5 ? 'Draft' : inferenceSteps <= 15 ? 'Standard' : inferenceSteps <= 30 ? 'High' : 'Max'}</SliderValue>
                 </SliderHeader>
                 <Slider type="range" min={1} max={50} step={1}
                   value={inferenceSteps} disabled={isGuest}
                   onChange={e => setInferenceSteps(Number(e.target.value))} />
                 <SettingLabel style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 0 }}>
-                  <span>Turbo (1)</span><span>Max quality (50)</span>
+                  <span>Fast</span><span>Max quality</span>
                 </SettingLabel>
               </SliderRow>
 
