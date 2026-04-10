@@ -7,7 +7,7 @@ export interface Job {
   imageUrl: string;
   prompt: string;
   style: string;
-  status: 'pending' | 'processing' | 'done' | 'failed';
+  status: 'pending' | 'processing' | 'done' | 'failed' | 'cancelled';
   resultUrl: string;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +78,13 @@ export async function listAllJobs(): Promise<Job[]> {
 export async function listPendingJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
     `SELECT * FROM genshape3d_jobs WHERE status='pending' ORDER BY "createdAt" ASC`
+  );
+  return rows;
+}
+
+export async function listCancelledJobs(): Promise<Job[]> {
+  const { rows } = await getDb().query(
+    `SELECT * FROM genshape3d_jobs WHERE status='cancelled' ORDER BY "completedAt" DESC`
   );
   return rows;
 }

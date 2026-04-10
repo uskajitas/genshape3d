@@ -445,11 +445,13 @@ const JobBadge = styled.span<{ $status: string }>`
     p.$status === 'done' ? p.theme.colors.green + '22' :
     p.$status === 'failed' ? '#ef444422' :
     p.$status === 'processing' ? p.theme.colors.violet + '22' :
+    p.$status === 'cancelled' ? '#6b728022' :
     p.theme.colors.primary + '22'};
   color: ${p =>
     p.$status === 'done' ? p.theme.colors.green :
     p.$status === 'failed' ? '#ef4444' :
     p.$status === 'processing' ? p.theme.colors.violet :
+    p.$status === 'cancelled' ? '#9ca3af' :
     p.theme.colors.primaryLight};
 `;
 
@@ -959,11 +961,13 @@ const AStatusBadge = styled.span<{ $s: string }>`
   background: ${p =>
     p.$s === 'done' ? '#10b98122' :
     p.$s === 'failed' ? '#ef444422' :
-    p.$s === 'processing' ? '#8b5cf622' : '#7c3aed22'};
+    p.$s === 'processing' ? '#8b5cf622' :
+    p.$s === 'cancelled' ? '#6b728022' : '#7c3aed22'};
   color: ${p =>
     p.$s === 'done' ? '#10b981' :
     p.$s === 'failed' ? '#ef4444' :
-    p.$s === 'processing' ? '#a78bfa' : '#c4b5fd'};
+    p.$s === 'processing' ? '#a78bfa' :
+    p.$s === 'cancelled' ? '#9ca3af' : '#c4b5fd'};
 `;
 
 const AActionBtn = styled.button`
@@ -1046,7 +1050,7 @@ const Dashboard: React.FC = () => {
 
   // Admin state
   const [adminJobs, setAdminJobs] = useState<any[]>([]);
-  const [adminFilter, setAdminFilter] = useState<'all' | 'pending'>('all');
+  const [adminFilter, setAdminFilter] = useState<'all' | 'pending' | 'cancelled'>('all');
 
   React.useEffect(() => {
     if (!isAdmin || !email) return;
@@ -1287,6 +1291,7 @@ const Dashboard: React.FC = () => {
               <AdminFilter>
                 <AFilterBtn $active={adminFilter === 'pending'} onClick={() => setAdminFilter('pending')}>Pending</AFilterBtn>
                 <AFilterBtn $active={adminFilter === 'all'} onClick={() => setAdminFilter('all')}>All jobs</AFilterBtn>
+                <AFilterBtn $active={adminFilter === 'cancelled'} onClick={() => setAdminFilter('cancelled')}>Cancelled</AFilterBtn>
               </AdminFilter>
               <AdminTable>
                 <ATHead>
@@ -1338,7 +1343,7 @@ const Dashboard: React.FC = () => {
                         {job.status === 'processing' && (
                           <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'done')}>Mark done</AActionBtn>
                         )}
-                        {job.status === 'failed' && (
+                        {(job.status === 'failed' || job.status === 'cancelled') && (
                           <AActionBtn onClick={() => handleUpdateJobStatus(job.id, 'pending')}>↺ Retry</AActionBtn>
                         )}
                         {job.status !== 'failed' && (

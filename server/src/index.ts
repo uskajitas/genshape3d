@@ -13,7 +13,7 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
-import { createJob, getJobsByUser, listAllJobs, listPendingJobs, updateJobStatus, cancelJob } from './jobsRepo';
+import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob } from './jobsRepo';
 
 const app = express();
 const port = process.env.PORT || 4242;
@@ -165,7 +165,9 @@ app.get('/api/admin/jobs', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
   if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
   const filter = req.query.filter as string;
-  const jobs = filter === 'pending' ? await listPendingJobs() : await listAllJobs();
+  const jobs = filter === 'pending' ? await listPendingJobs()
+    : filter === 'cancelled' ? await listCancelledJobs()
+    : await listAllJobs();
   res.json({ jobs });
 });
 
