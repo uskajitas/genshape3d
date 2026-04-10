@@ -1,15 +1,16 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth0 } from '@auth0/auth0-react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { UserProvider, useAppUser } from './context/UserContext';
 
 const AuthSync: React.FC = () => {
-  const { isAuthenticated, user } = useAuth0();
+  const { isAuthenticated, user } = useAuth();
   const { refresh } = useAppUser();
   const called = useRef(false);
+
   useEffect(() => {
     const email = user?.email;
     if (!isAuthenticated || !email || called.current) return;
@@ -17,34 +18,22 @@ const AuthSync: React.FC = () => {
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, name: user?.name || '', picture: user?.picture || '' }),
+      body: JSON.stringify({ email, name: user?.displayName || '', picture: user?.photoURL || '' }),
     }).then(() => refresh(email)).catch(() => { called.current = false; });
   }, [isAuthenticated, user?.email]);
+
   return null;
 };
 
 const App: React.FC = () => {
-  const { isLoading } = useAuth0();
-  // Safety timeout: if Auth0 hasn't resolved in 3s (e.g. unconfigured / network
-  // issue), unblock the UI and run in guest mode.
-  const [timedOut, setTimedOut] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setTimedOut(true), 3000);
-    return () => clearTimeout(t);
-  }, []);
+  const { isLoading } = useAuth();
 
-  if (isLoading && !timedOut) {
+  if (isLoading) {
     return (
       <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#07060f',
-        color: '#9d93b8',
-        fontFamily: 'Inter, sans-serif',
-        fontSize: '0.9rem',
-        gap: '0.75rem',
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#07060f',
+        color: '#9d93b8', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem', gap: '0.75rem',
       }}>
         <span style={{ fontSize: '1.5rem' }}>⬡</span>
         Loading GenShape3D…
@@ -65,4 +54,10 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+const AppWithAuth: React.FC = () => (
+  <AuthProvider>
+    <App />
+  </AuthProvider>
+);
+
+export default AppWithAuth;

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth } from '../context/AuthContext';
+import { signOutUser } from '../firebase';
 import { useAppUser } from '../context/UserContext';
 
 // ── Animations ────────────────────────────────────────────────────────────────
@@ -1000,7 +1001,8 @@ const AFilterBtn = styled.button<{ $active?: boolean }>`
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Dashboard: React.FC = () => {
-  const { user, isAuthenticated, logout } = useAuth0();
+  const { user, isAuthenticated } = useAuth();
+  const logout = () => signOutUser().then(() => window.location.href = '/');
   const { appUser, refresh } = useAppUser();
   const navigate = useNavigate();
 
@@ -1033,7 +1035,7 @@ const Dashboard: React.FC = () => {
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, name: user?.name || '', picture: user?.picture || '' }),
+      body: JSON.stringify({ email, name: user?.displayName || '', picture: user?.photoURL || '' }),
     })
       .then(r => r.json())
       .then(data => {
@@ -1151,7 +1153,7 @@ const Dashboard: React.FC = () => {
     }, 7000);
   };
 
-  const displayName = isGuest ? 'Guest' : (user?.name || user?.email?.split('@')[0] || 'User');
+  const displayName = isGuest ? 'Guest' : (user?.displayName || user?.email?.split('@')[0] || 'User');
   const roleLabel = isGuest ? 'guest' : appUser.role;
 
   return (
@@ -1227,7 +1229,7 @@ const Dashboard: React.FC = () => {
                 <NavIcon>⚙</NavIcon>
                 Settings
               </NavItem>
-              <NavItem onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}>
+              <NavItem onClick={() => logout()}>
                 <NavIcon>↩</NavIcon>
                 Sign out
               </NavItem>
@@ -1244,8 +1246,8 @@ const Dashboard: React.FC = () => {
 
         <SidebarBottom>
           <UserChip>
-            <Avatar $src={user?.picture}>
-              {!user?.picture && displayName[0].toUpperCase()}
+            <Avatar $src={user?.photoURL}>
+              {!user?.photoURL && displayName[0].toUpperCase()}
             </Avatar>
             <UserInfo>
               <UserName>{displayName}</UserName>

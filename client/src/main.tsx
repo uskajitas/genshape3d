@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider, createGlobalStyle } from 'styled-components';
 import App from './App';
-import Auth0ProviderWithNavigate from './providers/Auth0ProviderWithNavigate';
 import { ThemeContext, ThemeMode } from './context/ThemeContext';
 
 export const darkTheme = {
@@ -86,9 +85,7 @@ function Root() {
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Auth0ProviderWithNavigate>
-        <Root />
-      </Auth0ProviderWithNavigate>
+      <Root />
     </BrowserRouter>
   </React.StrictMode>
 );

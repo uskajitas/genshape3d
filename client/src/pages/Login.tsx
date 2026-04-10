@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth } from '../context/AuthContext';
+import { signInWithGoogle, signInWithEmail } from '../firebase';
 
 const fadeIn = keyframes`
   from { opacity: 0; transform: translateY(16px); }
@@ -343,28 +344,26 @@ const TermsText = styled.p`
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Login: React.FC = () => {
-  const { loginWithRedirect, isAuthenticated, isLoading } = useAuth0();
+  const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, isLoading]);
 
-  const handleGoogle = () =>
-    loginWithRedirect({
-      authorizationParams: { connection: 'google-oauth2' },
-      appState: { returnTo: '/dashboard' },
-    });
+  const handleGoogle = async () => {
+    try { await signInWithGoogle(); navigate('/dashboard', { replace: true }); }
+    catch (e: any) { setError(e.message); }
+  };
 
-  const handleGithub = () =>
-    loginWithRedirect({
-      authorizationParams: { connection: 'github' },
-      appState: { returnTo: '/dashboard' },
-    });
-
-  const handleEmail = (e: React.FormEvent) => {
+  const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    loginWithRedirect({ appState: { returnTo: '/dashboard' } });
+    setError('');
+    try { await signInWithEmail(email, password); navigate('/dashboard', { replace: true }); }
+    catch (e: any) { setError(e.message); }
   };
 
   const handleGuest = () => navigate('/dashboard');
@@ -418,22 +417,20 @@ const Login: React.FC = () => {
             Continue with Google
           </SocialBtn>
 
-          <SocialBtn onClick={handleGithub}>
-            <ProviderIcon>⚫</ProviderIcon>
-            Continue with GitHub
-          </SocialBtn>
-
           <Divider>or continue with email</Divider>
 
           <EmailForm onSubmit={handleEmail}>
             <div>
               <Label>Email address</Label>
-              <Input type="email" placeholder="you@example.com" autoComplete="email" />
+              <Input type="email" placeholder="you@example.com" autoComplete="email"
+                value={email} onChange={e => setEmail(e.target.value)} />
             </div>
             <div>
               <Label>Password</Label>
-              <Input type="password" placeholder="••••••••" autoComplete="current-password" />
+              <Input type="password" placeholder="••••••••" autoComplete="current-password"
+                value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            {error && <p style={{ color: '#f87171', fontSize: '0.82rem' }}>{error}</p>}
             <SubmitBtn type="submit">Sign in</SubmitBtn>
           </EmailForm>
 
