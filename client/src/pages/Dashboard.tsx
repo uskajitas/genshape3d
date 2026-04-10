@@ -803,6 +803,81 @@ const ResultMeta = styled.div`
   color: rgba(255,255,255,0.6);
 `;
 
+// ── Gallery ───────────────────────────────────────────────────────────────────
+
+const GalleryGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+`;
+
+const GalleryCard = styled.div<{ $selected?: boolean }>`
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid ${p => p.$selected ? p.theme.colors.primary : p.theme.colors.border};
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  aspect-ratio: 1;
+  background: ${p => p.theme.colors.surface};
+  &:hover {
+    border-color: ${p => p.theme.colors.primary};
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px ${p => p.theme.colors.primary}33;
+  }
+`;
+
+const GalleryThumb = styled.img`
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+`;
+
+const GalleryThumbEmpty = styled.div`
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  opacity: 0.3;
+`;
+
+const GalleryCardOverlay = styled.div`
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, #000000dd, transparent);
+  padding: 0.5rem 0.6rem 0.4rem;
+`;
+
+const GalleryCardName = styled.div`
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const GalleryCardMeta = styled.div`
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.55);
+  margin-top: 0.1rem;
+`;
+
+const GalleryEmpty = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.85rem;
+`;
+
 const ResultActions = styled.div`
   display: flex;
   gap: 0.75rem;
@@ -1091,6 +1166,7 @@ const Dashboard: React.FC = () => {
   const [octreeResolution, setOctreeResolution] = useState(256);
   const [targetFaceCount, setTargetFaceCount] = useState(10000);
   const [inferenceSteps, setInferenceSteps] = useState(5);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [genState, setGenState] = useState<GenState>('idle');
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('gen');
@@ -1435,7 +1511,7 @@ const Dashboard: React.FC = () => {
           )}
 
           {/* ── Generator Panel ── */}
-          {activeNavItem !== 'admin' && activeNavItem !== 'history' && <GenPanel>
+          {activeNavItem !== 'admin' && activeNavItem !== 'history' && activeNavItem !== 'gallery' && <GenPanel>
             <PanelSection>
               <PanelTitle>Prompt</PanelTitle>
               <PromptBox
@@ -1686,6 +1762,44 @@ const Dashboard: React.FC = () => {
             </GenPanel>
           )}
 
+          {/* ── Gallery Panel ── */}
+          {activeNavItem === 'gallery' && (
+            <GenPanel>
+              <PanelSection>
+                <PanelTitle>My meshes</PanelTitle>
+                {jobs.filter(j => j.status === 'done' && j.resultUrl).length === 0 ? (
+                  <GalleryEmpty>
+                    <div style={{ fontSize: '2.5rem', opacity: 0.3 }}>⬡</div>
+                    <div>No meshes yet.<br />Generate your first one!</div>
+                  </GalleryEmpty>
+                ) : (
+                  <GalleryGrid>
+                    {jobs.filter(j => j.status === 'done' && j.resultUrl).map(job => {
+                      const thumbKey = job.imageUrl ? `uploads/${job.imageUrl.split('/uploads/')[1]}` : null;
+                      const date = new Date(job.createdAt).toLocaleDateString();
+                      return (
+                        <GalleryCard
+                          key={job.id}
+                          $selected={selectedJobId === job.id}
+                          onClick={() => setSelectedJobId(job.id)}
+                        >
+                          {thumbKey
+                            ? <GalleryThumb src={`/api/image?key=${thumbKey}`} alt="" />
+                            : <GalleryThumbEmpty>⬡</GalleryThumbEmpty>
+                          }
+                          <GalleryCardOverlay>
+                            <GalleryCardName>{job.prompt || 'Mesh'}</GalleryCardName>
+                            <GalleryCardMeta>{date} · {job.exportFormat || 'GLB'}</GalleryCardMeta>
+                          </GalleryCardOverlay>
+                        </GalleryCard>
+                      );
+                    })}
+                  </GalleryGrid>
+                )}
+              </PanelSection>
+            </GenPanel>
+          )}
+
           {/* ── Viewport ── */}
           {activeNavItem !== 'admin' && <Viewport>
             <ViewTabs>
@@ -1697,7 +1811,9 @@ const Dashboard: React.FC = () => {
             <Canvas>
               {(() => {
                 const activeJob = jobs.find(j => j.status === 'processing' || j.status === 'pending');
-                const doneJob = jobs.find(j => j.status === 'done' && j.resultUrl);
+                const doneJob = selectedJobId
+                  ? jobs.find(j => j.id === selectedJobId && j.resultUrl)
+                  : jobs.find(j => j.status === 'done' && j.resultUrl);
 
                 if (activeJob) {
                   const pct = activeJob.progressPct || 0;
