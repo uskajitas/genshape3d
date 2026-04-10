@@ -60,6 +60,19 @@ app.get('/api/image', async (req, res) => {
   }
 });
 
+app.get('/api/mesh', async (req, res) => {
+  const key = req.query.key as string;
+  if (!key) return res.status(400).json({ error: 'key required' });
+  try {
+    const obj = await getR2Stream(key);
+    res.setHeader('Content-Type', (obj.ContentType as string) || 'model/gltf-binary');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    (obj.Body as any).pipe(res);
+  } catch {
+    res.status(404).json({ error: 'not found' });
+  }
+});
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 app.post('/api/auth/login', async (req, res) => {

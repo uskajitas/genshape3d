@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
+const MeshViewer = lazy(() => import('../components/MeshViewer'));
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
@@ -723,6 +724,49 @@ const GenPct = styled.div`
   background-clip: text;
   animation: ${shimmer} 2s linear infinite;
   background-size: 200% auto;
+`;
+
+const JobProgressWrap = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 360px;
+  animation: ${fadeIn} 0.4s ease;
+`;
+
+const JobProgressPct = styled.div`
+  font-family: 'Orbitron', monospace;
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+const JobProgressPhase = styled.div`
+  font-size: 0.88rem;
+  color: ${p => p.theme.colors.textMuted};
+  text-transform: capitalize;
+  letter-spacing: 0.04em;
+`;
+
+const JobProgressTrack = styled.div`
+  width: 100%;
+  height: 6px;
+  background: ${p => p.theme.colors.border};
+  border-radius: 3px;
+  overflow: hidden;
+`;
+
+const JobProgressFill = styled.div<{ $pct: number }>`
+  height: 100%;
+  width: ${p => p.$pct}%;
+  background: linear-gradient(90deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  border-radius: 3px;
+  transition: width 1s ease;
 `;
 
 // Result state
@@ -1648,50 +1692,72 @@ const Dashboard: React.FC = () => {
             </ViewTabs>
 
             <Canvas>
-              {genState === 'idle' && (
-                <EmptyState>
-                  <EmptyIcon>⬡</EmptyIcon>
-                  <EmptyTitle>
-                    {isGuest ? 'Sign in to generate' : 'Your mesh will appear here'}
-                  </EmptyTitle>
-                  <EmptyDesc>
-                    {isGuest
-                      ? 'Create a free account to start generating stunning 3D meshes from text or images.'
-                      : 'Write a prompt on the left panel and click Generate to start generating your 3D model.'}
-                  </EmptyDesc>
-                </EmptyState>
-              )}
+              {(() => {
+                const activeJob = jobs.find(j => j.status === 'processing' || j.status === 'pending');
+                const doneJob = jobs.find(j => j.status === 'done' && j.resultUrl);
 
-              {genState === 'generating' && (
-                <GeneratingWrap>
-                  <Spinner />
-                  <GenPct>{Math.min(genPct, 97)}%</GenPct>
-                  <GenStatus>
-                    {genPct < 20 ? 'Interpreting prompt…'
-                     : genPct < 45 ? 'Generating base geometry…'
-                     : genPct < 70 ? 'Refining topology…'
-                     : genPct < 88 ? 'Applying textures…'
-                     : 'Finalising mesh…'}
-                  </GenStatus>
-                </GeneratingWrap>
-              )}
+                if (activeJob) {
+                  const pct = activeJob.progressPct || 0;
+                  const phase = activeJob.progressPhase
+                    ? `${activeJob.progressPhase}${activeJob.progressTotal > 0 ? ` · step ${activeJob.progressStep}/${activeJob.progressTotal}` : ''}`
+                    : activeJob.status === 'pending' ? 'Waiting in queue…' : 'Starting…';
+                  return (
+                    <JobProgressWrap>
+                      <Spinner />
+                      <JobProgressPct>{pct}%</JobProgressPct>
+                      <JobProgressTrack>
+                        <JobProgressFill $pct={pct} />
+                      </JobProgressTrack>
+                      <JobProgressPhase>{phase}</JobProgressPhase>
+                    </JobProgressWrap>
+                  );
+                }
 
-              {genState === 'done' && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem' }}>
-                  <ResultMesh>
-                    🐲
-                    <ResultOverlay>
-                      <ResultName>{prompt || 'Generated mesh'}</ResultName>
-                      <ResultMeta>287k polys · GLB · PBR textures · 2K</ResultMeta>
-                    </ResultOverlay>
-                  </ResultMesh>
-                  <ResultActions>
-                    <ActionBtn $variant="outline">🔄 Regenerate</ActionBtn>
-                    <ActionBtn $variant="outline">✏ Sculpt</ActionBtn>
-                    <ActionBtn $variant="primary">⬇ Download GLB</ActionBtn>
-                  </ResultActions>
-                </div>
-              )}
+                if (doneJob) {
+                  const meshUrl = `/api/mesh?key=${encodeURIComponent(doneJob.resultUrl)}`;
+                  return (
+                    <Suspense fallback={<GeneratingWrap><Spinner /><GenStatus>Loading mesh…</GenStatus></GeneratingWrap>}>
+                      <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                        <MeshViewer url={meshUrl} />
+                        <div style={{
+                          position: 'absolute', bottom: 0, left: 0, right: 0,
+                          padding: '0.75rem 1rem',
+                          background: 'linear-gradient(to top, #07060fcc, transparent)',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        }}>
+                          <span style={{ fontSize: '0.78rem', color: '#9d93b8' }}>
+                            {doneJob.prompt || 'Generated mesh'} · {doneJob.exportFormat || 'GLB'}
+                          </span>
+                          <a
+                            href={meshUrl}
+                            download={`mesh.${(doneJob.exportFormat || 'glb').toLowerCase()}`}
+                            style={{
+                              fontSize: '0.78rem', fontWeight: 600, color: '#a78bfa',
+                              textDecoration: 'none', cursor: 'pointer',
+                            }}
+                          >
+                            ⬇ Download
+                          </a>
+                        </div>
+                      </div>
+                    </Suspense>
+                  );
+                }
+
+                return (
+                  <EmptyState>
+                    <EmptyIcon>⬡</EmptyIcon>
+                    <EmptyTitle>
+                      {isGuest ? 'Sign in to generate' : 'Your mesh will appear here'}
+                    </EmptyTitle>
+                    <EmptyDesc>
+                      {isGuest
+                        ? 'Create a free account to start generating stunning 3D meshes from text or images.'
+                        : 'Upload an image and click Generate to start.'}
+                    </EmptyDesc>
+                  </EmptyState>
+                );
+              })()}
             </Canvas>
           </Viewport>}
 
