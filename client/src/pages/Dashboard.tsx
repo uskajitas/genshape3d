@@ -1421,7 +1421,8 @@ const Dashboard: React.FC = () => {
   const roleLabel = isGuest ? 'guest' : appUser.role;
 
   return (
-    <Shell>
+    <>
+      <Shell>
       {/* ── Sidebar ── */}
       <Sidebar>
         <SidebarTop>
@@ -2106,6 +2107,7 @@ const Dashboard: React.FC = () => {
         </ModalBox>
       </ModalOverlay>
     )}
+    </>
   );
 };
 
