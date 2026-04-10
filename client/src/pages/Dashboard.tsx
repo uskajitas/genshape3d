@@ -1435,7 +1435,7 @@ const Dashboard: React.FC = () => {
           )}
 
           {/* ── Generator Panel ── */}
-          {activeNavItem !== 'admin' && <GenPanel>
+          {activeNavItem !== 'admin' && activeNavItem !== 'history' && <GenPanel>
             <PanelSection>
               <PanelTitle>Prompt</PanelTitle>
               <PromptBox
@@ -1490,49 +1490,6 @@ const Dashboard: React.FC = () => {
               </UploadZone>
 
             </PanelSection>
-
-            {activeNavItem === 'history' && (
-              <PanelSection>
-                <PanelTitle>Your history</PanelTitle>
-                {jobs.length === 0 ? (
-                  <JobMeta style={{ padding: '0.5rem 0' }}>No jobs yet.</JobMeta>
-                ) : (
-                  <JobList>
-                    {jobs.map(job => {
-                      const isProcessing = job.status === 'processing';
-                      const phase = job.progressPhase
-                        ? `${job.progressPhase}${job.progressTotal > 0 ? ` ${job.progressStep}/${job.progressTotal}` : ''}`
-                        : job.status;
-                      const duration = job.startedAt && job.completedAt
-                        ? `${Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)}s`
-                        : null;
-                      return (
-                        <JobItem key={job.id}>
-                          {job.imageUrl && <JobThumb src={`/api/image?key=uploads/${job.imageUrl.split('/uploads/')[1]}`} alt="" />}
-                          <JobInfo>
-                            <JobName>{job.prompt || 'Image upload'}</JobName>
-                            <JobMeta>
-                              {phase}
-                              {duration && ` · ${duration}`}
-                            </JobMeta>
-                            {isProcessing && <JobProgressBar $pct={job.progressPct || 0} />}
-                          </JobInfo>
-                          {isProcessing && !job.requestCancel && (
-                            <JobCancelBtn onClick={() => handleCancel(job.id)}>Cancel</JobCancelBtn>
-                          )}
-                          {job.requestCancel && (
-                            <JobBadge $status="pending">cancelling…</JobBadge>
-                          )}
-                          {!job.requestCancel && (
-                            <JobBadge $status={job.status}>{job.status}</JobBadge>
-                          )}
-                        </JobItem>
-                      );
-                    })}
-                  </JobList>
-                )}
-              </PanelSection>
-            )}
 
             <Divider />
 
@@ -1682,6 +1639,52 @@ const Dashboard: React.FC = () => {
               </CreditBar>
             )}
           </GenPanel>}
+
+          {/* ── History Panel ── */}
+          {activeNavItem === 'history' && (
+            <GenPanel>
+              <PanelSection>
+                <PanelTitle>Your history</PanelTitle>
+                {jobs.length === 0 ? (
+                  <JobMeta style={{ padding: '0.5rem 0' }}>No jobs yet.</JobMeta>
+                ) : (
+                  <JobList>
+                    {jobs.map(job => {
+                      const isProcessing = job.status === 'processing';
+                      const phase = job.progressPhase
+                        ? `${job.progressPhase}${job.progressTotal > 0 ? ` ${job.progressStep}/${job.progressTotal}` : ''}`
+                        : job.status;
+                      const duration = job.startedAt && job.completedAt
+                        ? `${Math.round((new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000)}s`
+                        : null;
+                      return (
+                        <JobItem key={job.id}>
+                          {job.imageUrl && <JobThumb src={`/api/image?key=uploads/${job.imageUrl.split('/uploads/')[1]}`} alt="" />}
+                          <JobInfo>
+                            <JobName>{job.prompt || 'Image upload'}</JobName>
+                            <JobMeta>
+                              {phase}
+                              {duration && ` · ${duration}`}
+                            </JobMeta>
+                            {isProcessing && <JobProgressBar $pct={job.progressPct || 0} />}
+                          </JobInfo>
+                          {isProcessing && !job.requestCancel && (
+                            <JobCancelBtn onClick={() => handleCancel(job.id)}>Cancel</JobCancelBtn>
+                          )}
+                          {job.requestCancel && (
+                            <JobBadge $status="pending">cancelling…</JobBadge>
+                          )}
+                          {!job.requestCancel && (
+                            <JobBadge $status={job.status}>{job.status}</JobBadge>
+                          )}
+                        </JobItem>
+                      );
+                    })}
+                  </JobList>
+                )}
+              </PanelSection>
+            </GenPanel>
+          )}
 
           {/* ── Viewport ── */}
           {activeNavItem !== 'admin' && <Viewport>
