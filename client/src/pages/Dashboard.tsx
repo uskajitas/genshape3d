@@ -826,6 +826,7 @@ const GalleryCard = styled.div<{ $selected?: boolean }>`
     transform: translateY(-2px);
     box-shadow: 0 4px 16px ${p => p.theme.colors.primary}33;
   }
+  &:hover .delete-btn { opacity: 1 !important; }
 `;
 
 const GalleryThumb = styled.img`
@@ -1169,6 +1170,12 @@ const Dashboard: React.FC = () => {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [editingNameVal, setEditingNameVal] = useState('');
+
+  const handleDeleteJob = async (id: string) => {
+    await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+    setJobs(prev => prev.filter(j => j.id !== id));
+    if (selectedJobId === id) setSelectedJobId(null);
+  };
 
   const handleRename = async (id: string) => {
     if (!editingNameVal.trim()) return setEditingNameId(null);
@@ -1800,6 +1807,18 @@ const Dashboard: React.FC = () => {
                             ? <GalleryThumb src={`/api/image?key=${thumbKey}`} alt="" />
                             : <GalleryThumbEmpty>⬡</GalleryThumbEmpty>
                           }
+                          <div
+                            onClick={e => { e.stopPropagation(); if (window.confirm('Delete this mesh?')) handleDeleteJob(job.id); }}
+                            style={{
+                              position: 'absolute', top: 6, right: 6,
+                              width: 22, height: 22, borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.6)', display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              fontSize: '0.7rem', color: '#ef4444', cursor: 'pointer',
+                              opacity: 0, transition: 'opacity 0.15s',
+                            }}
+                            className="delete-btn"
+                          >✕</div>
                           <GalleryCardOverlay>
                             {editingNameId === job.id ? (
                               <input

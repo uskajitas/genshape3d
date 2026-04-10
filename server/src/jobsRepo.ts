@@ -32,6 +32,10 @@ export interface Job {
   seed: number;
 }
 
+export async function deleteJob(id: string): Promise<void> {
+  await getDb().query(`DELETE FROM genshape3d_jobs WHERE id=$1`, [id]);
+}
+
 export async function renameJob(id: string, name: string): Promise<void> {
   await getDb().query(
     `UPDATE genshape3d_jobs SET name=$1, "updatedAt"=$2 WHERE id=$3`,
