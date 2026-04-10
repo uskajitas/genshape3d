@@ -5,6 +5,7 @@ export interface Job {
   id: string;
   userEmail: string;
   imageUrl: string;
+  name: string;
   prompt: string;
   style: string;
   status: 'pending' | 'processing' | 'done' | 'failed' | 'cancelled';
@@ -29,6 +30,13 @@ export interface Job {
   guidanceScale: number;
   numChunks: number;
   seed: number;
+}
+
+export async function renameJob(id: string, name: string): Promise<void> {
+  await getDb().query(
+    `UPDATE genshape3d_jobs SET name=$1, "updatedAt"=$2 WHERE id=$3`,
+    [name, new Date().toISOString(), id]
+  );
 }
 
 export async function cancelJob(id: string): Promise<void> {

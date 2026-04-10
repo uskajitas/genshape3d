@@ -1167,6 +1167,19 @@ const Dashboard: React.FC = () => {
   const [targetFaceCount, setTargetFaceCount] = useState(10000);
   const [inferenceSteps, setInferenceSteps] = useState(5);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameVal, setEditingNameVal] = useState('');
+
+  const handleRename = async (id: string) => {
+    if (!editingNameVal.trim()) return setEditingNameId(null);
+    await fetch(`/api/jobs/${id}/name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: editingNameVal.trim() }),
+    });
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, name: editingNameVal.trim() } : j));
+    setEditingNameId(null);
+  };
   const [genState, setGenState] = useState<GenState>('idle');
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('gen');
@@ -1788,7 +1801,28 @@ const Dashboard: React.FC = () => {
                             : <GalleryThumbEmpty>⬡</GalleryThumbEmpty>
                           }
                           <GalleryCardOverlay>
-                            <GalleryCardName>{job.prompt || 'Mesh'}</GalleryCardName>
+                            {editingNameId === job.id ? (
+                              <input
+                                autoFocus
+                                value={editingNameVal}
+                                onChange={e => setEditingNameVal(e.target.value)}
+                                onBlur={() => handleRename(job.id)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleRename(job.id); if (e.key === 'Escape') setEditingNameId(null); }}
+                                onClick={e => e.stopPropagation()}
+                                style={{
+                                  background: 'rgba(0,0,0,0.6)', border: '1px solid #7c3aed',
+                                  borderRadius: 4, color: '#fff', fontSize: '0.68rem',
+                                  fontWeight: 600, padding: '0.1rem 0.3rem', width: '100%', outline: 'none',
+                                }}
+                              />
+                            ) : (
+                              <GalleryCardName
+                                title="Click to rename"
+                                onClick={e => { e.stopPropagation(); setEditingNameId(job.id); setEditingNameVal(job.name || job.prompt || 'Mesh'); }}
+                              >
+                                ✎ {job.name || job.prompt || 'Mesh'}
+                              </GalleryCardName>
+                            )}
                             <GalleryCardMeta>{date} · {job.exportFormat || 'GLB'}</GalleryCardMeta>
                           </GalleryCardOverlay>
                         </GalleryCard>
