@@ -62,12 +62,30 @@ export async function initDb(): Promise<void> {
       "exportFormat"  TEXT NOT NULL DEFAULT 'GLB',
       "detailLevel"   TEXT NOT NULL DEFAULT 'Standard',
       "doTexture"     BOOLEAN NOT NULL DEFAULT false,
-      "progressPct"   INTEGER NOT NULL DEFAULT 0,
-      "progressPhase" TEXT NOT NULL DEFAULT '',
-      "progressStep"  INTEGER NOT NULL DEFAULT 0,
-      "progressTotal" INTEGER NOT NULL DEFAULT 0,
-      "requestCancel" BOOLEAN NOT NULL DEFAULT false
+      "progressPct"        INTEGER NOT NULL DEFAULT 0,
+      "progressPhase"      TEXT NOT NULL DEFAULT '',
+      "progressStep"       INTEGER NOT NULL DEFAULT 0,
+      "progressTotal"      INTEGER NOT NULL DEFAULT 0,
+      "requestCancel"      BOOLEAN NOT NULL DEFAULT false,
+      "octreeResolution"   INTEGER NOT NULL DEFAULT 0,
+      "targetFaceCount"    INTEGER NOT NULL DEFAULT 0,
+      "inferenceSteps"     INTEGER NOT NULL DEFAULT 0,
+      "guidanceScale"      REAL NOT NULL DEFAULT 0,
+      "numChunks"          INTEGER NOT NULL DEFAULT 0,
+      seed                 INTEGER NOT NULL DEFAULT 0
     );
   `);
+
+  // Add new columns to existing tables if they don't exist yet
+  const alterCols = [
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "octreeResolution" INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "targetFaceCount"  INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "inferenceSteps"   INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "guidanceScale"    REAL NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "numChunks"        INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS seed               INTEGER NOT NULL DEFAULT 0`,
+  ];
+  for (const sql of alterCols) await db.query(sql);
+
   console.log('PostgreSQL tables ready');
 }

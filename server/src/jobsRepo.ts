@@ -23,6 +23,12 @@ export interface Job {
   progressStep: number;
   progressTotal: number;
   requestCancel: boolean;
+  octreeResolution: number;
+  targetFaceCount: number;
+  inferenceSteps: number;
+  guidanceScale: number;
+  numChunks: number;
+  seed: number;
 }
 
 export async function cancelJob(id: string): Promise<void> {
@@ -42,13 +48,20 @@ export async function createJob(data: {
   exportFormat?: string;
   detailLevel?: string;
   doTexture?: boolean;
+  octreeResolution?: number;
+  targetFaceCount?: number;
+  inferenceSteps?: number;
+  guidanceScale?: number;
+  numChunks?: number;
+  seed?: number;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
     `INSERT INTO genshape3d_jobs
       (id, "userEmail", "imageUrl", prompt, style, status, "resultUrl", "createdAt", "updatedAt",
-       "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture")
-     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+       "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
+       "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed)
+     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.prompt || '', data.style || 'Realistic', now, now,
@@ -57,6 +70,12 @@ export async function createJob(data: {
       data.exportFormat  || 'GLB',
       data.detailLevel   || 'Standard',
       data.doTexture     ?? false,
+      data.octreeResolution ?? 0,
+      data.targetFaceCount  ?? 0,
+      data.inferenceSteps   ?? 0,
+      data.guidanceScale    ?? 0,
+      data.numChunks        ?? 0,
+      data.seed             ?? 0,
     ]
   );
   return rows[0];

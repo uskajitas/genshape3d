@@ -464,6 +464,32 @@ const SettingsGrid = styled.div`
 
 const SettingItem = styled.div``;
 
+const SliderRow = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+`;
+
+const SliderHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+`;
+
+const SliderValue = styled.span`
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.primary};
+`;
+
+const Slider = styled.input`
+  width: 100%;
+  accent-color: ${p => p.theme.colors.primary};
+  cursor: pointer;
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
 const SettingLabel = styled.div`
   font-size: 0.72rem;
   color: ${p => p.theme.colors.textMuted};
@@ -1018,6 +1044,9 @@ const Dashboard: React.FC = () => {
   const [exportFormat, setExportFormat] = useState('GLB');
   const [detailLevel, setDetailLevel] = useState('Standard');
   const [doTexture, setDoTexture] = useState(false);
+  const [octreeResolution, setOctreeResolution] = useState(256);
+  const [targetFaceCount, setTargetFaceCount] = useState(10000);
+  const [inferenceSteps, setInferenceSteps] = useState(5);
   const [genState, setGenState] = useState<GenState>('idle');
   const [genPct, setGenPct] = useState(0);
   const [activeNavItem, setActiveNavItem] = useState('gen');
@@ -1129,6 +1158,9 @@ const Dashboard: React.FC = () => {
     form.append('exportFormat', exportFormat);
     form.append('detailLevel', detailLevel);
     form.append('doTexture', String(doTexture));
+    form.append('octreeResolution', String(octreeResolution));
+    form.append('targetFaceCount', String(targetFaceCount));
+    form.append('inferenceSteps', String(inferenceSteps));
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: form });
       const data = await res.json();
@@ -1479,6 +1511,46 @@ const Dashboard: React.FC = () => {
 
             <PanelSection>
               <PanelTitle>Settings</PanelTitle>
+
+              <SliderRow>
+                <SliderHeader>
+                  <SettingLabel>Octree resolution <span style={{ fontWeight: 400, opacity: 0.6 }}>(quality vs speed)</span></SettingLabel>
+                  <SliderValue>{octreeResolution}</SliderValue>
+                </SliderHeader>
+                <Slider type="range" min={16} max={512} step={16}
+                  value={octreeResolution} disabled={isGuest}
+                  onChange={e => setOctreeResolution(Number(e.target.value))} />
+                <SettingLabel style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 0 }}>
+                  <span>Fast (16)</span><span>High quality (512)</span>
+                </SettingLabel>
+              </SliderRow>
+
+              <SliderRow>
+                <SliderHeader>
+                  <SettingLabel>Target face count</SettingLabel>
+                  <SliderValue>{targetFaceCount >= 1000 ? `${(targetFaceCount / 1000).toFixed(0)}k` : targetFaceCount}</SliderValue>
+                </SliderHeader>
+                <Slider type="range" min={1000} max={500000} step={1000}
+                  value={targetFaceCount} disabled={isGuest}
+                  onChange={e => setTargetFaceCount(Number(e.target.value))} />
+                <SettingLabel style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 0 }}>
+                  <span>Low poly (1k)</span><span>High detail (500k)</span>
+                </SettingLabel>
+              </SliderRow>
+
+              <SliderRow>
+                <SliderHeader>
+                  <SettingLabel>Inference steps <span style={{ fontWeight: 400, opacity: 0.6 }}>(shape quality)</span></SettingLabel>
+                  <SliderValue>{inferenceSteps}</SliderValue>
+                </SliderHeader>
+                <Slider type="range" min={1} max={50} step={1}
+                  value={inferenceSteps} disabled={isGuest}
+                  onChange={e => setInferenceSteps(Number(e.target.value))} />
+                <SettingLabel style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 0 }}>
+                  <span>Turbo (1)</span><span>Max quality (50)</span>
+                </SettingLabel>
+              </SliderRow>
+
               <SettingsGrid>
                 <SettingItem>
                   <SettingLabel>Polygon budget</SettingLabel>

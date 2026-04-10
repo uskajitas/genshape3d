@@ -102,11 +102,17 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       imageUrl:      url,
       prompt:        req.body.prompt        || '',
       style:         req.body.style         || 'Realistic',
-      polygonBudget: req.body.polygonBudget || 'Medium (50k-200k)',
-      textureRes:    req.body.textureRes    || '1K',
-      exportFormat:  req.body.exportFormat  || 'GLB',
-      detailLevel:   req.body.detailLevel   || 'Standard',
-      doTexture:     req.body.doTexture === 'true' || req.body.doTexture === true,
+      polygonBudget:    req.body.polygonBudget || 'Medium (50k-200k)',
+      textureRes:       req.body.textureRes    || '1K',
+      exportFormat:     req.body.exportFormat  || 'GLB',
+      detailLevel:      req.body.detailLevel   || 'Standard',
+      doTexture:        req.body.doTexture === 'true' || req.body.doTexture === true,
+      octreeResolution: parseInt(req.body.octreeResolution) || 0,
+      targetFaceCount:  parseInt(req.body.targetFaceCount)  || 0,
+      inferenceSteps:   parseInt(req.body.inferenceSteps)   || 0,
+      guidanceScale:    parseFloat(req.body.guidanceScale)  || 0,
+      numChunks:        parseInt(req.body.numChunks)        || 0,
+      seed:             parseInt(req.body.seed)             || 0,
     });
     res.json({ job });
   } catch (err: any) {
