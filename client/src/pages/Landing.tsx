@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth } from '../context/AuthContext';
 
 // ── Animations ────────────────────────────────────────────────────────────────
 
@@ -846,7 +846,7 @@ const DESIGNS = [
 ];
 
 const Landing: React.FC = () => {
-  const { loginWithRedirect, isAuthenticated } = useAuth0();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [stylesOpen, setStylesOpen] = useState(false);
   const stylesRef = useRef<HTMLDivElement>(null);
@@ -865,7 +865,7 @@ const Landing: React.FC = () => {
     if (isAuthenticated) {
       navigate('/dashboard');
     } else {
-      loginWithRedirect({ appState: { returnTo: '/dashboard' } });
+      navigate('/login');
     }
   };
 

@@ -3,8 +3,6 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { expressjwt as jwt } from 'express-jwt';
-import jwksRsa from 'jwks-rsa';
 import multer from 'multer';
 import { initDb } from './db';
 import {
@@ -16,30 +14,13 @@ import { uploadToR2, getR2Stream } from './r2';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob } from './jobsRepo';
 
 const app = express();
-const port = process.env.PORT || 4242;
-const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3232';
+const port = process.env.PORT || 8110;
+const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
 
 app.use(cors({ origin: clientOrigin, credentials: true }));
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-
-// ── JWT middleware ─────────────────────────────────────────────────────────────
-
-const domain = process.env.AUTH0_DOMAIN;
-const audience = process.env.AUTH0_AUDIENCE;
-
-const checkJwt = domain && audience
-  ? jwt({
-      secret: jwksRsa.expressJwtSecret({
-        cache: true, rateLimit: true, jwksRequestsPerMinute: 5,
-        jwksUri: `https://${domain}/.well-known/jwks.json`,
-      }) as any,
-      audience,
-      issuer: `https://${domain}/`,
-      algorithms: ['RS256'],
-    })
-  : (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
 
 // ── Health ─────────────────────────────────────────────────────────────────────
 
@@ -180,10 +161,9 @@ app.patch('/api/jobs/:id/cancel', async (req, res) => {
 
 // ── Generate ──────────────────────────────────────────────────────────────────
 
-app.post('/api/generate', checkJwt, async (req, res) => {
-  const auth = (req as any).auth;
-  const email = auth?.['https://genshape3d/email'] || auth?.email;
-  if (!email) return res.status(401).json({ error: 'Unauthorized' });
+app.post('/api/generate', async (req, res) => {
+  const email = req.body.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
   const ok = await deductCredit(email);
   if (!ok) return res.status(402).json({ error: 'Insufficient credits' });
   res.json({ ok: true, status: 'queued' });
