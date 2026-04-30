@@ -344,7 +344,7 @@ const TermsText = styled.p`
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const Login: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, accessDenied } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -430,6 +430,7 @@ const Login: React.FC = () => {
               <Input type="password" placeholder="••••••••" autoComplete="current-password"
                 value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            {accessDenied && <p style={{ color: '#f87171', fontSize: '0.82rem' }}>This site is invitation-only. Your account is not authorized.</p>}
             {error && <p style={{ color: '#f87171', fontSize: '0.82rem' }}>{error}</p>}
             <SubmitBtn type="submit">Sign in</SubmitBtn>
           </EmailForm>
