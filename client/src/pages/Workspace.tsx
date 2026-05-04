@@ -1,0 +1,1231 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Workspace — the GenShape3D app shell.
+//
+// Layout (Meshy / Tripo3D inspired):
+//
+//   ┌──────────────────────────────────────────────────────────────────────┐
+//   │ TOP NAV  logo · workspace · learn · ⓒ credits · Upgrade · 🔔 · 👤    │
+//   ├──────┬──────────────────────────┬─────────────────────────┬──────────┤
+//   │ ICON │  GENERATION CONFIG       │   CENTRAL VIEWPORT      │  ASSET   │
+//   │ RAIL │  (image upload, options) │   (empty / mesh result) │  RAIL    │
+//   │ 72px │  Width 320px             │   flex 1                │  320px   │
+//   └──────┴──────────────────────────┴─────────────────────────┴──────────┘
+//
+// Both signed-in and anonymous users see this shell. Anonymous users get a
+// "Sign in to generate" CTA in place of the Generate button — same as Meshy.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import styled, { keyframes } from 'styled-components';
+import { useAuth } from '../context/AuthContext';
+import { useAppUser } from '../context/UserContext';
+import { signOutUser } from '../firebase';
+
+const MeshViewer = lazy(() => import('../components/MeshViewer'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types & API
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Job {
+  id: string;
+  name?: string;
+  status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
+  imageUrl?: string;
+  resultUrl?: string;
+  createdAt?: string;
+}
+
+const fetchJobs = async (email: string): Promise<Job[]> => {
+  const r = await fetch(`/api/jobs?email=${encodeURIComponent(email)}`);
+  if (!r.ok) return [];
+  const data = await r.json();
+  return Array.isArray(data) ? data : (data.jobs || []);
+};
+
+const submitJob = async (email: string, file: File): Promise<Job | null> => {
+  const form = new FormData();
+  form.append('image', file);
+  form.append('email', email);
+  form.append('exportFormat', 'GLB');
+  form.append('octreeResolution', '256');
+  form.append('targetFaceCount', '10000');
+  form.append('inferenceSteps', '5');
+  const r = await fetch('/api/upload', { method: 'POST', body: form });
+  if (!r.ok) return null;
+  const data = await r.json();
+  return data.job ?? data;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Animations
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+
+const pulse = keyframes`
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+`;
+
+const float = keyframes`
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50%      { transform: translateY(-12px) rotate(2deg); }
+`;
+
+const rotate = keyframes`
+  from { transform: rotate(0deg); } to { transform: rotate(360deg); }
+`;
+
+const sweep = keyframes`
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shell scaffold
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Shell = styled.div`
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, ${p => p.theme.colors.primary}14, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, ${p => p.theme.colors.violet}10, transparent 60%),
+    ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+`;
+
+const Body = styled.div`
+  display: grid;
+  grid-template-columns: 64px 320px 1fr 320px;
+  min-height: 0;
+  overflow: hidden;
+
+  @media (max-width: 1280px) {
+    grid-template-columns: 64px 300px 1fr 280px;
+  }
+  @media (max-width: 1024px) {
+    grid-template-columns: 56px 280px 1fr;
+  }
+  @media (max-width: 720px) {
+    grid-template-columns: 56px 1fr;
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Top nav
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NavBar = styled.header`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem 0 1.25rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  background:
+    linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
+  backdrop-filter: blur(8px);
+  z-index: 10;
+`;
+
+const BrandWrap = styled(Link)`
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: 0.95rem;
+  color: ${p => p.theme.colors.text};
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.12s;
+  &:hover { opacity: 0.85; }
+`;
+
+const BrandMark = styled.div`
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 14px ${p => p.theme.colors.primary}66;
+  font-size: 0.95rem;
+`;
+
+const NavTabs = styled.nav`
+  display: flex;
+  gap: 0.25rem;
+  margin-left: 1.5rem;
+
+  @media (max-width: 720px) { display: none; }
+`;
+
+const NavTab = styled.button<{ $active?: boolean }>`
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  color: ${p => p.$active ? p.theme.colors.text : p.theme.colors.textMuted};
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s;
+  &:hover {
+    color: ${p => p.theme.colors.text};
+    background: ${p => p.theme.colors.surfaceHigh};
+  }
+`;
+
+const NavSpacer = styled.div`
+  flex: 1;
+`;
+
+const CreditPill = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.32rem 0.85rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+  &:hover {
+    border-color: ${p => p.theme.colors.violet}66;
+    background: ${p => p.theme.colors.surface};
+  }
+`;
+
+const CoinDot = styled.span`
+  width: 14px; height: 14px; border-radius: 50%;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  box-shadow: 0 0 8px ${p => p.theme.colors.violet}99;
+`;
+
+const UpgradeBtn = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font: inherit;
+  cursor: pointer;
+  padding: 0.42rem 1rem;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 14px ${p => p.theme.colors.primary}55;
+  transition: transform 0.12s, box-shadow 0.12s;
+  &:hover { transform: translateY(-1px); box-shadow: 0 4px 22px ${p => p.theme.colors.violet}88; }
+  &::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.25) 50%, transparent 70%);
+    animation: ${sweep} 2.6s linear infinite;
+  }
+`;
+
+const ProfileBtn = styled.button`
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const ProfileImg = styled.img`
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: pointer;
+`;
+
+const SignInBtn = styled.button`
+  font: inherit;
+  cursor: pointer;
+  padding: 0.42rem 1rem;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: transparent;
+  color: ${p => p.theme.colors.text};
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  &:hover { background: ${p => p.theme.colors.surfaceHigh}; border-color: ${p => p.theme.colors.violet}; }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Icon rail (left)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Rail = styled.aside`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0;
+  gap: 0.4rem;
+  border-right: 1px solid ${p => p.theme.colors.border};
+  background:
+    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+`;
+
+const RailBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  font-size: 1rem;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.$active ? 'white' : p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
+  border: 1px solid ${p => p.$active ? 'transparent' : 'transparent'};
+  opacity: ${p => p.$disabled ? 0.4 : 1};
+  position: relative;
+  transition: background 0.15s, color 0.15s, transform 0.12s;
+  ${p => p.$active && `box-shadow: 0 4px 18px ${p.theme.colors.primary}66;`}
+  &:hover {
+    ${p => !p.$disabled && !p.$active && `
+      background: ${p.theme.colors.surfaceHigh};
+    `}
+    ${p => !p.$disabled && `transform: scale(1.04);`}
+  }
+`;
+
+const RailLabel = styled.span`
+  font-size: 0.6rem;
+  color: ${p => p.theme.colors.textMuted};
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 0.1rem;
+`;
+
+const RailDivider = styled.div`
+  width: 24px;
+  height: 1px;
+  background: ${p => p.theme.colors.border};
+  margin: 0.4rem 0;
+`;
+
+const RailItem: React.FC<{
+  icon: string;
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  title?: string;
+}> = ({ icon, label, active, disabled, onClick, title }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <RailBtn
+      $active={active}
+      $disabled={disabled}
+      onClick={disabled ? undefined : onClick}
+      title={title || label}
+    >
+      {icon}
+    </RailBtn>
+    <RailLabel>{label}</RailLabel>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config panel (left middle) — image upload + minimal options
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Panel = styled.section`
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid ${p => p.theme.colors.border};
+  background:
+    radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.primary}0d, transparent 70%),
+    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  min-width: 0;
+  overflow: hidden;
+
+  @media (max-width: 720px) { display: none; }
+`;
+
+const PanelHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem 0.65rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+`;
+
+const PanelTitle = styled.h2`
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${p => p.theme.colors.textMuted};
+  margin: 0;
+`;
+
+const PanelBody = styled.div`
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`;
+
+const DropZone = styled.label<{ $hasFile?: boolean; $dragOver?: boolean }>`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1.5px dashed ${p =>
+    p.$dragOver ? p.theme.colors.violet :
+    p.$hasFile ? p.theme.colors.primary :
+    p.theme.colors.borderHigh};
+  border-radius: 14px;
+  padding: ${p => p.$hasFile ? '0' : '1.75rem 1rem'};
+  background: ${p => p.$hasFile ? 'transparent' : p.theme.colors.background}99;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  overflow: hidden;
+  aspect-ratio: ${p => p.$hasFile ? '1' : 'auto'};
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const DropZoneIcon = styled.div`
+  width: 48px; height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}22, ${p => p.theme.colors.violet}22);
+  border: 1px solid ${p => p.theme.colors.primary}44;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.25rem;
+`;
+
+const DropZoneText = styled.div`
+  font-size: 0.85rem;
+  color: ${p => p.theme.colors.text};
+  font-weight: 600;
+  text-align: center;
+`;
+
+const DropZoneHint = styled.div`
+  font-size: 0.72rem;
+  color: ${p => p.theme.colors.textMuted};
+  text-align: center;
+`;
+
+const PreviewImage = styled.img`
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+`;
+
+const PreviewClear = styled.button`
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(0,0,0,0.65);
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex; align-items: center; justify-content: center;
+  &:hover { background: rgba(0,0,0,0.85); }
+`;
+
+const HiddenInput = styled.input`
+  position: absolute;
+  width: 1px; height: 1px; opacity: 0;
+  pointer-events: none;
+`;
+
+const Field = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+`;
+
+const FieldLabel = styled.label`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+`;
+
+const FieldHint = styled.span`
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: ${p => p.theme.colors.textMuted};
+  opacity: 0.75;
+`;
+
+const Segmented = styled.div`
+  display: flex;
+  background: ${p => p.theme.colors.background}80;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+`;
+
+const SegmentedBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
+  flex: 1;
+  padding: 0.42rem 0.5rem;
+  border: 0;
+  border-radius: 7px;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.$active ? 'white' : p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  opacity: ${p => p.$disabled ? 0.55 : 1};
+  transition: background 0.15s, color 0.15s;
+  ${p => p.$active && `box-shadow: 0 2px 8px ${p.theme.colors.primary}66;`}
+`;
+
+const ComingSoonTag = styled.span`
+  font-size: 0.6rem;
+  color: ${p => p.theme.colors.violet};
+  background: ${p => p.theme.colors.violet}22;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+`;
+
+const PromptArea = styled.textarea`
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 10px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
+`;
+
+const PanelFooter = styled.div`
+  border-top: 1px solid ${p => p.theme.colors.border};
+  padding: 0.85rem 1rem 1rem;
+  background: ${p => p.theme.colors.surface};
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+`;
+
+const CostRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: ${p => p.theme.colors.textMuted};
+`;
+
+const CostValue = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: ${p => p.theme.colors.text};
+  font-weight: 600;
+`;
+
+const GenerateBtn = styled.button<{ $disabled?: boolean }>`
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.12s, box-shadow 0.12s;
+  background: ${p => p.$disabled
+    ? p.theme.colors.surfaceHigh
+    : `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`};
+  color: ${p => p.$disabled ? p.theme.colors.textMuted : 'white'};
+  box-shadow: ${p => p.$disabled ? 'none' : `0 6px 22px ${p.theme.colors.primary}66`};
+  &:hover {
+    ${p => !p.$disabled && `
+      transform: translateY(-1px);
+      box-shadow: 0 8px 30px ${p.theme.colors.violet}88;
+    `}
+  }
+  &:disabled { pointer-events: none; }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Central viewport
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Viewport = styled.section`
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse 60% 60% at 30% 25%, ${p => p.theme.colors.primary}26, transparent 60%),
+    radial-gradient(ellipse 55% 55% at 75% 80%, ${p => p.theme.colors.violet}1f, transparent 60%),
+    radial-gradient(ellipse 100% 100% at 50% 50%, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  overflow: hidden;
+  min-width: 0;
+`;
+
+const GridBg = styled.div`
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(${p => p.theme.colors.border}66 1px, transparent 1px),
+    linear-gradient(90deg, ${p => p.theme.colors.border}66 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.25;
+  pointer-events: none;
+  mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
+`;
+
+const EmptyState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  text-align: center;
+  z-index: 1;
+  animation: ${fadeIn} 0.35s ease;
+  padding: 0 2rem;
+  max-width: 480px;
+`;
+
+const HeroOrb = styled.div`
+  position: relative;
+  width: 140px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const HeroCore = styled.div`
+  width: 80px; height: 80px;
+  border-radius: 26%;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  box-shadow:
+    0 10px 40px ${p => p.theme.colors.primary}66,
+    inset 0 -10px 30px ${p => p.theme.colors.violet}aa;
+  animation: ${float} 6s ease-in-out infinite;
+`;
+
+const HeroRing = styled.div<{ $size: number; $delay?: number; $color?: string }>`
+  position: absolute;
+  width: ${p => p.$size}px;
+  height: ${p => p.$size}px;
+  border-radius: 50%;
+  border: 1px dashed ${p => p.$color || p.theme.colors.violet}66;
+  animation: ${rotate} ${p => 12 + p.$size / 30}s linear infinite ${p => p.$delay ? `${p.$delay}s` : ''};
+`;
+
+const HeroDot = styled.div<{ $top: number; $left: number; $color?: string }>`
+  position: absolute;
+  top: ${p => p.$top}%;
+  left: ${p => p.$left}%;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: ${p => p.$color || p.theme.colors.primary};
+  box-shadow: 0 0 12px ${p => p.$color || p.theme.colors.primary};
+  animation: ${pulse} 2.4s ease infinite;
+`;
+
+const EmptyTitle = styled.h1`
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: ${p => p.theme.colors.text};
+`;
+
+const EmptyTitleAccent = styled.span`
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+const EmptySub = styled.p`
+  font-size: 0.92rem;
+  color: ${p => p.theme.colors.textMuted};
+  line-height: 1.55;
+  margin: 0;
+`;
+
+const EmptyCta = styled.button`
+  margin-top: 0.5rem;
+  padding: 0.7rem 1.5rem;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 22px ${p => p.theme.colors.primary}66;
+  transition: transform 0.12s, box-shadow 0.12s;
+  &:hover { transform: translateY(-1px); box-shadow: 0 8px 30px ${p => p.theme.colors.violet}88; }
+`;
+
+const ViewerWrap = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+`;
+
+// Floating overlay status card while a job is running
+const RunningCard = styled.div`
+  position: absolute;
+  top: 16px; left: 50%;
+  transform: translateX(-50%);
+  background: ${p => p.theme.colors.surface}f2;
+  backdrop-filter: blur(10px);
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  z-index: 5;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.text};
+  box-shadow: 0 14px 40px rgba(0,0,0,0.4);
+`;
+
+const RunningSpinner = styled.div`
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid ${p => p.theme.colors.violet}33;
+  border-top-color: ${p => p.theme.colors.violet};
+  animation: ${rotate} 0.9s linear infinite;
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Asset rail (right)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Aside = styled.aside`
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid ${p => p.theme.colors.border};
+  background:
+    radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.violet}0d, transparent 70%),
+    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  min-width: 0;
+  overflow: hidden;
+
+  @media (max-width: 1024px) { display: none; }
+`;
+
+const AsideHeader = styled.div`
+  padding: 0.85rem 1rem 0.65rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+`;
+
+const AsideTitle = styled.h2`
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${p => p.theme.colors.textMuted};
+  margin: 0;
+`;
+
+const Search = styled.input`
+  width: 100%;
+  padding: 0.5rem 0.8rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 9px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
+`;
+
+const AssetGrid = styled.div`
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 1rem;
+  overflow-y: auto;
+  align-content: start;
+`;
+
+const AssetCard = styled.button<{ $active?: boolean }>`
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 6px 20px ${p => p.theme.colors.violet}44;
+  }
+`;
+
+const AssetThumb = styled.img`
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+`;
+
+const AssetPlaceholder = styled.div`
+  width: 100%; height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(135deg, ${p => p.theme.colors.primary}22, ${p => p.theme.colors.violet}22);
+  font-size: 1.5rem;
+`;
+
+const AssetBadge = styled.div<{ $color: string }>`
+  position: absolute;
+  top: 6px; left: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: ${p => p.$color}cc;
+  color: white;
+  backdrop-filter: blur(6px);
+`;
+
+const EmptyAssets = styled.div`
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.82rem;
+  color: ${p => p.theme.colors.textMuted};
+  padding: 2rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HeroIllustration: React.FC = () => (
+  <HeroOrb>
+    <HeroRing $size={140} />
+    <HeroRing $size={108} $delay={-3} $color="#EC4899" />
+    <HeroCore />
+    <HeroDot $top={5} $left={48} />
+    <HeroDot $top={50} $left={92} $color="#EC4899" />
+    <HeroDot $top={92} $left={48} />
+    <HeroDot $top={50} $left={4} $color="#EC4899" />
+  </HeroOrb>
+);
+
+const Workspace: React.FC = () => {
+  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
+  const { appUser } = useAppUser();
+
+  // ── State
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [quality, setQuality] = useState<'standard' | 'high'>('standard');
+  const [dragOver, setDragOver] = useState(false);
+  const [search, setSearch] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const email = user?.email || '';
+  const credits = isAuthenticated ? (appUser?.credits ?? 0) : 0;
+  const generationCost = quality === 'high' ? 2 : 1;
+
+  // ── Effects
+  useEffect(() => {
+    if (!isAuthenticated || !email) return;
+    fetchJobs(email).then(setJobs);
+  }, [isAuthenticated, email]);
+
+  // Poll for running jobs
+  useEffect(() => {
+    if (!isAuthenticated || !email) return;
+    const hasActive = jobs.some(j => j.status === 'pending' || j.status === 'running');
+    if (!hasActive) return;
+    const t = setInterval(() => fetchJobs(email).then(setJobs), 4000);
+    return () => clearInterval(t);
+  }, [isAuthenticated, email, jobs]);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  // ── Handlers
+  const onFile = useCallback((f: File | undefined) => {
+    if (!f || !f.type.startsWith('image/')) return;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+  }, [previewUrl]);
+
+  const onClearFile = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [previewUrl]);
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const onDragLeave = () => setDragOver(false);
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    onFile(e.dataTransfer.files?.[0]);
+  };
+
+  const onGenerate = useCallback(async () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (!file || !email || submitting) return;
+    setSubmitting(true);
+    const job = await submitJob(email, file);
+    setSubmitting(false);
+    if (job) {
+      setJobs(prev => [job, ...prev]);
+      setSelectedJobId(job.id);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setFile(null);
+      setPreviewUrl(null);
+    }
+  }, [isAuthenticated, navigate, file, email, submitting, previewUrl]);
+
+  const onSignOut = async () => {
+    await signOutUser();
+    window.location.href = '/';
+  };
+
+  // ── Derived
+  const selectedJob = useMemo(
+    () => jobs.find(j => j.id === selectedJobId) ?? null,
+    [jobs, selectedJobId],
+  );
+
+  const runningJob = useMemo(
+    () => jobs.find(j => j.status === 'pending' || j.status === 'running') ?? null,
+    [jobs],
+  );
+
+  const filteredJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter(j => (j.name || j.id).toLowerCase().includes(q));
+  }, [jobs, search]);
+
+  const meshUrl = selectedJob?.resultUrl
+    ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
+    : null;
+
+  const initials = (user?.displayName || user?.email || '?').slice(0, 1).toUpperCase();
+
+  // ── Render
+  return (
+    <Shell>
+      {/* ──────── Top nav ──────── */}
+      <NavBar>
+        <BrandWrap to="/" title="Back to home">
+          <BrandMark>⬡</BrandMark>
+          GENSHAPE3D
+        </BrandWrap>
+        <NavTabs>
+          <NavTab $active>Workspace</NavTab>
+          <NavTab onClick={() => navigate('/#how')}>How it works</NavTab>
+          <NavTab onClick={() => navigate('/#pricing')}>Pricing</NavTab>
+        </NavTabs>
+        <NavSpacer />
+        {isAuthenticated && (
+          <CreditPill title="Your credits">
+            <CoinDot />
+            {credits}
+          </CreditPill>
+        )}
+        <UpgradeBtn onClick={() => navigate(isAuthenticated ? '/dashboard?upgrade=1' : '/login')}>
+          ✦ Upgrade
+        </UpgradeBtn>
+        {isAuthenticated ? (
+          user?.photoURL
+            ? <ProfileImg src={user.photoURL} alt={user.displayName || 'Profile'} onClick={onSignOut} title="Sign out" />
+            : <ProfileBtn onClick={onSignOut} title="Sign out">{initials}</ProfileBtn>
+        ) : (
+          <SignInBtn onClick={() => navigate('/login')}>Sign in</SignInBtn>
+        )}
+      </NavBar>
+
+      <Body>
+        {/* ──────── Icon rail ──────── */}
+        <Rail>
+          <RailItem icon="🖼" label="Image" active title="Image to 3D" />
+          <RailItem icon="✨" label="Text" disabled title="Text to 3D — coming soon" />
+          <RailItem icon="🎨" label="Texture" disabled title="Re-texture — coming soon" />
+          <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
+          <RailDivider />
+          <RailItem icon="📦" label="Assets" title="My assets" />
+          <RailItem icon="⚙" label="Settings" title="Settings" />
+        </Rail>
+
+        {/* ──────── Config panel ──────── */}
+        <Panel>
+          <PanelHeader>
+            <PanelTitle>Image to 3D</PanelTitle>
+          </PanelHeader>
+          <PanelBody>
+            <Field>
+              <FieldLabel>
+                Reference image
+                <FieldHint>{file ? file.name.slice(0, 24) : 'PNG · JPG · WEBP'}</FieldHint>
+              </FieldLabel>
+              <DropZone
+                $hasFile={!!previewUrl}
+                $dragOver={dragOver}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <HiddenInput
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => onFile(e.target.files?.[0])}
+                />
+                {previewUrl ? (
+                  <>
+                    <PreviewImage src={previewUrl} alt="upload preview" />
+                    <PreviewClear onClick={onClearFile} title="Remove">×</PreviewClear>
+                  </>
+                ) : (
+                  <>
+                    <DropZoneIcon>⬆</DropZoneIcon>
+                    <DropZoneText>Drop or click to upload</DropZoneText>
+                    <DropZoneHint>Front-facing single object · max 20MB</DropZoneHint>
+                  </>
+                )}
+              </DropZone>
+            </Field>
+
+            <Field>
+              <FieldLabel>Prompt <FieldHint>optional — guide the model</FieldHint></FieldLabel>
+              <PromptArea
+                placeholder="e.g. a small ceramic vase, smooth surface, no handles"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel>Quality</FieldLabel>
+              <Segmented>
+                <SegmentedBtn $active={quality === 'standard'} onClick={() => setQuality('standard')}>
+                  Standard
+                </SegmentedBtn>
+                <SegmentedBtn $active={quality === 'high'} onClick={() => setQuality('high')}>
+                  High
+                </SegmentedBtn>
+              </Segmented>
+            </Field>
+
+            <Field>
+              <FieldLabel>Format</FieldLabel>
+              <Segmented>
+                <SegmentedBtn $active>GLB</SegmentedBtn>
+                <SegmentedBtn $disabled>OBJ <ComingSoonTag>soon</ComingSoonTag></SegmentedBtn>
+                <SegmentedBtn $disabled>FBX <ComingSoonTag>soon</ComingSoonTag></SegmentedBtn>
+              </Segmented>
+            </Field>
+          </PanelBody>
+          <PanelFooter>
+            <CostRow>
+              <span>Estimated cost</span>
+              <CostValue><CoinDot />{generationCost} credit{generationCost > 1 ? 's' : ''}</CostValue>
+            </CostRow>
+            <GenerateBtn
+              $disabled={!isAuthenticated ? false : (!file || submitting || credits < generationCost)}
+              onClick={onGenerate}
+            >
+              {!isAuthenticated
+                ? '✦ Sign in to generate'
+                : submitting
+                  ? 'Submitting…'
+                  : !file
+                    ? 'Upload an image first'
+                    : credits < generationCost
+                      ? 'Not enough credits — Upgrade'
+                      : '✦ Generate'}
+            </GenerateBtn>
+          </PanelFooter>
+        </Panel>
+
+        {/* ──────── Central viewport ──────── */}
+        <Viewport>
+          <GridBg />
+          {runningJob && (
+            <RunningCard>
+              <RunningSpinner />
+              Generating mesh…
+            </RunningCard>
+          )}
+          {meshUrl ? (
+            <ViewerWrap>
+              <Suspense fallback={<EmptyState><EmptySub>Loading viewer…</EmptySub></EmptyState>}>
+                <MeshViewer url={meshUrl} wireframe={false} showGrid />
+              </Suspense>
+            </ViewerWrap>
+          ) : (
+            <EmptyState>
+              <HeroIllustration />
+              <EmptyTitle>
+                What will you <EmptyTitleAccent>shape</EmptyTitleAccent> today?
+              </EmptyTitle>
+              <EmptySub>
+                Upload an image on the left to turn it into an export-ready 3D model.
+                {!isAuthenticated && ' Sign in to start — your first generation is on us.'}
+              </EmptySub>
+              {!isAuthenticated && (
+                <EmptyCta onClick={() => navigate('/login')}>
+                  ✦ Start free
+                </EmptyCta>
+              )}
+            </EmptyState>
+          )}
+        </Viewport>
+
+        {/* ──────── Asset rail ──────── */}
+        <Aside>
+          <AsideHeader>
+            <AsideTitle>My assets</AsideTitle>
+            <Search
+              placeholder="Search…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </AsideHeader>
+          <AssetGrid>
+            {!isAuthenticated && (
+              <EmptyAssets>
+                <span style={{ fontSize: '1.4rem' }}>🔒</span>
+                Sign in to see your generations.
+              </EmptyAssets>
+            )}
+            {isAuthenticated && filteredJobs.length === 0 && (
+              <EmptyAssets>
+                <span style={{ fontSize: '1.4rem' }}>📭</span>
+                No assets yet. Generate your first model to see it here.
+              </EmptyAssets>
+            )}
+            {filteredJobs.map(job => {
+              const thumbKey = job.imageUrl?.includes('/uploads/')
+                ? `uploads/${job.imageUrl.split('/uploads/')[1]}`
+                : job.imageUrl;
+              const thumb = thumbKey ? `/api/image?key=${encodeURIComponent(thumbKey)}` : null;
+              const badgeColor =
+                job.status === 'done' ? '#10B981' :
+                job.status === 'error' ? '#EF4444' :
+                job.status === 'cancelled' ? '#6B7280' :
+                '#A855F7';
+              return (
+                <AssetCard
+                  key={job.id}
+                  $active={selectedJobId === job.id}
+                  onClick={() => setSelectedJobId(job.id)}
+                  title={job.name || job.id}
+                >
+                  {thumb
+                    ? <AssetThumb src={thumb} alt="" />
+                    : <AssetPlaceholder>⬡</AssetPlaceholder>}
+                  <AssetBadge $color={badgeColor}>{job.status}</AssetBadge>
+                </AssetCard>
+              );
+            })}
+          </AssetGrid>
+        </Aside>
+      </Body>
+    </Shell>
+  );
+};
+
+export default Workspace;

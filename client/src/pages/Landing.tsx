@@ -1,247 +1,194 @@
-import React, { useEffect, useRef, useState } from 'react';
+// ─────────────────────────────────────────────────────────────────────────────
+// Landing — public marketing page.
+//
+// Same visual language as the Workspace (neutral dark greys, purple+pink
+// accents, subtle radial gradients) but laid out as a scrolling marketing
+// page: top nav → hero → how it works → pricing → footer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 
-// ── Animations ────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Animations
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fadeUp = keyframes`
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
 
 const float = keyframes`
   0%, 100% { transform: translateY(0px) rotate(0deg); }
-  33% { transform: translateY(-18px) rotate(1deg); }
-  66% { transform: translateY(-8px) rotate(-1deg); }
+  50%      { transform: translateY(-14px) rotate(2deg); }
+`;
+
+const rotate = keyframes`
+  from { transform: rotate(0deg); } to { transform: rotate(360deg); }
 `;
 
 const pulse = keyframes`
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.05); }
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.06); }
 `;
 
-const rotateMesh = keyframes`
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+const sweep = keyframes`
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
 `;
 
-const scanLine = keyframes`
-  0% { top: 0%; opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-`;
-
-const shimmer = keyframes`
-  0% { background-position: -200% center; }
-  100% { background-position: 200% center; }
-`;
-
-const fadeUp = keyframes`
-  from { opacity: 0; transform: translateY(24px); }
-  to { opacity: 1; transform: translateY(0); }
-`;
-
-const glow = keyframes`
-  0%, 100% { box-shadow: 0 0 20px #7c3aed44, 0 0 60px #7c3aed22; }
-  50% { box-shadow: 0 0 40px #7c3aed88, 0 0 100px #7c3aed44; }
-`;
-
-// ── Layout ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Page scaffold
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Page = styled.div`
   min-height: 100vh;
-  background: ${p => p.theme.colors.background};
-  overflow-x: hidden;
-`;
-
-// ── Navbar ────────────────────────────────────────────────────────────────────
-
-const Nav = styled.nav`
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2.5rem;
-  height: 64px;
-  background: ${p => p.theme.colors.background}cc;
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid ${p => p.theme.colors.border};
-`;
-
-const Brand = styled(Link)`
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-family: 'Orbitron', monospace;
-  font-size: 1.2rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 0%, ${p => p.theme.colors.primary}1c, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 90% 30%, ${p => p.theme.colors.violet}14, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 10% 70%, ${p => p.theme.colors.primary}0e, transparent 60%),
+    ${p => p.theme.colors.background};
   color: ${p => p.theme.colors.text};
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 `;
 
-const BrandIcon = styled.div`
-  width: 32px; height: 32px;
-  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1rem;
-`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Top nav (re-uses the Workspace look)
+// ─────────────────────────────────────────────────────────────────────────────
 
-const NavLinks = styled.div`
+const NavBar = styled.header`
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 1rem;
+  padding: 0 2rem;
+  height: 64px;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  background:
+    linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}cc, ${p => p.theme.colors.surface}cc);
+  backdrop-filter: blur(14px);
 `;
 
-const NavLink = styled(Link)`
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: ${p => p.theme.colors.textMuted};
-  padding: 0.4rem 0.9rem;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-  &:hover { color: ${p => p.theme.colors.text}; background: ${p => p.theme.colors.surface}; }
-`;
-
-const NavActions = styled.div`
+const BrandWrap = styled(Link)`
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-`;
-
-const StylesDropdownWrapper = styled.div`
-  position: relative;
-  display: flex;
-  align-items: center;
-`;
-
-const StylesBtn = styled.button`
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: ${p => p.theme.colors.textMuted};
-  padding: 0.4rem 0.9rem;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
-  &:hover {
-    color: ${p => p.theme.colors.text};
-    background: ${p => p.theme.colors.surface};
-    border-color: ${p => p.theme.colors.border};
-  }
-`;
-
-const DropdownMenu = styled.div<{ open: boolean }>`
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 220px;
-  background: ${p => p.theme.colors.surface};
-  border: 1px solid ${p => p.theme.colors.border};
-  border-radius: 10px;
-  padding: 0.4rem;
-  display: ${p => (p.open ? 'block' : 'none')};
-  box-shadow: 0 16px 40px #00000066;
-  z-index: 200;
-  max-height: 420px;
-  overflow-y: auto;
-`;
-
-const DropdownItem = styled.a`
-  display: block;
-  padding: 0.45rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  color: ${p => p.theme.colors.textMuted};
-  cursor: pointer;
-  transition: color 0.12s, background 0.12s;
+  gap: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: 0.95rem;
+  color: ${p => p.theme.colors.text};
   text-decoration: none;
-  &:hover {
-    color: ${p => p.theme.colors.text};
-    background: ${p => p.theme.colors.primary}18;
-  }
 `;
 
-const DropdownLabel = styled.div`
-  font-size: 0.65rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: ${p => p.theme.colors.primary};
-  padding: 0.4rem 0.75rem 0.25rem;
-`;
-
-const BtnOutline = styled(Link)`
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: ${p => p.theme.colors.primaryLight};
-  padding: 0.45rem 1.1rem;
-  border: 1px solid ${p => p.theme.colors.primary}66;
+const BrandMark = styled.div`
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
-  transition: all 0.15s;
-  &:hover {
-    border-color: ${p => p.theme.colors.primary};
-    background: ${p => p.theme.colors.primary}18;
-  }
-`;
-
-const BtnPrimary = styled(Link)`
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #fff;
-  padding: 0.45rem 1.25rem;
   background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
-  border-radius: 8px;
-  transition: opacity 0.15s, transform 0.15s;
-  &:hover { opacity: 0.88; transform: translateY(-1px); }
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  box-shadow: 0 4px 14px ${p => p.theme.colors.primary}66;
+  font-size: 0.95rem;
 `;
 
-// ── Hero ──────────────────────────────────────────────────────────────────────
-
-const Hero = styled.section`
-  min-height: 100vh;
+const NavTabs = styled.nav`
   display: flex;
+  gap: 0.25rem;
+  margin-left: 1.5rem;
+  @media (max-width: 720px) { display: none; }
+`;
+
+const NavTabLink = styled.a`
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+  border-radius: 7px;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  &:hover { color: ${p => p.theme.colors.text}; background: ${p => p.theme.colors.surfaceHigh}; }
+`;
+
+const NavSpacer = styled.div`flex: 1;`;
+
+const SignInBtn = styled(Link)`
+  padding: 0.42rem 1rem;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: transparent;
+  color: ${p => p.theme.colors.text};
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  &:hover { background: ${p => p.theme.colors.surfaceHigh}; border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const PrimaryNavBtn = styled(Link)`
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.42rem 1rem;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
   position: relative;
   overflow: hidden;
-  padding: 7rem 2rem 4rem;
+  box-shadow: 0 2px 14px ${p => p.theme.colors.primary}55;
+  &:hover { box-shadow: 0 4px 22px ${p => p.theme.colors.violet}88; }
+  &::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.25) 50%, transparent 70%);
+    animation: ${sweep} 2.6s linear infinite;
+  }
 `;
 
-const HeroGrid = styled.div`
+// ─────────────────────────────────────────────────────────────────────────────
+// Hero
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Hero = styled.section`
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4rem;
   align-items: center;
+  gap: 3rem;
+  padding: 6rem 2rem 5rem;
   max-width: 1200px;
-  width: 100%;
-  z-index: 2;
+  margin: 0 auto;
   @media (max-width: 900px) {
     grid-template-columns: 1fr;
     text-align: center;
+    padding: 4rem 1.5rem 3rem;
   }
 `;
 
 const HeroLeft = styled.div`
-  animation: ${fadeUp} 0.7s ease both;
+  animation: ${fadeUp} 0.6s ease both;
 `;
 
 const HeroBadge = styled.div`
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  background: ${p => p.theme.colors.primary}18;
-  border: 1px solid ${p => p.theme.colors.primary}44;
+  gap: 0.45rem;
+  padding: 0.32rem 0.85rem;
   border-radius: 999px;
-  padding: 0.3rem 0.9rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  border: 1px solid ${p => p.theme.colors.primary}55;
+  background: ${p => p.theme.colors.primary}1f;
   color: ${p => p.theme.colors.primaryLight};
+  font-size: 0.74rem;
+  font-weight: 600;
   letter-spacing: 0.04em;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.4rem;
 `;
 
 const BadgeDot = styled.span`
@@ -252,351 +199,254 @@ const BadgeDot = styled.span`
 `;
 
 const HeroTitle = styled.h1`
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(2.6rem, 5vw, 4rem);
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
   font-weight: 800;
-  line-height: 1.1;
   letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0 0 1.25rem;
   color: ${p => p.theme.colors.text};
-  margin-bottom: 1.5rem;
 `;
 
-const GradientText = styled.span`
-  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet}, ${p => p.theme.colors.green});
-  background-size: 200% auto;
+const HeroAccent = styled.span`
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: ${shimmer} 4s linear infinite;
 `;
 
-const HeroSubtitle = styled.p`
+const HeroSub = styled.p`
   font-size: 1.05rem;
+  line-height: 1.6;
   color: ${p => p.theme.colors.textMuted};
-  line-height: 1.7;
   max-width: 480px;
-  margin-bottom: 2.5rem;
+  margin: 0 0 2rem;
+  @media (max-width: 900px) { margin-left: auto; margin-right: auto; }
 `;
 
-const HeroCTAs = styled.div`
+const CtaRow = styled.div`
   display: flex;
-  gap: 1rem;
+  gap: 0.8rem;
   flex-wrap: wrap;
+  @media (max-width: 900px) { justify-content: center; }
 `;
 
-const CTAPrimary = styled.button`
-  display: flex; align-items: center; gap: 0.5rem;
+const CtaPrimary = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.6rem;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
   font-size: 0.95rem;
   font-weight: 700;
-  color: #fff;
-  padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-  animation: ${glow} 3s ease infinite;
-  &:hover { transform: translateY(-2px); filter: brightness(1.15); }
+  text-decoration: none;
+  box-shadow: 0 6px 22px ${p => p.theme.colors.primary}66;
+  transition: transform 0.12s, box-shadow 0.12s;
+  &:hover { transform: translateY(-1px); box-shadow: 0 8px 30px ${p => p.theme.colors.violet}99; }
 `;
 
-const CTASecondary = styled.button`
-  display: flex; align-items: center; gap: 0.5rem;
+const CtaSecondary = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.6rem;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: ${p => p.theme.colors.surface};
+  color: ${p => p.theme.colors.text};
+  border-radius: 10px;
   font-size: 0.95rem;
   font-weight: 600;
-  color: ${p => p.theme.colors.textMuted};
-  padding: 0.75rem 2rem;
-  background: transparent;
-  border: 1px solid ${p => p.theme.colors.border};
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-  &:hover {
-    border-color: ${p => p.theme.colors.borderHigh};
-    color: ${p => p.theme.colors.text};
-    background: ${p => p.theme.colors.surface};
-  }
+  text-decoration: none;
+  &:hover { border-color: ${p => p.theme.colors.violet}; background: ${p => p.theme.colors.surfaceHigh}; }
 `;
 
 const HeroStats = styled.div`
   display: flex;
   gap: 2rem;
-  margin-top: 3rem;
-  padding-top: 2rem;
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
   border-top: 1px solid ${p => p.theme.colors.border};
+  @media (max-width: 900px) { justify-content: center; flex-wrap: wrap; }
 `;
 
 const Stat = styled.div``;
-
 const StatNum = styled.div`
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 1.6rem;
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 1.5rem;
   font-weight: 800;
   color: ${p => p.theme.colors.text};
 `;
-
 const StatLabel = styled.div`
   font-size: 0.78rem;
   color: ${p => p.theme.colors.textMuted};
-  margin-top: 0.1rem;
 `;
 
-// ── Hero Visual ───────────────────────────────────────────────────────────────
+// ── Hero illustration ───────────────────────────────────────────────────────
 
 const HeroRight = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: ${fadeUp} 0.9s ease 0.2s both;
+  animation: ${fadeUp} 0.8s ease 0.15s both;
   @media (max-width: 900px) { display: none; }
 `;
 
-const MeshContainer = styled.div`
+const OrbStage = styled.div`
   position: relative;
-  width: 480px;
-  height: 480px;
+  width: 420px; height: 420px;
 `;
 
-const MeshOrb = styled.div`
+const OrbCore = styled.div`
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  width: 320px; height: 320px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%,
-    ${p => p.theme.colors.violet}44,
-    ${p => p.theme.colors.primary}33,
-    transparent 70%
-  );
+  width: 180px; height: 180px;
+  border-radius: 30%;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  box-shadow:
+    0 20px 60px ${p => p.theme.colors.primary}88,
+    inset 0 -20px 60px ${p => p.theme.colors.violet}99;
   animation: ${float} 6s ease-in-out infinite;
 `;
 
-const MeshRing = styled.div<{ $size: number; $delay?: number; $color?: string }>`
+const OrbRing = styled.div<{ $size: number; $delay?: number; $color?: string }>`
   position: absolute;
   top: 50%; left: 50%;
   width: ${p => p.$size}px;
   height: ${p => p.$size}px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 1px solid ${p => p.$color || p.theme.colors.primary}44;
-  animation: ${rotateMesh} ${p => 8 + (p.$size / 80)}s linear infinite ${p => p.$delay ? `${p.$delay}s` : ''};
+  border: 1px dashed ${p => p.$color || p.theme.colors.violet}66;
+  animation: ${rotate} ${p => 14 + p.$size / 30}s linear infinite ${p => p.$delay ? `${p.$delay}s` : ''};
 `;
 
-const MeshRingInner = styled(MeshRing)`
-  animation-direction: reverse;
-  border-style: dashed;
-`;
-
-const MeshNode = styled.div<{ $x: number; $y: number; $color?: string }>`
+const OrbDot = styled.div<{ $top: number; $left: number; $color?: string }>`
   position: absolute;
-  left: ${p => p.$x}%;
-  top: ${p => p.$y}%;
-  width: 8px; height: 8px;
-  background: ${p => p.$color || p.theme.colors.primary};
+  top: ${p => p.$top}%;
+  left: ${p => p.$left}%;
+  width: 10px; height: 10px;
   border-radius: 50%;
-  box-shadow: 0 0 12px ${p => p.$color || p.theme.colors.primary};
-  animation: ${pulse} ${p => 2 + Math.random() * 2}s ease infinite;
+  background: ${p => p.$color || p.theme.colors.primary};
+  box-shadow: 0 0 14px ${p => p.$color || p.theme.colors.primary};
+  animation: ${pulse} 2.4s ease infinite;
 `;
 
-const MeshCanvas = styled.svg`
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  opacity: 0.35;
-`;
-
-const ScanLine = styled.div`
-  position: absolute;
-  left: 10%; right: 10%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, ${p => p.theme.colors.green}, transparent);
-  animation: ${scanLine} 4s ease-in-out infinite;
-`;
-
+// Floating glass cards over the orb
 const GlassCard = styled.div`
   position: absolute;
-  background: ${p => p.theme.colors.surface}bb;
-  backdrop-filter: blur(12px);
-  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surface}f2;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
   border-radius: 12px;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 0.9rem;
   font-size: 0.78rem;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.4);
 `;
 
-const FloatCard1 = styled(GlassCard)`
-  top: 12%; left: -8%;
-  animation: ${float} 5s ease-in-out infinite;
+const Card1 = styled(GlassCard)`
+  top: 14%; left: -4%;
+  animation: ${float} 6s ease-in-out infinite;
 `;
 
-const FloatCard2 = styled(GlassCard)`
-  bottom: 18%; right: -6%;
+const Card2 = styled(GlassCard)`
+  bottom: 16%; right: -2%;
   animation: ${float} 7s ease-in-out 1.5s infinite;
 `;
 
 const CardLabel = styled.div`
   color: ${p => p.theme.colors.textMuted};
   font-size: 0.7rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.2rem;
 `;
 
 const CardValue = styled.div`
   color: ${p => p.theme.colors.text};
   font-weight: 700;
-  display: flex; align-items: center; gap: 0.35rem;
+  display: flex; align-items: center; gap: 0.4rem;
 `;
 
-const GreenDot = styled.span`
-  width: 6px; height: 6px; border-radius: 50%;
-  background: ${p => p.theme.colors.green};
-  display: inline-block;
-`;
-
-const VioletDot = styled.span`
-  width: 6px; height: 6px; border-radius: 50%;
-  background: ${p => p.theme.colors.violet};
-  display: inline-block;
-`;
-
-// ── Background FX ─────────────────────────────────────────────────────────────
-
-const BgGlow = styled.div<{ $x: number; $y: number; $color: string; $size: number }>`
-  position: absolute;
-  left: ${p => p.$x}%;
-  top: ${p => p.$y}%;
-  width: ${p => p.$size}px;
-  height: ${p => p.$size}px;
+const StatusDot = styled.span<{ $color?: string }>`
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: ${p => p.$color};
-  filter: blur(80px);
-  opacity: 0.12;
-  pointer-events: none;
+  background: ${p => p.$color || p.theme.colors.green};
+  display: inline-block;
 `;
 
-const GridPattern = styled.div`
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(${p => p.theme.colors.border}44 1px, transparent 1px),
-    linear-gradient(90deg, ${p => p.theme.colors.border}44 1px, transparent 1px);
-  background-size: 48px 48px;
-  opacity: 0.3;
-  pointer-events: none;
-`;
-
-// ── Section ───────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Section scaffold
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Section = styled.section<{ $alt?: boolean }>`
-  padding: 6rem 2rem;
-  background: ${p => p.$alt ? p.theme.colors.surface : p.theme.colors.background};
-  position: relative;
+  padding: 5rem 2rem;
+  background: ${p => p.$alt
+    ? `linear-gradient(180deg, ${p.theme.colors.surface}aa, transparent)`
+    : 'transparent'};
 `;
 
 const Container = styled.div`
-  max-width: 1200px;
+  max-width: 1100px;
   margin: 0 auto;
 `;
 
 const SectionLabel = styled.div`
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: ${p => p.theme.colors.primary};
-  margin-bottom: 0.75rem;
+  color: ${p => p.theme.colors.primaryLight};
+  margin-bottom: 0.65rem;
 `;
 
 const SectionTitle = styled.h2`
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
   font-weight: 800;
-  color: ${p => p.theme.colors.text};
   letter-spacing: -0.02em;
-  margin-bottom: 1rem;
+  margin: 0 0 0.85rem;
+  color: ${p => p.theme.colors.text};
 `;
 
 const SectionDesc = styled.p`
   font-size: 1rem;
-  color: ${p => p.theme.colors.textMuted};
-  max-width: 540px;
-  line-height: 1.7;
-`;
-
-const SectionHead = styled.div`
-  margin-bottom: 3.5rem;
-`;
-
-// ── Features ──────────────────────────────────────────────────────────────────
-
-const FeatGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-`;
-
-const FeatCard = styled.div<{ $accent: string }>`
-  background: ${p => p.theme.colors.surface};
-  border: 1px solid ${p => p.theme.colors.border};
-  border-radius: 16px;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  transition: border-color 0.2s, transform 0.2s;
-  &:hover {
-    border-color: ${p => p.$accent}66;
-    transform: translateY(-4px);
-  }
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, ${p => p.$accent}, transparent);
-  }
-`;
-
-const FeatIcon = styled.div<{ $accent: string }>`
-  width: 48px; height: 48px;
-  border-radius: 12px;
-  background: ${p => p.$accent}18;
-  border: 1px solid ${p => p.$accent}33;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.4rem;
-  margin-bottom: 1.25rem;
-`;
-
-const FeatTitle = styled.h3`
-  font-size: 1rem;
-  font-weight: 700;
-  color: ${p => p.theme.colors.text};
-  margin-bottom: 0.5rem;
-`;
-
-const FeatDesc = styled.p`
-  font-size: 0.875rem;
-  color: ${p => p.theme.colors.textMuted};
   line-height: 1.6;
+  color: ${p => p.theme.colors.textMuted};
+  max-width: 560px;
+  margin: 0;
 `;
 
-// ── How it works ──────────────────────────────────────────────────────────────
+const SectionHead = styled.div`margin-bottom: 3rem;`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// How it works
+// ─────────────────────────────────────────────────────────────────────────────
 
 const StepsGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1px;
-  background: ${p => p.theme.colors.border};
-  border-radius: 16px;
-  overflow: hidden;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  @media (max-width: 800px) {
+    grid-template-columns: 1fr;
+  }
 `;
 
 const Step = styled.div`
-  background: ${p => p.theme.colors.surface};
-  padding: 2.5rem 2rem;
-  display: flex; flex-direction: column; gap: 1rem;
+  background:
+    linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 16px;
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 `;
 
 const StepNum = styled.div`
-  font-family: 'Orbitron', monospace;
-  font-size: 2rem;
-  font-weight: 900;
+  font-family: 'Space Grotesk', monospace;
+  font-size: 1.6rem;
+  font-weight: 800;
   background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -605,182 +455,153 @@ const StepNum = styled.div`
 
 const StepTitle = styled.div`
   font-weight: 700;
+  font-size: 1rem;
   color: ${p => p.theme.colors.text};
-  font-size: 0.95rem;
 `;
 
 const StepDesc = styled.div`
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   color: ${p => p.theme.colors.textMuted};
-  line-height: 1.6;
+  line-height: 1.55;
 `;
 
-// ── Pricing ───────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Pricing
+// ─────────────────────────────────────────────────────────────────────────────
 
-const PricingGrid = styled.div`
+const PriceGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
-  @media (max-width: 800px) {
+  gap: 1.25rem;
+  @media (max-width: 900px) {
     grid-template-columns: 1fr;
     max-width: 420px;
     margin: 0 auto;
   }
 `;
 
-const PricingCard = styled.div<{ $featured?: boolean }>`
-  background: ${p => p.$featured ? 'linear-gradient(135deg, #1a1035, #120d28)' : p.theme.colors.surface};
-  border: 1px solid ${p => p.$featured ? p.theme.colors.primary + '88' : p.theme.colors.border};
-  border-radius: 20px;
-  padding: 2.5rem 2rem;
+const PriceCard = styled.div<{ $featured?: boolean }>`
   position: relative;
-  overflow: hidden;
-  transition: transform 0.2s;
+  background: ${p => p.$featured
+    ? `linear-gradient(180deg, ${p.theme.colors.surfaceHigh}, ${p.theme.colors.surface})`
+    : `linear-gradient(180deg, ${p.theme.colors.surface}, ${p.theme.colors.background})`};
+  border: 1px solid ${p => p.$featured ? p.theme.colors.primary + '99' : p.theme.colors.border};
+  border-radius: 18px;
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   ${p => p.$featured && `
-    transform: scale(1.04);
-    box-shadow: 0 0 60px ${p.theme.colors.primary}22;
+    box-shadow: 0 12px 50px ${p.theme.colors.primary}33;
+    transform: translateY(-6px);
   `}
-  &:hover { transform: ${p => p.$featured ? 'scale(1.06)' : 'translateY(-4px)'}; }
 `;
 
-const PricingBadge = styled.div`
+const PriceBadge = styled.div`
   position: absolute;
-  top: -1px; left: 50%; transform: translateX(-50%);
-  background: linear-gradient(90deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
-  color: #fff;
-  font-size: 0.7rem;
+  top: 0; left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
+  font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 0.25rem 1rem;
-  border-radius: 0 0 8px 8px;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  box-shadow: 0 4px 18px ${p => p.theme.colors.primary}66;
 `;
 
-const PricingTier = styled.div`
-  font-size: 0.75rem;
+const PriceTier = styled.div`
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: ${p => p.theme.colors.textMuted};
-  margin-bottom: 0.75rem;
 `;
 
-const PricingPrice = styled.div`
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 2.8rem;
+const PriceAmount = styled.div`
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 2.6rem;
   font-weight: 800;
   color: ${p => p.theme.colors.text};
-  margin-bottom: 0.25rem;
-  display: flex; align-items: flex-start; gap: 0.25rem;
-  sup { font-size: 1.2rem; margin-top: 0.6rem; }
+  letter-spacing: -0.02em;
+  display: flex; align-items: flex-start; gap: 0.2rem;
+  sup { font-size: 1.1rem; margin-top: 0.6rem; }
 `;
 
-const PricingPer = styled.div`
-  font-size: 0.8rem;
+const PriceUnit = styled.div`
+  font-size: 0.82rem;
   color: ${p => p.theme.colors.textMuted};
-  margin-bottom: 1.75rem;
 `;
 
-const PricingFeatures = styled.ul`
+const PriceFeatures = styled.ul`
   list-style: none;
-  display: flex; flex-direction: column; gap: 0.75rem;
-  margin-bottom: 2rem;
+  display: flex; flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.75rem 0 1.25rem;
+  padding: 0;
 `;
 
-const PricingFeature = styled.li<{ $disabled?: boolean }>`
-  display: flex; align-items: center; gap: 0.6rem;
-  font-size: 0.875rem;
+const PriceFeature = styled.li<{ $disabled?: boolean }>`
+  display: flex; align-items: center; gap: 0.55rem;
+  font-size: 0.86rem;
   color: ${p => p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
   opacity: ${p => p.$disabled ? 0.5 : 1};
 `;
 
-const CheckIcon = styled.span<{ $color?: string }>`
+const Check = styled.span<{ $color?: string }>`
   width: 18px; height: 18px;
   border-radius: 50%;
-  background: ${p => (p.$color || p.theme.colors.green)}22;
-  border: 1px solid ${p => (p.$color || p.theme.colors.green)}44;
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.65rem;
-  color: ${p => p.$color || p.theme.colors.green};
+  font-size: 0.7rem;
+  background: ${p => (p.$color || p.theme.colors.primary)}22;
+  border: 1px solid ${p => (p.$color || p.theme.colors.primary)}55;
+  color: ${p => p.$color || p.theme.colors.primaryLight};
   flex-shrink: 0;
 `;
 
-const XIcon = styled(CheckIcon)`
-  background: ${p => p.theme.colors.grey}18;
+const Cross = styled(Check)`
+  background: ${p => p.theme.colors.grey}1f;
   border-color: ${p => p.theme.colors.grey}33;
   color: ${p => p.theme.colors.grey};
 `;
 
-const PricingCTA = styled.button<{ $featured?: boolean }>`
-  width: 100%;
-  padding: 0.75rem;
+const PriceCTA = styled(Link)<{ $featured?: boolean }>`
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  margin-top: auto;
+  padding: 0.7rem 1rem;
   border-radius: 10px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
   background: ${p => p.$featured
     ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
     : 'transparent'};
-  border: 1px solid ${p => p.$featured ? 'transparent' : p.theme.colors.border};
-  color: ${p => p.$featured ? '#fff' : p.theme.colors.textMuted};
+  color: ${p => p.$featured ? 'white' : p.theme.colors.text};
+  border: 1px solid ${p => p.$featured ? 'transparent' : p.theme.colors.borderHigh};
+  ${p => p.$featured && `box-shadow: 0 6px 22px ${p.theme.colors.primary}66;`}
   &:hover {
-    background: ${p => p.$featured
-      ? `linear-gradient(135deg, ${p.theme.colors.violet}, ${p.theme.colors.primary})`
-      : p.theme.colors.surfaceHigh};
-    color: ${p => p.$featured ? '#fff' : p.theme.colors.text};
-    border-color: ${p => p.$featured ? 'transparent' : p.theme.colors.borderHigh};
+    ${p => !p.$featured && `
+      background: ${p.theme.colors.surfaceHigh};
+      border-color: ${p.theme.colors.violet};
+    `}
   }
 `;
 
-// ── Gallery Preview ───────────────────────────────────────────────────────────
-
-const GalleryGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  @media (max-width: 900px) { grid-template-columns: repeat(2, 1fr); }
-`;
-
-const GalleryItem = styled.div<{ $accent: string }>`
-  aspect-ratio: 1;
-  border-radius: 16px;
-  background: ${p => p.theme.colors.surface};
-  border: 1px solid ${p => p.theme.colors.border};
-  overflow: hidden;
-  position: relative;
-  cursor: pointer;
-  transition: transform 0.2s, border-color 0.2s;
-  &:hover { transform: scale(1.03); border-color: ${p => p.$accent}88; }
-`;
-
-const GalleryItemInner = styled.div<{ $color1: string; $color2: string }>`
-  width: 100%; height: 100%;
-  background: linear-gradient(135deg, ${p => p.$color1}22, ${p => p.$color2}18);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 3rem;
-`;
-
-const GalleryLabel = styled.div`
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  background: linear-gradient(to top, #000000cc, transparent);
-  padding: 1rem 0.75rem 0.75rem;
-  font-size: 0.75rem;
-  color: #fff;
-  font-weight: 500;
-`;
-
-// ── Footer ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Footer
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Footer = styled.footer`
-  padding: 3rem 2rem;
   border-top: 1px solid ${p => p.theme.colors.border};
+  padding: 2.5rem 2rem;
   background: ${p => p.theme.colors.surface};
 `;
 
 const FooterInner = styled.div`
-  max-width: 1200px;
+  max-width: 1100px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -790,11 +611,10 @@ const FooterInner = styled.div`
 `;
 
 const FooterBrand = styled.div`
-  font-family: 'Orbitron', monospace;
-  font-size: 1rem;
   font-weight: 800;
+  letter-spacing: 0.04em;
   color: ${p => p.theme.colors.textMuted};
-  letter-spacing: 0.06em;
+  font-size: 0.9rem;
 `;
 
 const FooterLinks = styled.div`
@@ -805,244 +625,122 @@ const FooterLinks = styled.div`
 const FooterLink = styled.a`
   font-size: 0.82rem;
   color: ${p => p.theme.colors.textMuted};
+  text-decoration: none;
   &:hover { color: ${p => p.theme.colors.text}; }
 `;
 
 const FooterCopy = styled.div`
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: ${p => p.theme.colors.textMuted};
 `;
 
-// ── Mesh Nodes Data ───────────────────────────────────────────────────────────
-
-const NODES = [
-  { x: 22, y: 18, color: undefined },
-  { x: 68, y: 12, color: '#10b981' },
-  { x: 80, y: 55, color: '#8b5cf6' },
-  { x: 75, y: 82, color: undefined },
-  { x: 28, y: 78, color: '#10b981' },
-  { x: 15, y: 52, color: '#8b5cf6' },
-  { x: 50, y: 8,  color: undefined },
-  { x: 50, y: 90, color: '#10b981' },
-];
-
-// Wireframe lines
-const LINES: [number, number][] = [
-  [0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[0,6],[6,1],[5,7],[7,3]
-];
-
-// ── Component ─────────────────────────────────────────────────────────────────
-
-const DESIGNS = [
-  { id: 1, name: 'Obsidian' },
-  { id: 2, name: 'Neon Circuit' },
-  { id: 5, name: 'Emerald Core' },
-  { id: 6, name: 'Crystalline' },
-  { id: 7, name: 'Plasma' },
-  { id: 11, name: 'Titanium' },
-  { id: 13, name: 'BioGlow' },
-  { id: 16, name: 'CyberHex' },
-  { id: 19, name: 'Ember' },
-];
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 const Landing: React.FC = () => {
-  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [stylesOpen, setStylesOpen] = useState(false);
-  const stylesRef = useRef<HTMLDivElement>(null);
+  const { isAuthenticated } = useAuth();
 
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (stylesRef.current && !stylesRef.current.contains(e.target as Node)) {
-        setStylesOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  const handleStartFree = () => {
-    if (isAuthenticated) {
-      navigate('/dashboard');
-    } else {
-      navigate('/login');
-    }
-  };
-
-  const handleGuest = () => navigate('/dashboard');
+  const goWorkspace = () => navigate(isAuthenticated ? '/dashboard' : '/login');
 
   return (
     <Page>
-      {/* ── Navbar ── */}
-      <Nav>
-        <Brand to="/">
-          <BrandIcon>⬡</BrandIcon>
+      <NavBar>
+        <BrandWrap to="/">
+          <BrandMark>⬡</BrandMark>
           GENSHAPE3D
-        </Brand>
-        <NavLinks>
-          <NavLink to="#features">Features</NavLink>
-          <NavLink to="#how">How it works</NavLink>
-          <NavLink to="#pricing">Pricing</NavLink>
-          <StylesDropdownWrapper ref={stylesRef}>
-            <StylesBtn onClick={() => setStylesOpen(o => !o)}>
-              Styles {stylesOpen ? '▲' : '▼'}
-            </StylesBtn>
-            <DropdownMenu open={stylesOpen}>
-              <DropdownLabel>Design explorations</DropdownLabel>
-              {DESIGNS.map(d => (
-                <DropdownItem
-                  key={d.id}
-                  href={`/designs/design-${String(d.id).padStart(2, '0')}.html`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setStylesOpen(false)}
-                >
-                  {String(d.id).padStart(2, '0')} — {d.name}
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          </StylesDropdownWrapper>
-        </NavLinks>
-        <NavActions>
-          <BtnOutline to="/login">Sign in</BtnOutline>
-          <BtnPrimary to="/login">Get started</BtnPrimary>
-        </NavActions>
-      </Nav>
+        </BrandWrap>
+        <NavTabs>
+          <NavTabLink href="#how">How it works</NavTabLink>
+          <NavTabLink href="#pricing">Pricing</NavTabLink>
+        </NavTabs>
+        <NavSpacer />
+        {isAuthenticated ? (
+          <PrimaryNavBtn to="/dashboard">✦ Open workspace</PrimaryNavBtn>
+        ) : (
+          <>
+            <SignInBtn to="/login">Sign in</SignInBtn>
+            <PrimaryNavBtn to="/login">✦ Start free</PrimaryNavBtn>
+          </>
+        )}
+      </NavBar>
 
-      {/* ── Hero ── */}
+      {/* ─────── Hero ─────── */}
       <Hero>
-        <GridPattern />
-        <BgGlow $x={-10} $y={10} $color="#7c3aed" $size={600} />
-        <BgGlow $x={70} $y={60} $color="#8b5cf6" $size={500} />
-        <BgGlow $x={50} $y={-10} $color="#10b981" $size={400} />
+        <HeroLeft>
+          <HeroBadge>
+            <BadgeDot /> Image to 3D · live now
+          </HeroBadge>
+          <HeroTitle>
+            Turn any image into a<br />
+            <HeroAccent>real 3D model</HeroAccent>
+          </HeroTitle>
+          <HeroSub>
+            Upload a photo, sketch, or piece of concept art. GenShape3D reconstructs
+            the geometry and gives you back a clean, export-ready mesh. No modelling
+            experience required.
+          </HeroSub>
+          <CtaRow>
+            <CtaPrimary to={isAuthenticated ? '/dashboard' : '/login'}>
+              ✦ {isAuthenticated ? 'Open workspace' : 'Start free'}
+            </CtaPrimary>
+            <CtaSecondary to="#how">See how it works</CtaSecondary>
+          </CtaRow>
+          <HeroStats>
+            <Stat>
+              <StatNum>1</StatNum>
+              <StatLabel>Free generation, no card</StatLabel>
+            </Stat>
+            <Stat>
+              <StatNum>GLB</StatNum>
+              <StatLabel>Standard export format</StatLabel>
+            </Stat>
+            <Stat>
+              <StatNum>$3</StatNum>
+              <StatLabel>10-pack starter price</StatLabel>
+            </Stat>
+          </HeroStats>
+        </HeroLeft>
 
-        <HeroGrid>
-          <HeroLeft>
-            <HeroBadge>
-              <BadgeDot /> Image to 3D — in minutes
-            </HeroBadge>
-            <HeroTitle>
-              Turn any image into a<br />
-              <GradientText>real 3D model</GradientText>
-            </HeroTitle>
-            <HeroSubtitle>
-              Upload a photo, sketch, or concept art. GenShape3D reconstructs the
-              geometry and gives you back an export-ready mesh. No modelling
-              experience required.
-            </HeroSubtitle>
-            <HeroCTAs>
-              <CTAPrimary onClick={handleStartFree}>
-                ⚡ Start free
-              </CTAPrimary>
-              <CTASecondary onClick={handleGuest}>
-                👁 Preview as guest
-              </CTASecondary>
-            </HeroCTAs>
-            <HeroStats>
-              <Stat>
-                <StatNum>1</StatNum>
-                <StatLabel>Free generation, no credit card</StatLabel>
-              </Stat>
-              <Stat>
-                <StatNum>GLB</StatNum>
-                <StatLabel>Standard export format</StatLabel>
-              </Stat>
-              <Stat>
-                <StatNum>$3</StatNum>
-                <StatLabel>Per generation pack</StatLabel>
-              </Stat>
-            </HeroStats>
-          </HeroLeft>
+        <HeroRight>
+          <OrbStage>
+            <OrbRing $size={420} />
+            <OrbRing $size={320} $delay={-3} $color="#EC4899" />
+            <OrbRing $size={240} $delay={-5} />
+            <OrbCore />
+            <OrbDot $top={5} $left={48} />
+            <OrbDot $top={50} $left={94} $color="#EC4899" />
+            <OrbDot $top={94} $left={48} />
+            <OrbDot $top={50} $left={4} $color="#EC4899" />
 
-          <HeroRight>
-            <MeshContainer>
-              <MeshOrb />
-              <MeshRing $size={380} />
-              <MeshRingInner $size={300} $delay={-2} />
-              <MeshRing $size={220} $delay={-4} $color="#10b981" />
-              <ScanLine />
-
-              {/* SVG wireframe */}
-              <MeshCanvas viewBox="0 0 480 480">
-                {LINES.map(([a, b], i) => (
-                  <line
-                    key={i}
-                    x1={NODES[a].x * 4.8}
-                    y1={NODES[a].y * 4.8}
-                    x2={NODES[b].x * 4.8}
-                    y2={NODES[b].y * 4.8}
-                    stroke={NODES[a].color || '#7c3aed'}
-                    strokeWidth="0.8"
-                  />
-                ))}
-              </MeshCanvas>
-
-              {NODES.map((n, i) => (
-                <MeshNode key={i} $x={n.x} $y={n.y} $color={n.color} />
-              ))}
-
-              <FloatCard1>
-                <CardLabel>Status</CardLabel>
-                <CardValue><GreenDot /> Generating mesh...</CardValue>
-              </FloatCard1>
-
-              <FloatCard2>
-                <CardLabel>Resolution</CardLabel>
-                <CardValue><VioletDot /> 4K — 287k polys</CardValue>
-              </FloatCard2>
-            </MeshContainer>
-          </HeroRight>
-        </HeroGrid>
+            <Card1>
+              <CardLabel>Status</CardLabel>
+              <CardValue><StatusDot /> Mesh ready</CardValue>
+            </Card1>
+            <Card2>
+              <CardLabel>Output</CardLabel>
+              <CardValue><StatusDot $color="#A855F7" /> GLB · 10k faces</CardValue>
+            </Card2>
+          </OrbStage>
+        </HeroRight>
       </Hero>
 
-      {/* ── Features ── */}
-      <Section id="features" $alt>
+      {/* ─────── How it works ─────── */}
+      <Section id="how" $alt>
         <Container>
           <SectionHead>
-            <SectionLabel>What you get</SectionLabel>
-            <SectionTitle>Image to 3D —<br />the simple way</SectionTitle>
-            <SectionDesc>
-              We're starting focused. One thing, done well: turn an image into
-              a clean, export-ready 3D mesh. More tools land as the platform grows.
-            </SectionDesc>
-          </SectionHead>
-          <FeatGrid>
-            {[
-              {
-                icon: '⬡', title: 'Image-to-3D', accent: '#A855F7',
-                desc: 'Upload a reference photo or concept art. GenShape3D reconstructs the geometry from a single image.',
-              },
-              {
-                icon: '◈', title: 'Clean topology', accent: '#EC4899',
-                desc: 'AI-optimised polygon distribution gives you a usable mesh — no manual retopology before exporting.',
-              },
-              {
-                icon: '⬟', title: 'GLB export', accent: '#A855F7',
-                desc: 'Download a standard GLB ready for Blender, Unity, Unreal, three.js, or any other 3D pipeline.',
-              },
-            ].map(f => (
-              <FeatCard key={f.title} $accent={f.accent}>
-                <FeatIcon $accent={f.accent}>{f.icon}</FeatIcon>
-                <FeatTitle>{f.title}</FeatTitle>
-                <FeatDesc>{f.desc}</FeatDesc>
-              </FeatCard>
-            ))}
-          </FeatGrid>
-        </Container>
-      </Section>
-
-      {/* ── How it works ── */}
-      <Section id="how">
-        <Container>
-          <SectionHead>
-            <SectionLabel>Workflow</SectionLabel>
+            <SectionLabel>How it works</SectionLabel>
             <SectionTitle>Three steps to your mesh</SectionTitle>
+            <SectionDesc>
+              We're keeping it focused. One thing, done well — image in, 3D model out.
+            </SectionDesc>
           </SectionHead>
           <StepsGrid>
             {[
-              { n: '01', title: 'Upload an image', desc: 'A photo, sketch, or piece of concept art. One image — front-facing works best.' },
-              { n: '02', title: 'Generate', desc: 'Hit Generate and the AI reconstructs the geometry on our GPU. Sit tight for a few minutes.' },
-              { n: '03', title: 'Preview & export', desc: 'Inspect the mesh in the browser, then download as GLB ready for your 3D pipeline.' },
+              { n: '01', title: 'Upload an image', desc: 'A photo, sketch, or piece of concept art. Front-facing single objects work best.' },
+              { n: '02', title: 'Generate', desc: 'Hit Generate and our GPU reconstructs the geometry. A few minutes per model.' },
+              { n: '03', title: 'Preview & export', desc: 'Inspect in the browser, then download as a clean GLB ready for your 3D pipeline.' },
             ].map(s => (
               <Step key={s.n}>
                 <StepNum>{s.n}</StepNum>
@@ -1054,111 +752,96 @@ const Landing: React.FC = () => {
         </Container>
       </Section>
 
-      {/* ── Gallery preview ── */}
-      <Section $alt>
-        <Container>
-          <SectionHead>
-            <SectionLabel>Community Showcase</SectionLabel>
-            <SectionTitle>What creators are forging</SectionTitle>
-          </SectionHead>
-          <GalleryGrid>
-            {[
-              { emoji: '🏺', label: 'Ancient vase — ceramic', color1: '#7c3aed', color2: '#8b5cf6', accent: '#7c3aed' },
-              { emoji: '🚀', label: 'Sci-fi rocket — game asset', color1: '#10b981', color2: '#06b6d4', accent: '#10b981' },
-              { emoji: '🐲', label: 'Dragon bust — high detail', color1: '#8b5cf6', color2: '#7c3aed', accent: '#8b5cf6' },
-              { emoji: '🏔', label: 'Terrain chunk — landscape', color1: '#6b7280', color2: '#4b5563', accent: '#6b7280' },
-              { emoji: '⚙', label: 'Gear mechanism — mech', color1: '#10b981', color2: '#7c3aed', accent: '#10b981' },
-              { emoji: '💎', label: 'Crystal formation — PBR', color1: '#8b5cf6', color2: '#10b981', accent: '#8b5cf6' },
-              { emoji: '🎭', label: 'Character mask — stylised', color1: '#7c3aed', color2: '#6b7280', accent: '#7c3aed' },
-              { emoji: '🌿', label: 'Organic plant — botanical', color1: '#10b981', color2: '#6b7280', accent: '#10b981' },
-            ].map(g => (
-              <GalleryItem key={g.label} $accent={g.accent}>
-                <GalleryItemInner $color1={g.color1} $color2={g.color2}>
-                  {g.emoji}
-                </GalleryItemInner>
-                <GalleryLabel>{g.label}</GalleryLabel>
-              </GalleryItem>
-            ))}
-          </GalleryGrid>
-        </Container>
-      </Section>
-
-      {/* ── Pricing ── */}
+      {/* ─────── Pricing ─────── */}
       <Section id="pricing">
         <Container>
           <SectionHead>
             <SectionLabel>Pricing</SectionLabel>
             <SectionTitle>Try free, pay as you go</SectionTitle>
             <SectionDesc>
-              We're keeping prices low while we grow. Buy a small pack and only
-              spend credits when you generate. No subscription required to start.
+              Low launch prices while we grow. Buy a small pack and only spend
+              credits when you generate. No subscription required.
             </SectionDesc>
           </SectionHead>
-          <PricingGrid>
+
+          <PriceGrid>
             {/* Free trial */}
-            <PricingCard>
-              <PricingTier>Free trial</PricingTier>
-              <PricingPrice>$<sup>0</sup>0</PricingPrice>
-              <PricingPer>1 generation — no credit card</PricingPer>
-              <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> 1 free image-to-3D generation</PricingFeature>
-                <PricingFeature><CheckIcon>✓</CheckIcon> GLB download</PricingFeature>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Browser preview</PricingFeature>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Save your generation</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Priority queue</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Commercial license</PricingFeature>
-              </PricingFeatures>
-              <PricingCTA onClick={handleStartFree}>Start free</PricingCTA>
-            </PricingCard>
+            <PriceCard>
+              <PriceTier>Free trial</PriceTier>
+              <PriceAmount>$<sup>0</sup>0</PriceAmount>
+              <PriceUnit>1 generation · no credit card</PriceUnit>
+              <PriceFeatures>
+                <PriceFeature><Check>✓</Check> 1 image-to-3D generation</PriceFeature>
+                <PriceFeature><Check>✓</Check> GLB download</PriceFeature>
+                <PriceFeature><Check>✓</Check> Browser preview</PriceFeature>
+                <PriceFeature $disabled><Cross>✕</Cross> Priority queue</PriceFeature>
+                <PriceFeature $disabled><Cross>✕</Cross> Commercial license</PriceFeature>
+              </PriceFeatures>
+              <PriceCTA to="/login">Start free</PriceCTA>
+            </PriceCard>
 
-            {/* Starter pack */}
-            <PricingCard $featured>
-              <PricingBadge>Most Popular</PricingBadge>
-              <PricingTier>Starter pack</PricingTier>
-              <PricingPrice><sup>$</sup>3</PricingPrice>
-              <PricingPer>10 generations — credits never expire</PricingPer>
-              <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> 10 image-to-3D generations</PricingFeature>
-                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> GLB download</PricingFeature>
-                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Standard queue</PricingFeature>
-                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Personal-use license</PricingFeature>
-                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Credits never expire</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Commercial license</PricingFeature>
-              </PricingFeatures>
-              <PricingCTA $featured onClick={handleStartFree}>Buy starter pack</PricingCTA>
-            </PricingCard>
+            {/* Starter — featured */}
+            <PriceCard $featured>
+              <PriceBadge>Most popular</PriceBadge>
+              <PriceTier>Starter pack</PriceTier>
+              <PriceAmount><sup>$</sup>3</PriceAmount>
+              <PriceUnit>10 generations · credits never expire</PriceUnit>
+              <PriceFeatures>
+                <PriceFeature><Check $color="#A855F7">✓</Check> 10 image-to-3D generations</PriceFeature>
+                <PriceFeature><Check $color="#A855F7">✓</Check> GLB download</PriceFeature>
+                <PriceFeature><Check $color="#A855F7">✓</Check> Standard queue</PriceFeature>
+                <PriceFeature><Check $color="#A855F7">✓</Check> Personal-use license</PriceFeature>
+                <PriceFeature $disabled><Cross>✕</Cross> Commercial license</PriceFeature>
+              </PriceFeatures>
+              <PriceCTA $featured to="/login">Buy starter pack</PriceCTA>
+            </PriceCard>
 
-            {/* Creator pack */}
-            <PricingCard>
-              <PricingTier>Creator pack</PricingTier>
-              <PricingPrice><sup>$</sup>10</PricingPrice>
-              <PricingPer>40 generations — credits never expire</PricingPer>
-              <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> 40 image-to-3D generations</PricingFeature>
-                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> GLB download</PricingFeature>
-                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Priority queue</PricingFeature>
-                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Commercial license</PricingFeature>
-                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Credits never expire</PricingFeature>
-                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Early access to new features</PricingFeature>
-              </PricingFeatures>
-              <PricingCTA onClick={handleStartFree}>Buy creator pack</PricingCTA>
-            </PricingCard>
-          </PricingGrid>
+            {/* Creator */}
+            <PriceCard>
+              <PriceTier>Creator pack</PriceTier>
+              <PriceAmount><sup>$</sup>10</PriceAmount>
+              <PriceUnit>40 generations · credits never expire</PriceUnit>
+              <PriceFeatures>
+                <PriceFeature><Check $color="#EC4899">✓</Check> 40 image-to-3D generations</PriceFeature>
+                <PriceFeature><Check $color="#EC4899">✓</Check> GLB download</PriceFeature>
+                <PriceFeature><Check $color="#EC4899">✓</Check> Priority queue</PriceFeature>
+                <PriceFeature><Check $color="#EC4899">✓</Check> Commercial license</PriceFeature>
+                <PriceFeature><Check $color="#EC4899">✓</Check> Early access to new features</PriceFeature>
+              </PriceFeatures>
+              <PriceCTA to="/login">Buy creator pack</PriceCTA>
+            </PriceCard>
+          </PriceGrid>
         </Container>
       </Section>
 
-      {/* ── Footer ── */}
+      {/* ─────── CTA strip ─────── */}
+      <Section>
+        <Container>
+          <Step style={{ textAlign: 'center', alignItems: 'center', gap: '1rem', padding: '3rem 2rem' }}>
+            <SectionTitle style={{ marginBottom: 0 }}>
+              Ready to <HeroAccent>shape</HeroAccent> something?
+            </SectionTitle>
+            <SectionDesc style={{ textAlign: 'center' }}>
+              Your first generation is on us — sign in with Google in 5 seconds.
+            </SectionDesc>
+            <CtaPrimary to={isAuthenticated ? '/dashboard' : '/login'} style={{ marginTop: '0.5rem' }}>
+              ✦ {isAuthenticated ? 'Open workspace' : 'Start free'}
+            </CtaPrimary>
+          </Step>
+        </Container>
+      </Section>
+
+      {/* ─────── Footer ─────── */}
       <Footer>
         <FooterInner>
           <FooterBrand>GENSHAPE3D</FooterBrand>
           <FooterLinks>
-            <FooterLink href="#">Docs</FooterLink>
-            <FooterLink href="#">API</FooterLink>
-            <FooterLink href="#">Status</FooterLink>
+            <FooterLink href="#how">How</FooterLink>
+            <FooterLink href="#pricing">Pricing</FooterLink>
             <FooterLink href="#">Privacy</FooterLink>
             <FooterLink href="#">Terms</FooterLink>
           </FooterLinks>
-          <FooterCopy>© 2026 GenShape3D. All rights reserved.</FooterCopy>
+          <FooterCopy>© 2026 GenShape3D</FooterCopy>
         </FooterInner>
       </Footer>
     </Page>

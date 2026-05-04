@@ -15,6 +15,9 @@ import { ThemeContext, ThemeMode } from './context/ThemeContext';
 //   surfaces      → warm-violet near-blacks for the dark mode
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Neutral dark greys (Meshy / Tripo3D style) with purple+pink reserved as
+// brand accents only — never as page chrome.
+
 export const darkTheme = {
   colors: {
     primary: '#A855F7',
@@ -22,13 +25,13 @@ export const darkTheme = {
     green: '#10B981',
     violet: '#EC4899',
     grey: '#6B7280',
-    background: '#0B0712',
-    surface: '#150D24',
-    surfaceHigh: '#1E1432',
-    text: '#F4EEFF',
-    textMuted: '#A89CC4',
-    border: '#2A1F3D',
-    borderHigh: '#3D2C56',
+    background: '#101013',
+    surface: '#1A1A1F',
+    surfaceHigh: '#26262C',
+    text: '#F4F4F6',
+    textMuted: '#A4A4AC',
+    border: '#2E2E34',
+    borderHigh: '#42424A',
   },
 };
 
@@ -39,13 +42,13 @@ export const lightTheme = {
     green: '#059669',
     violet: '#EC4899',
     grey: '#6B7280',
-    background: '#FFFCFE',
-    surface: '#FAF3FE',
-    surfaceHigh: '#F1E4FB',
-    text: '#1A0F2A',
-    textMuted: '#6B5C82',
-    border: '#EBDEF7',
-    borderHigh: '#D6B8F1',
+    background: '#FAFAFB',
+    surface: '#FFFFFF',
+    surfaceHigh: '#F4F4F6',
+    text: '#0F0F11',
+    textMuted: '#5C5C63',
+    border: '#E4E4E8',
+    borderHigh: '#CECED3',
   },
 };
 
@@ -64,10 +67,10 @@ const GlobalStyle = createGlobalStyle`
   a { color: inherit; text-decoration: none; }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: #0B0712; }
-  ::-webkit-scrollbar-thumb { background: #3D2C56; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #6B4895; }
-  * { scrollbar-width: thin; scrollbar-color: #3D2C56 #0B0712; }
+  ::-webkit-scrollbar-track { background: #0A0A0B; }
+  ::-webkit-scrollbar-thumb { background: #3A3A3F; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #5A5A60; }
+  * { scrollbar-width: thin; scrollbar-color: #3A3A3F #0A0A0B; }
 `;
 
 function Root() {

@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import Workspace from './pages/Workspace';
 import { UserProvider, useAppUser } from './context/UserContext';
 
 const AuthSync: React.FC = () => {
@@ -47,7 +47,7 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<Workspace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </UserProvider>
