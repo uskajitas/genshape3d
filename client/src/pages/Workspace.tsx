@@ -552,6 +552,29 @@ const SegmentedBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
   ${p => p.$active && `box-shadow: 0 2px 8px ${p.theme.colors.primary}66;`}
 `;
 
+const TextToImageBtn = styled.button<{ $disabled?: boolean }>`
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid ${p => p.theme.colors.violet}55;
+  background: ${p => p.$disabled
+    ? p.theme.colors.surfaceHigh
+    : `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`};
+  color: ${p => p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  transition: background 0.12s, border-color 0.12s;
+  &:hover {
+    ${p => !p.$disabled && `
+      border-color: ${p.theme.colors.violet};
+      background: linear-gradient(135deg, ${p.theme.colors.primary}55, ${p.theme.colors.violet}55);
+    `}
+  }
+  &:disabled { pointer-events: none; }
+`;
+
 const ComingSoonTag = styled.span`
   font-size: 0.6rem;
   color: ${p => p.theme.colors.violet};
@@ -1022,6 +1045,10 @@ const Workspace: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [limits, setLimits] = useState<{ used24h: number; limit24h: number | null } | null>(null);
+  // Text-to-image mode (Pollinations) — free, no key, generates a 1024² image
+  // from a prompt and stuffs it into `file` so the rest of the flow is identical.
+  const [textPrompt, setTextPrompt] = useState('');
+  const [generatingImage, setGeneratingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const email = user?.email || '';
@@ -1106,6 +1133,46 @@ const Workspace: React.FC = () => {
     }
   }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
 
+  const [textToImageError, setTextToImageError] = useState<string>('');
+
+  // Generate an image from a text prompt via Pollinations.ai. The image becomes
+  // the `file` exactly as if the user had uploaded it — the 3D generation flow
+  // doesn't care how the image arrived. Pollinations occasionally returns a
+  // 0-byte image on a cold start, so we retry once if the first try is empty.
+  const onTextToImage = useCallback(async () => {
+    const q = textPrompt.trim();
+    if (!q || generatingImage) return;
+    setGeneratingImage(true);
+    setTextToImageError('');
+
+    // Routed through our /api/text2image proxy because Pollinations 403s
+    // browser-origin requests directly.
+    const fetchOnce = async (): Promise<Blob> => {
+      const r = await fetch(`/api/text2image?prompt=${encodeURIComponent(q)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      if (blob.size === 0) throw new Error('empty response');
+      return blob;
+    };
+
+    try {
+      let blob: Blob;
+      try { blob = await fetchOnce(); }
+      catch { blob = await fetchOnce(); } // one retry — pollinations cold-starts return 0 bytes
+
+      const safeName = q.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
+      const f = new File([blob], `${safeName}.png`, { type: blob.type || 'image/png' });
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setFile(f);
+      setPreviewUrl(URL.createObjectURL(f));
+    } catch (e: any) {
+      console.error('text-to-image failed', e);
+      setTextToImageError(e.message || 'failed');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }, [textPrompt, generatingImage, previewUrl]);
+
   const onSignOut = async () => {
     await signOutUser();
     window.location.href = '/';
@@ -1117,8 +1184,14 @@ const Workspace: React.FC = () => {
     [jobs, selectedJobId],
   );
 
+  // Prefer the currently-processing job over any pending ones, otherwise the
+  // overlay flips to a freshly-queued pending job (0%) while the actual
+  // running job is at 90%. That's confusing.
   const runningJob = useMemo(
-    () => jobs.find(j => j.status === 'pending' || j.status === 'running' || j.status === 'processing') ?? null,
+    () =>
+      jobs.find(j => j.status === 'processing' || j.status === 'running')
+      ?? jobs.find(j => j.status === 'pending')
+      ?? null,
     [jobs],
   );
 
@@ -1171,7 +1244,8 @@ const Workspace: React.FC = () => {
         {/* ──────── Icon rail ──────── */}
         <Rail>
           <RailItem icon="🖼" label="Image" active title="Image to 3D" />
-          <RailItem icon="✨" label="Text" disabled title="Text to 3D — coming soon" />
+          <RailItem icon="✨" label="Text" title="Text to image"
+                    onClick={() => navigate('/dashboard/text')} />
           <RailItem icon="🎨" label="Texture" disabled title="Re-texture — coming soon" />
           <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
           <RailDivider />
@@ -1231,9 +1305,36 @@ const Workspace: React.FC = () => {
             </Field>
 
             <Field>
-              <FieldLabel>Prompt <FieldHint>optional — guide the model</FieldHint></FieldLabel>
+              <FieldLabel>
+                Or describe it
+                <FieldHint>generate an image from text</FieldHint>
+              </FieldLabel>
               <PromptArea
-                placeholder="e.g. a small ceramic vase, smooth surface, no handles"
+                placeholder="e.g. a small ceramic vase, smooth glaze, plain background"
+                value={textPrompt}
+                onChange={e => setTextPrompt(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onTextToImage();
+                }}
+              />
+              <TextToImageBtn
+                type="button"
+                $disabled={!textPrompt.trim() || generatingImage}
+                onClick={onTextToImage}
+              >
+                {generatingImage ? 'Generating image…' : '✨ Generate image from text'}
+              </TextToImageBtn>
+              {textToImageError && (
+                <div style={{ fontSize: '0.7rem', color: '#EF4444', marginTop: '0.25rem' }}>
+                  {textToImageError} — try again.
+                </div>
+              )}
+            </Field>
+
+            <Field>
+              <FieldLabel>Prompt <FieldHint>optional — guide the 3D model</FieldHint></FieldLabel>
+              <PromptArea
+                placeholder="e.g. ceramic surface, no handles, smooth"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
               />

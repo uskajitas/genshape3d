@@ -1,0 +1,1287 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// TextToImage — sibling page to Workspace (image-to-3D).
+//
+// Layout mirrors Workspace: top nav · left rail · config panel · center
+// preview · right rail. Difference is what each panel does.
+//
+//   - Config:  prompt + a couple of generation knobs (provider, aspect ratio).
+//   - Center:  the most recently selected generated image.
+//   - Aside:   gallery of images generated in this session, plus the
+//              "Send to 3D" action to push one into the image-to-3D flow.
+//
+// First iteration scope:
+//   - Single provider (Pollinations / Flux via /api/text2image proxy).
+//   - In-memory session gallery (lost on reload). DB persistence is a later
+//     pass — the goal of v1 is to validate UX.
+//   - "Send to 3D" stashes the blob in sessionStorage under PENDING_KEY.
+//     Workspace reads it on mount and pre-fills the upload slot.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import styled, { keyframes } from 'styled-components';
+import { useAuth } from '../context/AuthContext';
+import { useAppUser } from '../context/UserContext';
+import { signOutUser } from '../firebase';
+import { Dropdown } from '../components/Dropdown';
+
+// SessionStorage key used to hand a generated image to the Workspace page.
+// (Workspace will need to read this on mount in a follow-up commit.)
+export const PENDING_IMAGE_KEY = 'genshape3d.pendingTextImage';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Local types
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9';
+type Background = 'white' | 'studio' | 'dark' | 'iso';
+type ViewAngle  = 'front' | 'three_q' | 'side' | 'iso';
+type Scale      = 'fill' | 'margin';
+type StyleKind  = 'photoreal' | 'clay' | 'neutral' | 'toon';
+type Material   = 'auto' | 'ceramic' | 'metal' | 'wood' | 'plastic' | 'fabric' | 'glass' | 'stone';
+type Provider   = 'pollinations' | 'fal-flux-schnell' | 'fal-flux-pro' | 'hf-flux-schnell' | 'openai-dall-e-3';
+
+interface GenParams {
+  bg: Background;
+  view: ViewAngle;
+  scale: Scale;
+  style: StyleKind;
+  material: Material;
+  negative: string;
+  aspect: AspectRatio;
+  provider: Provider;
+}
+
+const PROVIDER_LABEL: Record<Provider, string> = {
+  'pollinations':     'Pollinations',
+  'fal-flux-schnell': 'fal · Schnell',
+  'fal-flux-pro':     'fal · Pro 1.1',
+  'hf-flux-schnell':  'HF · Schnell',
+  'openai-dall-e-3':  'OpenAI · DALL-E 3',
+};
+
+const PROVIDER_HINT: Record<Provider, string> = {
+  'pollinations':     'Free · slower when busy',
+  'fal-flux-schnell': '~3s · ~$0.003/image · fast & high quality',
+  'fal-flux-pro':     '~6s · ~$0.04/image · top-shelf quality',
+  'hf-flux-schnell':  'Free tier · 10-30s cold start',
+  'openai-dall-e-3':  '~10s · ~$0.04/image · prompt-faithful',
+};
+
+const DEFAULT_PARAMS: GenParams = {
+  bg: 'white',
+  view: 'three_q',
+  scale: 'margin',
+  style: 'photoreal',
+  material: 'auto',
+  negative: '',
+  aspect: '1:1',
+  provider: 'fal-flux-schnell',
+};
+
+interface GeneratedImage {
+  id: string;
+  prompt: string;
+  blob: Blob;
+  url: string; // ObjectURL for preview
+  createdAt: number;
+  params: GenParams;
+  finalPrompt?: string; // Composed prompt the server actually sent upstream
+  seed?: string;
+}
+
+const ASPECT_PIXELS: Record<AspectRatio, { w: number; h: number }> = {
+  '1:1':  { w: 1024, h: 1024 },
+  '4:3':  { w: 1024, h: 768  },
+  '3:4':  { w: 768,  h: 1024 },
+  '16:9': { w: 1280, h: 720  },
+};
+
+const BG_LABEL: Record<Background, string>     = { white: 'Plain white', studio: 'Studio grey', dark: 'Dark studio', iso: 'Isolated' };
+const VIEW_LABEL: Record<ViewAngle, string>    = { front: 'Front',       three_q: '3/4 front',  side: 'Side',         iso: 'Isometric' };
+const SCALE_LABEL: Record<Scale, string>       = { fill: 'Fill frame',   margin: 'Centered + margin' };
+const STYLE_LABEL: Record<StyleKind, string>   = { photoreal: 'Photoreal', clay: 'Clay render', neutral: 'Neutral matte', toon: 'Toon 3D' };
+const MATERIAL_LABEL: Record<Material, string> = {
+  auto: 'Auto', ceramic: 'Ceramic', metal: 'Metal', wood: 'Wood',
+  plastic: 'Plastic', fabric: 'Fabric', glass: 'Glass', stone: 'Stone',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Animations
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+`;
+const sweep = keyframes`
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+`;
+const rotate = keyframes`
+  from { transform: rotate(0deg); } to { transform: rotate(360deg); }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shell — mirrors Workspace
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Shell = styled.div`
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, ${p => p.theme.colors.primary}14, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, ${p => p.theme.colors.violet}10, transparent 60%),
+    ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+`;
+
+const Body = styled.div`
+  display: grid;
+  grid-template-columns: 64px 320px 1fr 320px;
+  min-height: 0;
+  overflow: hidden;
+  @media (max-width: 1280px) { grid-template-columns: 64px 300px 1fr 280px; }
+  @media (max-width: 1024px) { grid-template-columns: 56px 280px 1fr; }
+  @media (max-width: 720px)  { grid-template-columns: 56px 1fr; }
+`;
+
+const NavBar = styled.header`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem 0 1.25rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
+  backdrop-filter: blur(8px);
+  z-index: 10;
+`;
+
+const BrandWrap = styled(Link)`
+  display: flex; align-items: center; gap: 0.55rem;
+  font-weight: 800; letter-spacing: 0.04em; font-size: 0.95rem;
+  color: ${p => p.theme.colors.text};
+  text-decoration: none;
+  &:hover { opacity: 0.85; }
+`;
+
+const BrandMark = styled.div`
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  display: flex; align-items: center; justify-content: center;
+  color: white;
+  box-shadow: 0 4px 14px ${p => p.theme.colors.primary}66;
+  font-size: 0.95rem;
+`;
+
+const NavSpacer = styled.div`flex: 1;`;
+
+const RolePill = styled.div<{ $admin?: boolean }>`
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  border: 1.5px solid ${p => p.$admin ? p.theme.colors.violet : p.theme.colors.borderHigh};
+  background: ${p => p.$admin
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`
+    : p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  ${p => p.$admin && `box-shadow: 0 0 14px ${p.theme.colors.violet}55;`}
+`;
+
+const Avatar = styled.img`
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  cursor: pointer;
+`;
+const AvatarFallback = styled.button`
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Left icon rail
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Rail = styled.aside`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0;
+  gap: 0.4rem;
+  border-right: 1px solid ${p => p.theme.colors.border};
+  background: linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+`;
+
+const RailBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  font-size: 1rem;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.$active ? 'white' : p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
+  border: 1px solid transparent;
+  opacity: ${p => p.$disabled ? 0.4 : 1};
+  transition: background 0.15s, transform 0.12s;
+  ${p => p.$active && `box-shadow: 0 4px 18px ${p.theme.colors.primary}66;`}
+  &:hover {
+    ${p => !p.$disabled && !p.$active && `background: ${p.theme.colors.surfaceHigh};`}
+    ${p => !p.$disabled && `transform: scale(1.04);`}
+  }
+`;
+
+const RailLabel = styled.span`
+  font-size: 0.6rem;
+  color: ${p => p.theme.colors.textMuted};
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 0.1rem;
+`;
+
+const RailDivider = styled.div`
+  width: 24px;
+  height: 1px;
+  background: ${p => p.theme.colors.border};
+  margin: 0.4rem 0;
+`;
+
+const RailItem: React.FC<{
+  icon: string; label: string;
+  active?: boolean; disabled?: boolean;
+  onClick?: () => void; title?: string;
+}> = ({ icon, label, active, disabled, onClick, title }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <RailBtn $active={active} $disabled={disabled}
+             onClick={disabled ? undefined : onClick}
+             title={title || label}>{icon}</RailBtn>
+    <RailLabel>{label}</RailLabel>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Panel = styled.section`
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid ${p => p.theme.colors.border};
+  background:
+    radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.primary}0d, transparent 70%),
+    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  min-width: 0;
+  overflow: hidden;
+  @media (max-width: 720px) { display: none; }
+`;
+
+const PanelHeader = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.85rem 1rem 0.65rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+`;
+
+const PanelTitle = styled.h2`
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${p => p.theme.colors.textMuted};
+  margin: 0;
+`;
+
+const PanelBody = styled.div`
+  flex: 1;
+  padding: 0.85rem 1rem 1rem;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.7rem;
+`;
+
+const Field = styled.div`
+  display: flex; flex-direction: column; gap: 0.3rem;
+`;
+
+const FieldLabel = styled.label`
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
+  letter-spacing: 0.04em;
+  display: flex; align-items: center; justify-content: space-between;
+  text-transform: uppercase;
+`;
+
+const FieldHint = styled.span`
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: ${p => p.theme.colors.textMuted};
+  opacity: 0.7;
+  font-size: 0.68rem;
+`;
+
+// Section divider — separates groups of related fields without screaming.
+const SectionDivider = styled.div`
+  height: 1px;
+  background: ${p => p.theme.colors.border};
+  margin: 0.4rem -1rem 0.1rem;
+  opacity: 0.6;
+`;
+
+const SectionHeader = styled.div`
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: ${p => p.theme.colors.textMuted};
+  opacity: 0.55;
+  margin: 0.25rem 0 -0.15rem;
+`;
+
+// Two-column row for short paired controls (saves vertical space).
+const Row = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+`;
+
+const TextToImageBulkBtn = styled.button<{ $disabled?: boolean }>`
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 0;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  background: ${p => p.$disabled
+    ? p.theme.colors.surfaceHigh
+    : `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`};
+  color: ${p => p.$disabled ? p.theme.colors.textMuted : 'white'};
+  margin-top: 0.4rem;
+  box-shadow: ${p => p.$disabled ? 'none' : `0 6px 20px ${p.theme.colors.primary}55`};
+  &:hover { ${p => !p.$disabled && `filter: brightness(1.1);`} }
+  &:disabled { pointer-events: none; }
+`;
+
+const SelectField = styled.select`
+  padding: 0.42rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, ${p => p.theme.colors.textMuted} 50%),
+                    linear-gradient(135deg, ${p => p.theme.colors.textMuted} 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 1.75rem;
+  &:hover  { border-color: ${p => p.theme.colors.borderHigh}; }
+  &:focus  { outline: none; border-color: ${p => p.theme.colors.violet}; box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33; }
+`;
+
+const PromptArea = styled.textarea`
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 10px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
+`;
+
+const Segmented = styled.div`
+  display: flex;
+  background: ${p => p.theme.colors.background}80;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+`;
+
+const SegmentedBtn = styled.button<{ $active?: boolean }>`
+  flex: 1;
+  padding: 0.42rem 0.5rem;
+  border: 0;
+  border-radius: 7px;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.$active ? 'white' : p.theme.colors.text};
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  ${p => p.$active && `box-shadow: 0 2px 8px ${p.theme.colors.primary}66;`}
+`;
+
+const PanelFooter = styled.div`
+  border-top: 1px solid ${p => p.theme.colors.border};
+  padding: 0.85rem 1rem 1rem;
+  background: ${p => p.theme.colors.surface};
+  display: flex; flex-direction: column; gap: 0.6rem;
+`;
+
+const GenerateBtn = styled.button<{ $disabled?: boolean }>`
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.12s, box-shadow 0.12s;
+  background: ${p => p.$disabled
+    ? p.theme.colors.surfaceHigh
+    : `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`};
+  color: ${p => p.$disabled ? p.theme.colors.textMuted : 'white'};
+  box-shadow: ${p => p.$disabled ? 'none' : `0 6px 22px ${p.theme.colors.primary}66`};
+  &:hover { ${p => !p.$disabled && `transform: translateY(-1px); box-shadow: 0 8px 30px ${p.theme.colors.violet}88;`} }
+  &:disabled { pointer-events: none; }
+  &::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%);
+    animation: ${sweep} 2.6s linear infinite;
+    opacity: ${p => p.$disabled ? 0 : 1};
+  }
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Center viewport
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Viewport = styled.section`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 60% 60% at 30% 25%, ${p => p.theme.colors.primary}26, transparent 60%),
+    radial-gradient(ellipse 55% 55% at 75% 80%, ${p => p.theme.colors.violet}1f, transparent 60%),
+    radial-gradient(ellipse 100% 100% at 50% 50%, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  overflow: hidden;
+  min-width: 0;
+`;
+
+// Top-of-viewport bar — holds the provider selector + generation cost hint.
+// Lives here (not in the config panel) because the provider is a global
+// "engine" choice, not a per-prompt parameter.
+const ViewportBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surface}cc;
+  backdrop-filter: blur(8px);
+`;
+
+const VBLabel = styled.span`
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: ${p => p.theme.colors.textMuted};
+`;
+
+const VBHint = styled.span`
+  font-size: 0.78rem;
+  color: ${p => p.theme.colors.textMuted};
+`;
+
+const ProviderSelect = styled.select`
+  padding: 0.42rem 2rem 0.42rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, ${p => p.theme.colors.textMuted} 50%),
+                    linear-gradient(135deg, ${p => p.theme.colors.textMuted} 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+  &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33; }
+`;
+
+// Wraps the actual stage so the gradients live behind the image instead of
+// behind the toolbar.
+const StageWrap = styled.div`
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  position: relative;
+  min-height: 0;
+`;
+
+const Stage = styled.div`
+  position: relative;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+`;
+
+const BigImage = styled.img`
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: ${fadeIn} 0.25s ease;
+`;
+
+const EmptyState = styled.div`
+  display: flex; flex-direction: column; align-items: center;
+  gap: 1rem;
+  text-align: center;
+  max-width: 420px;
+  padding: 0 2rem;
+`;
+
+const EmptyTitle = styled.h1`
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0;
+`;
+
+const EmptyAccent = styled.span`
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+const EmptySub = styled.p`
+  font-size: 0.92rem;
+  color: ${p => p.theme.colors.textMuted};
+  line-height: 1.55;
+  margin: 0;
+`;
+
+// Action bar that overlays the bottom of the big image when one is shown.
+const ActionBar = styled.div`
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.5rem;
+  background: ${p => p.theme.colors.surface}f2;
+  backdrop-filter: blur(10px);
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 999px;
+  padding: 0.4rem;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.5);
+  z-index: 5;
+`;
+
+const ActionBtn = styled.button<{ $primary?: boolean }>`
+  padding: 0.45rem 0.95rem;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  background: ${p => p.$primary
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.$primary ? 'white' : p.theme.colors.text};
+  &:hover {
+    ${p => !p.$primary && `background: ${p.theme.colors.surfaceHigh};`}
+    ${p => p.$primary && `filter: brightness(1.1);`}
+  }
+`;
+
+// Floating loader while a generation is in flight
+const RunningCard = styled.div`
+  position: absolute;
+  top: 16px; left: 50%;
+  transform: translateX(-50%);
+  background: ${p => p.theme.colors.surface}f2;
+  backdrop-filter: blur(10px);
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  display: flex; align-items: center; gap: 0.6rem;
+  z-index: 5;
+  font-size: 0.82rem; font-weight: 600;
+`;
+
+const RunningSpinner = styled.div`
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid ${p => p.theme.colors.violet}33;
+  border-top-color: ${p => p.theme.colors.violet};
+  animation: ${rotate} 0.9s linear infinite;
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Right rail (asset gallery — session only for v1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Aside = styled.aside`
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid ${p => p.theme.colors.border};
+  background:
+    radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.violet}0d, transparent 70%),
+    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  min-width: 0;
+  overflow: hidden;
+  @media (max-width: 1024px) { display: none; }
+`;
+
+const AsideHeader = styled.div`
+  padding: 0.85rem 1rem 0.65rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+`;
+
+const AsideTitle = styled.h2`
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${p => p.theme.colors.textMuted};
+  margin: 0 0 0.4rem;
+`;
+
+const AsideHint = styled.div`
+  font-size: 0.7rem;
+  color: ${p => p.theme.colors.textMuted};
+`;
+
+const AssetGrid = styled.div`
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem 1rem;
+  overflow-y: auto;
+  align-content: start;
+`;
+
+const AssetCard = styled.button<{ $active?: boolean }>`
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 6px 20px ${p => p.theme.colors.violet}44;
+  }
+`;
+
+const AssetThumb = styled.img`
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+`;
+
+// Floating "Send N to 3D" bar that appears above the gallery when selection > 0.
+const SendToThreeDBar = styled.div`
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.55rem 0.85rem;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}22, ${p => p.theme.colors.violet}22);
+  border-bottom: 1px solid ${p => p.theme.colors.borderHigh};
+`;
+
+const SendToThreeDBtn = styled.button`
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+  color: white;
+  box-shadow: 0 6px 20px ${p => p.theme.colors.primary}55;
+  &:hover { filter: brightness(1.1); }
+  &:disabled { opacity: 0.6; cursor: not-allowed; }
+`;
+
+const SendToThreeDClearBtn = styled.button`
+  padding: 0.5rem 0.75rem;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: transparent;
+  color: ${p => p.theme.colors.textMuted};
+  cursor: pointer;
+  &:hover { color: ${p => p.theme.colors.text}; }
+`;
+
+// Per-card pick-for-3D checkbox in the top-left of the thumb.
+const PickToggle = styled.button<{ $picked: boolean }>`
+  position: absolute;
+  top: 6px; left: 6px;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid ${p => p.$picked ? 'transparent' : 'rgba(255,255,255,0.6)'};
+  background: ${p => p.$picked
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'rgba(0,0,0,0.45)'};
+  backdrop-filter: blur(4px);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: ${p => p.$picked ? `0 0 0 2px ${p.theme.colors.violet}66` : 'none'};
+  transition: background 0.12s, box-shadow 0.12s;
+  &:hover { box-shadow: 0 0 0 2px ${p => p.theme.colors.violet}55; }
+`;
+
+const EmptyAssets = styled.div`
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.82rem;
+  color: ${p => p.theme.colors.textMuted};
+  padding: 2rem 0.5rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  align-items: center;
+`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TextToImage: React.FC = () => {
+  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
+  const { appUser } = useAppUser();
+
+  const [prompt, setPrompt] = useState('');
+  const [params, setParams] = useState<GenParams>(DEFAULT_PARAMS);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [images, setImages] = useState<GeneratedImage[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const idRef = useRef(0);
+
+  // Multi-select state for the gallery — user picks N favorites then bulk-
+  // submits them through the regular /api/upload flow.
+  const [selectedSet, setSelectedSet] = useState<Set<string>>(new Set());
+  const [sending3D, setSending3D] = useState(false);
+
+  // Tiny helper to update a single field of `params` immutably.
+  const setParam = <K extends keyof GenParams>(k: K, v: GenParams[K]) =>
+    setParams(p => ({ ...p, [k]: v }));
+
+  const isAdmin = appUser?.role === 'admin';
+  const initials = (user?.displayName || user?.email || '?').slice(0, 1).toUpperCase();
+
+  const selected = useMemo<GeneratedImage | null>(
+    () => images.find(i => i.id === selectedId) ?? null,
+    [images, selectedId],
+  );
+
+  // Free object URLs on unmount
+  useEffect(() => () => { images.forEach(i => URL.revokeObjectURL(i.url)); }, []);  // eslint-disable-line
+
+  const onGenerate = useCallback(async () => {
+    const q = prompt.trim();
+    if (!q || generating) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const px = ASPECT_PIXELS[params.aspect];
+      const qs = new URLSearchParams({
+        prompt:   q,
+        w:        String(px.w),
+        h:        String(px.h),
+        bg:       params.bg,
+        view:     params.view,
+        scale:    params.scale,
+        style:    params.style,
+        material: params.material,
+        provider: params.provider,
+      });
+      if (params.negative.trim()) qs.set('negative', params.negative.trim());
+
+      const r = await fetch(`/api/text2image?${qs.toString()}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      if (blob.size === 0) throw new Error('empty response — try again');
+
+      // Pull back the actual composed prompt + seed for transparency.
+      const finalPromptHdr = r.headers.get('X-Final-Prompt');
+      const finalPrompt = finalPromptHdr ? decodeURIComponent(finalPromptHdr) : undefined;
+      const seed = r.headers.get('X-Seed') || undefined;
+
+      idRef.current += 1;
+      const id = `g${idRef.current}`;
+      const url = URL.createObjectURL(blob);
+      const next: GeneratedImage = {
+        id, prompt: q, blob, url, createdAt: Date.now(),
+        params: { ...params },
+        finalPrompt, seed,
+      };
+      setImages(prev => [next, ...prev]);
+      setSelectedId(id);
+    } catch (e: any) {
+      setError(e.message || 'failed');
+    } finally {
+      setGenerating(false);
+    }
+  }, [prompt, params, generating]);
+
+  // Toggle selection of an image in the gallery.
+  const onToggleSelect = useCallback((id: string) => {
+    setSelectedSet(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Send all currently-selected images through the normal /api/upload (3D
+  // worker) flow — same path a manual upload uses. They stack as 3D jobs and
+  // the worker grinds through them sequentially.
+  const onSendSelectedTo3D = useCallback(async () => {
+    if (sending3D || !user?.email || selectedSet.size === 0) return;
+    setSending3D(true);
+    try {
+      const picks = images.filter(i => selectedSet.has(i.id));
+      for (const img of picks) {
+        const safe = img.prompt.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
+        const file = new File([img.blob], `${safe}.png`, { type: img.blob.type || 'image/png' });
+        const fd = new FormData();
+        fd.append('image', file);
+        fd.append('email', user.email);
+        fd.append('name', img.prompt.slice(0, 60));
+        fd.append('prompt', img.prompt);
+        fd.append('exportFormat', 'GLB');
+        fd.append('inferenceSteps', '5');
+        fd.append('octreeResolution', '256');
+        fd.append('targetFaceCount', '30000');
+        fd.append('guidanceScale', '5');
+        fd.append('doTexture', 'false');
+        try {
+          await fetch('/api/upload', { method: 'POST', body: fd });
+        } catch {
+          /* continue with the rest */
+        }
+      }
+      setSelectedSet(new Set());
+    } finally {
+      setSending3D(false);
+    }
+  }, [sending3D, user?.email, selectedSet, images]);
+
+  const onSendTo3D = useCallback(async () => {
+    if (!selected) return;
+    // Hand the blob to the Workspace page through sessionStorage.
+    // Stored as a base64 data URL (sessionStorage can't hold binary directly).
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      sessionStorage.setItem(PENDING_IMAGE_KEY, JSON.stringify({
+        dataUrl: reader.result,
+        name: selected.prompt.slice(0, 40),
+      }));
+      navigate('/dashboard');
+    };
+    reader.readAsDataURL(selected.blob);
+  }, [selected, navigate]);
+
+  const onDownload = useCallback(() => {
+    if (!selected) return;
+    const a = document.createElement('a');
+    a.href = selected.url;
+    a.download = `${selected.prompt.slice(0, 40).replace(/[^\w-]+/g, '_') || 'image'}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [selected]);
+
+  const onSignOut = async () => {
+    await signOutUser();
+    window.location.href = '/';
+  };
+
+  return (
+    <Shell>
+      {/* Top nav */}
+      <NavBar>
+        <BrandWrap to="/" title="Back to home">
+          <BrandMark>⬡</BrandMark>
+          GENSHAPE3D
+        </BrandWrap>
+        <NavSpacer />
+        {isAuthenticated && (
+          <RolePill $admin={isAdmin}>
+            {isAdmin ? '⚙ Admin' : 'Free user'}
+          </RolePill>
+        )}
+        {isAuthenticated ? (
+          user?.photoURL
+            ? <Avatar src={user.photoURL} alt="" onClick={onSignOut} title="Sign out" />
+            : <AvatarFallback onClick={onSignOut} title="Sign out">{initials}</AvatarFallback>
+        ) : null}
+      </NavBar>
+
+      <Body>
+        {/* Icon rail */}
+        <Rail>
+          <RailItem icon="🖼" label="Image"  title="Image to 3D"
+                    onClick={() => navigate('/dashboard')} />
+          <RailItem icon="✨" label="Text"   active title="Text to image" />
+          <RailItem icon="🎨" label="Texture" disabled title="Re-texture — coming soon" />
+          <RailItem icon="🦴" label="Rig"     disabled title="Rig & animate — coming soon" />
+          <RailDivider />
+          <RailItem icon="📦" label="Assets"   title="My assets"
+                    onClick={() => navigate('/dashboard')} />
+          <RailItem icon="⚙" label="Settings" title="Settings" />
+          {isAdmin && (
+            <>
+              <RailDivider />
+              <RailItem icon="📊" label="Stats" title="Admin stats"
+                        onClick={() => navigate('/admin/stats')} />
+            </>
+          )}
+        </Rail>
+
+        {/* Config */}
+        <Panel>
+          <PanelHeader><PanelTitle>Text to image</PanelTitle></PanelHeader>
+          <PanelBody>
+            <Field>
+              <FieldLabel>
+                Prompt
+                <FieldHint>describe the object</FieldHint>
+              </FieldLabel>
+              <PromptArea
+                placeholder="e.g. a small ceramic vase, smooth glaze"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onGenerate();
+                }}
+              />
+            </Field>
+
+            <SectionHeader>Composition</SectionHeader>
+
+            <Field>
+              <FieldLabel>Background</FieldLabel>
+              <Segmented>
+                {(['white','studio','dark','iso'] as Background[]).map(v => (
+                  <SegmentedBtn key={v} $active={params.bg === v} onClick={() => setParam('bg', v)}>
+                    {BG_LABEL[v]}
+                  </SegmentedBtn>
+                ))}
+              </Segmented>
+            </Field>
+
+            <Field>
+              <FieldLabel>View</FieldLabel>
+              <Segmented>
+                {(['front','three_q','side','iso'] as ViewAngle[]).map(v => (
+                  <SegmentedBtn key={v} $active={params.view === v} onClick={() => setParam('view', v)}>
+                    {VIEW_LABEL[v]}
+                  </SegmentedBtn>
+                ))}
+              </Segmented>
+            </Field>
+
+            <Row>
+              <Field>
+                <FieldLabel>Scale</FieldLabel>
+                <Dropdown<Scale>
+                  value={params.scale}
+                  onChange={v => setParam('scale', v)}
+                  options={(Object.keys(SCALE_LABEL) as Scale[]).map(v => ({ value: v, label: SCALE_LABEL[v] }))}
+                />
+              </Field>
+              <Field>
+                <FieldLabel>Aspect</FieldLabel>
+                <Dropdown<AspectRatio>
+                  value={params.aspect}
+                  onChange={v => setParam('aspect', v)}
+                  options={(['1:1','4:3','3:4','16:9'] as AspectRatio[]).map(a => ({ value: a, label: a }))}
+                />
+              </Field>
+            </Row>
+
+            <SectionDivider />
+            <SectionHeader>Look</SectionHeader>
+
+            <Field>
+              <FieldLabel>Style</FieldLabel>
+              <Segmented>
+                {(['photoreal','clay','neutral','toon'] as StyleKind[]).map(v => (
+                  <SegmentedBtn key={v} $active={params.style === v} onClick={() => setParam('style', v)}>
+                    {STYLE_LABEL[v]}
+                  </SegmentedBtn>
+                ))}
+              </Segmented>
+            </Field>
+
+            <Field>
+              <FieldLabel>Material</FieldLabel>
+              <Dropdown<Material>
+                value={params.material}
+                onChange={v => setParam('material', v)}
+                options={(Object.keys(MATERIAL_LABEL) as Material[]).map(v => ({ value: v, label: MATERIAL_LABEL[v] }))}
+              />
+            </Field>
+
+            <SectionDivider />
+
+            <Field>
+              <FieldLabel>
+                <span
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setShowAdvanced(s => !s)}
+                >
+                  {showAdvanced ? '▼' : '▶'} Advanced
+                </span>
+              </FieldLabel>
+              {showAdvanced && (
+                <>
+                  <PromptArea
+                    placeholder="Negative prompt — what to avoid"
+                    value={params.negative}
+                    onChange={e => setParam('negative', e.target.value)}
+                    style={{ minHeight: 60 }}
+                  />
+                  <FieldHint>
+                    A standard avoidance set is appended automatically (clutter, watermarks, blur).
+                  </FieldHint>
+                </>
+              )}
+            </Field>
+
+          </PanelBody>
+
+          <PanelFooter>
+            {error && (
+              <div style={{ fontSize: '0.74rem', color: '#EF4444' }}>{error} — try again.</div>
+            )}
+            <GenerateBtn
+              $disabled={!prompt.trim() || generating}
+              onClick={onGenerate}
+            >
+              {generating ? 'Generating image…' : '✨ Generate'}
+            </GenerateBtn>
+          </PanelFooter>
+        </Panel>
+
+        {/* Center */}
+        <Viewport>
+          <ViewportBar>
+            <Dropdown<Provider>
+              variant="pill"
+              label="Provider"
+              value={params.provider}
+              onChange={v => setParam('provider', v)}
+              width={260}
+              options={(['fal-flux-schnell', 'fal-flux-pro', 'openai-dall-e-3', 'hf-flux-schnell', 'pollinations'] as Provider[])
+                .map(p => ({ value: p, label: PROVIDER_LABEL[p], hint: PROVIDER_HINT[p] }))}
+            />
+            <VBHint>{PROVIDER_HINT[params.provider]}</VBHint>
+          </ViewportBar>
+
+          {generating && (
+            <RunningCard>
+              <RunningSpinner />
+              Generating…
+            </RunningCard>
+          )}
+          <StageWrap>
+          <Stage>
+            {selected ? (
+              <>
+                <BigImage src={selected.url} alt={selected.prompt} />
+                <ActionBar>
+                  <ActionBtn $primary onClick={onSendTo3D}>↗ Send to 3D</ActionBtn>
+                  <ActionBtn onClick={onDownload}>⬇ Download</ActionBtn>
+                  <ActionBtn onClick={() => { setPrompt(selected.prompt); onGenerate(); }}>↻ Regenerate</ActionBtn>
+                </ActionBar>
+                {selected.finalPrompt && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 12, right: 12,
+                    maxWidth: 360,
+                    pointerEvents: 'auto',
+                  }}>
+                    <button
+                      onClick={() => setShowDetails(s => !s)}
+                      style={{
+                        background: 'rgba(20,20,23,0.85)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid #2E2E34',
+                        borderRadius: 999,
+                        padding: '0.32rem 0.85rem',
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        letterSpacing: '0.05em',
+                        textTransform: 'uppercase',
+                        color: '#A4A4AC',
+                        cursor: 'pointer',
+                        marginLeft: 'auto',
+                        display: 'block',
+                      }}
+                    >
+                      {showDetails ? '× Hide details' : 'ⓘ Details'}
+                    </button>
+                    {showDetails && (
+                      <div style={{
+                        marginTop: 6,
+                        background: 'rgba(20,20,23,0.92)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid #2E2E34',
+                        borderRadius: 10,
+                        padding: '0.6rem 0.75rem',
+                        fontSize: '0.7rem',
+                        lineHeight: 1.45,
+                        color: '#A4A4AC',
+                      }}>
+                        <div style={{ fontWeight: 700, color: '#F4F4F6', marginBottom: 4, letterSpacing: '0.04em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
+                          Composed prompt
+                        </div>
+                        {selected.finalPrompt}
+                        {selected.seed && <div style={{ marginTop: 6, opacity: 0.7 }}>seed: {selected.seed}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <EmptyState>
+                <EmptyTitle>
+                  Describe what you <EmptyAccent>imagine</EmptyAccent>
+                </EmptyTitle>
+                <EmptySub>
+                  Type a prompt on the left and we'll generate an image. You can fine-tune,
+                  download, or send it straight to 3D.
+                </EmptySub>
+              </EmptyState>
+            )}
+          </Stage>
+          </StageWrap>
+        </Viewport>
+
+        {/* Right rail — session gallery with multi-select bulk-to-3D */}
+        <Aside>
+          <AsideHeader>
+            <AsideTitle>This session</AsideTitle>
+            <AsideHint>
+              {images.length === 0
+                ? 'Your generations will appear here.'
+                : `${images.length} image${images.length === 1 ? '' : 's'}${selectedSet.size ? ` · ${selectedSet.size} selected` : ''}`}
+            </AsideHint>
+          </AsideHeader>
+          {selectedSet.size > 0 && (
+            <SendToThreeDBar>
+              <SendToThreeDBtn
+                type="button"
+                disabled={sending3D}
+                onClick={onSendSelectedTo3D}
+              >
+                {sending3D
+                  ? `Sending ${selectedSet.size}…`
+                  : `↗ Send ${selectedSet.size} to 3D`}
+              </SendToThreeDBtn>
+              <SendToThreeDClearBtn type="button" onClick={() => setSelectedSet(new Set())}>
+                Clear
+              </SendToThreeDClearBtn>
+            </SendToThreeDBar>
+          )}
+          <AssetGrid>
+            {images.length === 0 && (
+              <EmptyAssets>
+                <span style={{ fontSize: '1.4rem' }}>✨</span>
+                Nothing yet — generate your first image.
+              </EmptyAssets>
+            )}
+            {images.map(img => {
+              const picked = selectedSet.has(img.id);
+              return (
+                <AssetCard
+                  key={img.id}
+                  $active={selectedId === img.id}
+                  onClick={() => setSelectedId(img.id)}
+                  title={img.prompt}
+                  style={{ position: 'relative' }}
+                >
+                  <AssetThumb src={img.url} alt="" />
+                  <PickToggle
+                    type="button"
+                    $picked={picked}
+                    onClick={(e) => { e.stopPropagation(); onToggleSelect(img.id); }}
+                    title={picked ? 'Unpick for 3D' : 'Pick for 3D'}
+                  >
+                    {picked ? '✓' : ''}
+                  </PickToggle>
+                </AssetCard>
+              );
+            })}
+          </AssetGrid>
+        </Aside>
+      </Body>
+    </Shell>
+  );
+};
+
+export default TextToImage;

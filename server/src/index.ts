@@ -13,12 +13,19 @@ import {
 import { uploadToR2, getR2Stream } from './r2';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
+import { createAsset, listAssetsByUser, renameAsset, deleteAsset } from './text2imageRepo';
 
 const app = express();
 const port = process.env.PORT || 8110;
 const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
 
-app.use(cors({ origin: clientOrigin, credentials: true }));
+app.use(cors({
+  origin: clientOrigin,
+  credentials: true,
+  // Expose the X-Final-Prompt / X-Seed headers from /api/text2image so the
+  // browser can read them to display the composed prompt in the UI.
+  exposedHeaders: ['X-Final-Prompt', 'X-Seed', 'X-Provider'],
+}));
 
 // Stripe webhook needs the raw body for signature verification — register it
 // BEFORE the JSON body parser kicks in.
@@ -118,6 +125,255 @@ const checkRateLimit = async (email: string): Promise<{ ok: boolean; used: numbe
   const used = await countUserJobsSince(email, 24);
   return { ok: used < FREE_LIMIT_PER_24H, used, limit: FREE_LIMIT_PER_24H };
 };
+
+// ── Text-to-image proxy ─────────────────────────────────────────────────────
+// Pollinations now blocks browser-origin requests with a 403, so we proxy
+// the call server-side. The browser sends ?prompt=…, we fetch a 1024² image
+// from Pollinations with no Referer/Origin headers and pipe it back.
+// ─── Structured-prompt vocabulary ────────────────────────────────────────────
+// The text-to-image page sends structured parameters (background, view, etc.)
+// alongside the raw user prompt. We compose them into a single prompt here on
+// the server so all clients (web, future mobile, scripts) get identical
+// behaviour and the dictionary lives in one place.
+
+const BG_CLAUSE: Record<string, string> = {
+  white:  'plain white background, no shadows on background',
+  studio: 'soft grey studio backdrop, gentle gradient, no harsh shadows',
+  dark:   'deep neutral dark backdrop, low-key lighting, no clutter',
+  iso:    'isolated subject, no background details, plain off-white surround',
+  none:   '',
+};
+
+const VIEW_CLAUSE: Record<string, string> = {
+  front:    'front-facing view, head-on perspective',
+  three_q:  '3/4 front view, slight angle showing depth',
+  side:     'side profile view',
+  iso:      'isometric perspective view',
+  none:     '',
+};
+
+const SCALE_CLAUSE: Record<string, string> = {
+  fill:    'subject fills the frame edge to edge',
+  margin:  'subject centered with comfortable margin around it',
+  none:    '',
+};
+
+const STYLE_CLAUSE: Record<string, string> = {
+  photoreal: 'studio product photography, photorealistic, sharp focus',
+  clay:      'matte clay render, smooth neutral surface, even lighting',
+  neutral:   'flat shaded neutral material, no textures, even lighting',
+  toon:      'toon-shaded 3D model render, clean cel shading',
+  none:      '',
+};
+
+const MATERIAL_CLAUSE: Record<string, string> = {
+  auto:    '',
+  ceramic: 'ceramic surface, smooth glaze',
+  metal:   'brushed metal surface',
+  wood:    'natural wood surface, visible grain',
+  plastic: 'matte plastic surface',
+  fabric:  'soft fabric surface',
+  glass:   'transparent glass material',
+  stone:   'stone surface, rough finish',
+};
+
+// Tokens we always inject so Pollinations doesn't produce 3D-unfriendly output.
+const ALWAYS_NEGATIVE = 'multiple objects, group, scene, busy background, watermark, logo, text, signature, motion blur, depth-of-field bokeh';
+
+const composeFinalPrompt = (q: Record<string, any>): string => {
+  const parts: string[] = [String(q.prompt || '').trim()];
+  parts.push('single object, centered composition');
+
+  const bg    = BG_CLAUSE[String(q.bg || 'white')]       ?? BG_CLAUSE.white;
+  const view  = VIEW_CLAUSE[String(q.view || 'three_q')] ?? VIEW_CLAUSE.three_q;
+  const scale = SCALE_CLAUSE[String(q.scale || 'margin')] ?? SCALE_CLAUSE.margin;
+  const style = STYLE_CLAUSE[String(q.style || 'photoreal')] ?? STYLE_CLAUSE.photoreal;
+  const mat   = MATERIAL_CLAUSE[String(q.material || 'auto')] ?? '';
+
+  for (const c of [bg, view, scale, style, mat]) {
+    if (c) parts.push(c);
+  }
+  return parts.filter(Boolean).join(', ');
+};
+
+// ─── Provider implementations ────────────────────────────────────────────────
+// Each takes the composed prompt + dimensions + seed and returns a binary
+// image buffer. Adding a new provider = add another entry here + a UI option.
+
+interface T2IRequest {
+  prompt: string;
+  negative: string;
+  width: number;
+  height: number;
+  seed: number;
+}
+
+const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(req.prompt)}` +
+    `?width=${req.width}&height=${req.height}&nologo=true&seed=${req.seed}` +
+    (req.negative ? `&negative_prompt=${encodeURIComponent(req.negative)}` : '');
+  const r = await fetch(url, { headers: { 'User-Agent': 'genshape3d/1.0' } });
+  if (!r.ok) throw new Error(`pollinations ${r.status}`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length === 0) throw new Error('pollinations empty response');
+  return { buf, contentType: r.headers.get('content-type') || 'image/jpeg' };
+};
+
+// Map our (w,h) onto fal's named image_size enum.
+const falImageSize = (w: number, h: number): string => {
+  const ratio = w / h;
+  if (ratio > 1.5)  return 'landscape_16_9';
+  if (ratio > 1.1)  return 'landscape_4_3';
+  if (ratio < 0.67) return 'portrait_16_9';
+  if (ratio < 0.91) return 'portrait_4_3';
+  return 'square_hd';
+};
+
+const callFalEndpoint = async (
+  endpoint: string,
+  steps: number,
+  req: T2IRequest,
+): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+
+  const fr = await fetch(`https://fal.run/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: req.prompt,
+      image_size: falImageSize(req.width, req.height),
+      num_inference_steps: steps,
+      seed: req.seed,
+      enable_safety_checker: true,
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal.ai ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const imgUrl = data.images?.[0]?.url;
+  if (!imgUrl) throw new Error('fal.ai returned no image');
+
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  const buf = Buffer.from(await ir.arrayBuffer());
+  return { buf, contentType: ir.headers.get('content-type') || 'image/jpeg' };
+};
+
+const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
+const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
+
+const callHFInference = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.HF_TOKEN;
+  if (!key) throw new Error('HF_TOKEN not configured');
+
+  // Free-tier endpoint. Slow on cold start (10-30s) but has no per-call cost.
+  const hr = await fetch('https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'x-wait-for-model': 'true',
+    },
+    body: JSON.stringify({
+      inputs: req.prompt,
+      parameters: {
+        width: req.width,
+        height: req.height,
+        num_inference_steps: 4,
+        seed: req.seed,
+      },
+    }),
+  });
+  if (!hr.ok) throw new Error(`hf ${hr.status} ${await hr.text().catch(() => '')}`);
+  const buf = Buffer.from(await hr.arrayBuffer());
+  if (buf.length === 0) throw new Error('hf empty response');
+  return { buf, contentType: hr.headers.get('content-type') || 'image/jpeg' };
+};
+
+const callOpenAIDallE3 = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY not configured');
+
+  // DALL-E 3 only supports three sizes. Pick the closest match.
+  const ratio = req.width / req.height;
+  const size =
+    ratio > 1.3  ? '1792x1024' :
+    ratio < 0.77 ? '1024x1792' :
+                   '1024x1024';
+
+  const r = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'dall-e-3',
+      prompt: req.prompt,
+      n: 1,
+      size,
+      quality: 'standard', // 'hd' = ~$0.08 vs 'standard' = ~$0.04
+      response_format: 'url',
+    }),
+  });
+  if (!r.ok) throw new Error(`openai ${r.status} ${await r.text().catch(() => '')}`);
+  const data = await r.json() as { data?: { url: string }[] };
+  const imgUrl = data.data?.[0]?.url;
+  if (!imgUrl) throw new Error('openai returned no image');
+
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`openai cdn ${ir.status}`);
+  const buf = Buffer.from(await ir.arrayBuffer());
+  return { buf, contentType: ir.headers.get('content-type') || 'image/png' };
+};
+
+const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; contentType: string }>> = {
+  pollinations:       callPollinations,
+  'fal-flux-schnell': callFalFluxSchnell,
+  'fal-flux-pro':     callFalFluxPro,
+  'hf-flux-schnell':  callHFInference,
+  'openai-dall-e-3':  callOpenAIDallE3,
+};
+
+app.get('/api/text2image', async (req, res) => {
+  const prompt = String(req.query.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+  // Caller can opt out of structured prompt composition with raw=1 (debug/eval).
+  const finalPrompt = req.query.raw === '1' ? prompt : composeFinalPrompt(req.query);
+
+  // Optional width/height; clamped to a sensible range.
+  const w = Math.max(256, Math.min(1536, parseInt(req.query.w as string) || 1024));
+  const h = Math.max(256, Math.min(1536, parseInt(req.query.h as string) || 1024));
+
+  // Optional negative prompt — caller can add their own avoid-tokens.
+  const userNegative = String(req.query.negative || '').trim();
+  const negative = [ALWAYS_NEGATIVE, userNegative].filter(Boolean).join(', ');
+
+  const seed = Number.isFinite(Number(req.query.seed))
+    ? Number(req.query.seed)
+    : Math.floor(Math.random() * 1_000_000);
+
+  const provider = String(req.query.provider || 'pollinations');
+  const fn = T2I_PROVIDERS[provider];
+  if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
+
+  try {
+    const { buf, contentType } = await fn({
+      prompt: finalPrompt,
+      negative,
+      width: w,
+      height: h,
+      seed,
+    });
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Final-Prompt', encodeURIComponent(finalPrompt));
+    res.setHeader('X-Seed', String(seed));
+    res.setHeader('X-Provider', provider);
+    res.send(buf);
+  } catch (e: any) {
+    console.error('[text2image]', provider, e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
 
 app.get('/api/limits', async (req, res) => {
   const email = req.query.email as string;

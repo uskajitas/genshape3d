@@ -77,6 +77,25 @@ export async function initDb(): Promise<void> {
     );
   `);
 
+  // Text-to-image assets — persisted images generated via /api/text2image.
+  // Survives reloads so the gallery is yours.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS genshape3d_text2image_assets (
+      id           UUID PRIMARY KEY,
+      user_email   TEXT NOT NULL,
+      name         TEXT NOT NULL DEFAULT '',
+      prompt       TEXT NOT NULL,
+      final_prompt TEXT NOT NULL DEFAULT '',
+      params       JSONB NOT NULL DEFAULT '{}'::jsonb,
+      provider     TEXT NOT NULL DEFAULT '',
+      image_key    TEXT NOT NULL,
+      seed         BIGINT,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_t2i_user
+      ON genshape3d_text2image_assets (user_email, created_at DESC);
+  `);
+
   // Add new columns to existing tables if they don't exist yet
   const alterCols = [
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`,

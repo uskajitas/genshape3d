@@ -227,6 +227,10 @@ const submitJob = async (
   const fd = new FormData();
   fd.append('image', blob, path.basename(imagePath));
   fd.append('email', EMAIL);
+  // Bench-readable asset name = "<image stem> · <preset id>" (e.g. "075 · standard-tex")
+  // so duplicate inputs at different settings are easy to tell apart in the rail.
+  const stem = path.parse(imagePath).name;
+  fd.append('name', `${stem} · ${preset.id}`);
   fd.append('exportFormat', 'GLB');
   fd.append('inferenceSteps',   String(preset.inferenceSteps));
   fd.append('octreeResolution', String(preset.octreeResolution));
