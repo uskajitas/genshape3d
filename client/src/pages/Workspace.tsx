@@ -555,27 +555,100 @@ const SegmentedBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
   ${p => p.$active && `box-shadow: 0 2px 8px ${p.theme.colors.primary}66;`}
 `;
 
-const TextToImageBtn = styled.button<{ $disabled?: boolean }>`
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.violet}55;
-  background: ${p => p.$disabled
-    ? p.theme.colors.surfaceHigh
-    : `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`};
-  color: ${p => p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
-  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
-  transition: background 0.12s, border-color 0.12s;
+
+// ── Gallery filmstrip ─────────────────────────────────────────────────────────
+// Horizontal scrolling strip of small thumbnails at the top of the panel.
+
+const Filmstrip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 1rem;
+  overflow-x: auto;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background}88;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+  flex-shrink: 0;
+`;
+
+const FilmThumb = styled.button`
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 7px;
+  border: 1.5px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.12s, transform 0.1s, box-shadow 0.12s;
   &:hover {
-    ${p => !p.$disabled && `
-      border-color: ${p.theme.colors.violet};
-      background: linear-gradient(135deg, ${p.theme.colors.primary}55, ${p.theme.colors.violet}55);
-    `}
+    border-color: ${p => p.theme.colors.violet};
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px ${p => p.theme.colors.violet}55;
   }
-  &:disabled { pointer-events: none; }
+  img { width: 100%; height: 100%; object-fit: cover; display: block; }
+`;
+
+const FilmThumbName = styled.div`
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 0.7rem 0.2rem 0.18rem;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  ${FilmThumb}:hover & { opacity: 1; }
+`;
+
+const FilmEmpty = styled.div`
+  font-size: 0.72rem;
+  color: ${p => p.theme.colors.textMuted};
+  white-space: nowrap;
+  padding: 0 0.25rem;
+`;
+
+const FilmstripWrap = styled.div`
+  position: relative;
+  flex-shrink: 0;
+  &:hover .film-arrow { opacity: 1; }
+`;
+
+const FilmArrow = styled.button<{ $dir: 'left' | 'right' }>`
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  ${p => p.$dir === 'left' ? 'left: 0;' : 'right: 0;'}
+  z-index: 5;
+  width: 26px;
+  height: 44px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: white;
+  background: ${p => p.$dir === 'left'
+    ? `linear-gradient(to right, ${p.theme.colors.primary}dd, transparent)`
+    : `linear-gradient(to left, ${p.theme.colors.violet}dd, transparent)`};
+  border-radius: ${p => p.$dir === 'left' ? '0 4px 4px 0' : '4px 0 0 4px'};
+  opacity: 0;
+  transition: opacity 0.18s, background 0.15s;
+  pointer-events: auto;
+  &:hover {
+    background: ${p => p.$dir === 'left'
+      ? `linear-gradient(to right, ${p.theme.colors.primary}, transparent)`
+      : `linear-gradient(to left, ${p.theme.colors.violet}, transparent)`};
+  }
 `;
 
 const ComingSoonTag = styled.span`
@@ -995,96 +1068,6 @@ const AssetPlaceholder = styled.div`
 // Lets the user re-link an asset's input image when the auto-pairing was wrong
 // (e.g. recovered jobs from R2 orphans).
 // Modal: pick which R2 upload should be the asset's thumbnail.
-const PickerOverlay = styled.div`
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.65);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 5000;
-  padding: 1.5rem;
-`;
-
-const PickerPanel = styled.div`
-  background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
-  border: 1px solid ${p => p.theme.colors.borderHigh};
-  border-radius: 14px;
-  width: 100%;
-  max-width: 900px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
-`;
-
-const PickerHeader = styled.div`
-  display: flex;
-  align-items: center;
-  padding: 0.85rem 1rem 0.5rem;
-`;
-
-const PickerTitle = styled.h2`
-  font-size: 1rem;
-  font-weight: 800;
-  margin: 0;
-  flex: 1;
-`;
-
-const PickerClose = styled.button`
-  background: none;
-  border: 0;
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: ${p => p.theme.colors.textMuted};
-  cursor: pointer;
-  &:hover { color: ${p => p.theme.colors.text}; }
-`;
-
-const PickerHint = styled.div`
-  padding: 0 1rem 0.6rem;
-  color: ${p => p.theme.colors.textMuted};
-  font-size: 0.78rem;
-`;
-
-const PickerGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 0.55rem;
-  padding: 0 1rem 1rem;
-  overflow-y: auto;
-`;
-
-const PickerCard = styled.button`
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  border: 1.5px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.background};
-  overflow: hidden;
-  padding: 0;
-  cursor: pointer;
-  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
-  img {
-    width: 100%; height: 100%; object-fit: cover; display: block;
-  }
-  span {
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    padding: 4px 6px;
-    background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
-    color: white;
-    font-size: 0.62rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-  &:hover {
-    transform: translateY(-2px);
-    border-color: ${p => p.theme.colors.violet};
-    box-shadow: 0 6px 22px ${p => p.theme.colors.violet}55;
-  }
-`;
 
 const AssetBadge = styled.div<{ $color: string }>`
   position: absolute;
@@ -1149,43 +1132,29 @@ const Workspace: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [limits, setLimits] = useState<{ used24h: number; limit24h: number | null } | null>(null);
-  // "Submit existing images" picker — modal of all R2 uploads, user multi-
-  // selects, click "Submit N" → each becomes a fresh 3D job via the
-  // /api/jobs/from-key endpoint (no re-upload).
-  const [showSubmitPicker, setShowSubmitPicker] = useState(false);
-  const [submitPicks, setSubmitPicks] = useState<Set<string>>(new Set());
-  const [uploadOptions, setUploadOptions] = useState<{ key: string; url: string; lastModified: string }[]>([]);
-  useEffect(() => {
-    if (!showSubmitPicker) return;
-    fetch('/api/uploads')
-      .then(r => r.ok ? r.json() : { uploads: [] })
-      .then(d => setUploadOptions(d.uploads || []))
-      .catch(() => setUploadOptions([]));
-  }, [showSubmitPicker]);
-  const onSubmitFromPicker = async () => {
-    if (!user?.email || submitPicks.size === 0) return;
-    for (const key of submitPicks) {
-      try {
-        await fetch('/api/jobs/from-key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: user.email, key,
-            name: key.split('/').pop()?.slice(0, 40),
-            inferenceSteps: 5, octreeResolution: 256,
-            targetFaceCount: 30000, doTexture: false,
-          }),
-        });
-      } catch { /* keep going */ }
-    }
-    setSubmitPicks(new Set());
-    setShowSubmitPicker(false);
-  };
-  // Text-to-image mode (Pollinations) — free, no key, generates a 1024² image
-  // from a prompt and stuffs it into `file` so the rest of the flow is identical.
-  const [textPrompt, setTextPrompt] = useState('');
-  const [generatingImage, setGeneratingImage] = useState(false);
+
+  // Gallery images fetched from the text-to-image page — shown in the panel
+  // so the user can pick one as the input without re-uploading.
+  const [gallery, setGallery] = useState<{ id: string; imageKey: string; name: string; prompt: string }[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [loadingFromGallery, setLoadingFromGallery] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filmstripRef = useRef<HTMLDivElement>(null);
+
+  // Convert vertical wheel scroll to horizontal so the filmstrip scrolls
+  // naturally with a regular mouse wheel.
+  useEffect(() => {
+    const el = filmstripRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   const email = user?.email || '';
   const isAdmin = appUser?.role === 'admin';
@@ -1216,9 +1185,42 @@ const Workspace: React.FC = () => {
     return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
 
+  // Fetch the user's text-to-image gallery on mount so the panel picker is ready.
+  useEffect(() => {
+    if (!isAuthenticated || !email) return;
+    setGalleryLoading(true);
+    fetch(`/api/text2image/assets?email=${encodeURIComponent(email)}`)
+      .then(r => r.ok ? r.json() : { assets: [] })
+      .then(d => setGallery((d.assets || []).map((a: any) => ({
+        id: a.id, imageKey: a.imageKey,
+        name: a.name || a.prompt.slice(0, 32),
+        prompt: a.prompt,
+      }))))
+      .catch(() => {})
+      .finally(() => setGalleryLoading(false));
+  }, [isAuthenticated, email]);
+
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  // Pick an image from the gallery: fetch its bytes from R2 via the proxy,
+  // turn it into a File, and load it exactly like a manual upload.
+  const onPickFromGallery = useCallback(async (img: { imageKey: string; name: string; prompt: string }) => {
+    if (loadingFromGallery) return;
+    setLoadingFromGallery(true);
+    try {
+      const r = await fetch(`/api/image?key=${encodeURIComponent(img.imageKey)}`);
+      if (!r.ok) throw new Error(`fetch ${r.status}`);
+      const blob = await r.blob();
+      const safeName = img.name.replace(/[^\w-]+/g, '_').slice(0, 40) || 'image';
+      const f = new File([blob], `${safeName}.png`, { type: blob.type || 'image/png' });
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setFile(f);
+      setPreviewUrl(URL.createObjectURL(f));
+    } catch { /* ignore */ }
+    finally { setLoadingFromGallery(false); }
+  }, [loadingFromGallery, previewUrl]);
 
   // ── Handlers
   const onFile = useCallback((f: File | undefined) => {
@@ -1269,45 +1271,6 @@ const Workspace: React.FC = () => {
     }
   }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
 
-  const [textToImageError, setTextToImageError] = useState<string>('');
-
-  // Generate an image from a text prompt via Pollinations.ai. The image becomes
-  // the `file` exactly as if the user had uploaded it — the 3D generation flow
-  // doesn't care how the image arrived. Pollinations occasionally returns a
-  // 0-byte image on a cold start, so we retry once if the first try is empty.
-  const onTextToImage = useCallback(async () => {
-    const q = textPrompt.trim();
-    if (!q || generatingImage) return;
-    setGeneratingImage(true);
-    setTextToImageError('');
-
-    // Routed through our /api/text2image proxy because Pollinations 403s
-    // browser-origin requests directly.
-    const fetchOnce = async (): Promise<Blob> => {
-      const r = await fetch(`/api/text2image?prompt=${encodeURIComponent(q)}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const blob = await r.blob();
-      if (blob.size === 0) throw new Error('empty response');
-      return blob;
-    };
-
-    try {
-      let blob: Blob;
-      try { blob = await fetchOnce(); }
-      catch { blob = await fetchOnce(); } // one retry — pollinations cold-starts return 0 bytes
-
-      const safeName = q.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
-      const f = new File([blob], `${safeName}.png`, { type: blob.type || 'image/png' });
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setFile(f);
-      setPreviewUrl(URL.createObjectURL(f));
-    } catch (e: any) {
-      console.error('text-to-image failed', e);
-      setTextToImageError(e.message || 'failed');
-    } finally {
-      setGeneratingImage(false);
-    }
-  }, [textPrompt, generatingImage, previewUrl]);
 
   const onSignOut = async () => {
     await signOutUser();
@@ -1404,7 +1367,49 @@ const Workspace: React.FC = () => {
         <Panel>
           <PanelHeader>
             <PanelTitle>Image to 3D</PanelTitle>
+            <FieldHint
+              style={{ cursor: 'pointer', fontSize: '0.72rem' }}
+              onClick={() => navigate('/dashboard/text')}
+              title="Go to Text to Image"
+            >
+              ✨ Create images
+            </FieldHint>
           </PanelHeader>
+
+          {/* Filmstrip — user's text-to-image gallery as horizontal thumbnails */}
+          <FilmstripWrap>
+            <FilmArrow
+              className="film-arrow"
+              $dir="left"
+              onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft -= 160)}
+              title="Scroll left"
+            >◀</FilmArrow>
+            <Filmstrip ref={filmstripRef}>
+              {!isAuthenticated ? (
+                <FilmEmpty>Sign in to see your images</FilmEmpty>
+              ) : galleryLoading ? (
+                <FilmEmpty>Loading…</FilmEmpty>
+              ) : gallery.length === 0 ? (
+                <FilmEmpty>No images yet — generate some ✨</FilmEmpty>
+              ) : gallery.map(img => (
+                <FilmThumb
+                  key={img.id}
+                  title={img.name}
+                  onClick={() => onPickFromGallery(img)}
+                >
+                  <img src={`/api/image?key=${encodeURIComponent(img.imageKey)}`} alt={img.name} />
+                  <FilmThumbName>{img.name}</FilmThumbName>
+                </FilmThumb>
+              ))}
+            </Filmstrip>
+            <FilmArrow
+              className="film-arrow"
+              $dir="right"
+              onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft += 160)}
+              title="Scroll right"
+            >▶</FilmArrow>
+          </FilmstripWrap>
+
           <PanelBody>
             <Field>
               <FieldLabel>
@@ -1440,32 +1445,6 @@ const Workspace: React.FC = () => {
               </DropZone>
             </Field>
 
-            <Field>
-              <FieldLabel>
-                Or describe it
-                <FieldHint>generate an image from text</FieldHint>
-              </FieldLabel>
-              <PromptArea
-                placeholder="e.g. a small ceramic vase, smooth glaze, plain background"
-                value={textPrompt}
-                onChange={e => setTextPrompt(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onTextToImage();
-                }}
-              />
-              <TextToImageBtn
-                type="button"
-                $disabled={!textPrompt.trim() || generatingImage}
-                onClick={onTextToImage}
-              >
-                {generatingImage ? 'Generating image…' : '✨ Generate image from text'}
-              </TextToImageBtn>
-              {textToImageError && (
-                <div style={{ fontSize: '0.7rem', color: '#EF4444', marginTop: '0.25rem' }}>
-                  {textToImageError} — try again.
-                </div>
-              )}
-            </Field>
 
             <Field>
               <FieldLabel>Prompt <FieldHint>optional — guide the 3D model</FieldHint></FieldLabel>
@@ -1614,22 +1593,6 @@ const Workspace: React.FC = () => {
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
-            <button
-              type="button"
-              onClick={() => setShowSubmitPicker(true)}
-              style={{
-                padding: '0.4rem 0.6rem',
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                border: '1px solid #2A2A2E',
-                background: '#1E1E22',
-                color: '#F4F4F6',
-                borderRadius: 8,
-                cursor: 'pointer',
-              }}
-            >
-              + Submit from existing images
-            </button>
           </AsideHeader>
           <AssetGrid>
             {!isAuthenticated && (
@@ -1737,73 +1700,6 @@ const Workspace: React.FC = () => {
           </AssetGrid>
         </Aside>
       </Body>
-
-      {/* Multi-pick submit modal */}
-      {showSubmitPicker && (
-        <PickerOverlay onClick={() => { setShowSubmitPicker(false); setSubmitPicks(new Set()); }}>
-          <PickerPanel onClick={e => e.stopPropagation()}>
-            <PickerHeader>
-              <PickerTitle>Pick images to submit as 3D</PickerTitle>
-              <PickerClose onClick={() => { setShowSubmitPicker(false); setSubmitPicks(new Set()); }}>×</PickerClose>
-            </PickerHeader>
-            <PickerHint>{submitPicks.size} selected. Click any image to toggle. Standard quality, no texture.</PickerHint>
-            <div style={{ padding: '0 1rem 0.6rem', display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={onSubmitFromPicker}
-                disabled={submitPicks.size === 0}
-                style={{
-                  padding: '0.5rem 0.9rem',
-                  fontWeight: 700,
-                  border: 0,
-                  borderRadius: 8,
-                  background: submitPicks.size > 0
-                    ? 'linear-gradient(135deg, #A855F7, #EC4899)'
-                    : '#26262C',
-                  color: submitPicks.size > 0 ? 'white' : '#A4A4AC',
-                  cursor: submitPicks.size > 0 ? 'pointer' : 'not-allowed',
-                }}
-              >
-                Submit {submitPicks.size}
-              </button>
-            </div>
-            <PickerGrid>
-              {uploadOptions.map(u => {
-                const picked = submitPicks.has(u.key);
-                return (
-                  <PickerCard
-                    key={u.key}
-                    onClick={() => setSubmitPicks(prev => {
-                      const next = new Set(prev);
-                      if (next.has(u.key)) next.delete(u.key); else next.add(u.key);
-                      return next;
-                    })}
-                    style={picked ? { borderColor: '#A855F7', boxShadow: '0 0 0 2px #A855F766' } : {}}
-                  >
-                    <img src={`/api/image?key=${encodeURIComponent(u.key)}`} alt="" />
-                    {picked && (
-                      <div style={{
-                        position: 'absolute', top: 6, left: 6,
-                        width: 22, height: 22, borderRadius: 6,
-                        background: 'linear-gradient(135deg, #A855F7, #EC4899)',
-                        color: 'white', fontWeight: 800,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: '0.8rem',
-                      }}>✓</div>
-                    )}
-                    <span>{u.lastModified.slice(0, 16).replace('T', ' ')}</span>
-                  </PickerCard>
-                );
-              })}
-              {uploadOptions.length === 0 && (
-                <div style={{ gridColumn: '1 / -1', color: '#A4A4AC', textAlign: 'center', padding: '2rem' }}>
-                  Loading…
-                </div>
-              )}
-            </PickerGrid>
-          </PickerPanel>
-        </PickerOverlay>
-      )}
 
     </Shell>
   );

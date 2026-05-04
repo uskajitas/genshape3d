@@ -159,10 +159,10 @@ const SCALE_CLAUSE: Record<string, string> = {
 };
 
 const STYLE_CLAUSE: Record<string, string> = {
-  photoreal: 'studio product photography, photorealistic, sharp focus',
-  clay:      'matte clay render, smooth neutral surface, even lighting',
-  neutral:   'flat shaded neutral material, no textures, even lighting',
-  toon:      'toon-shaded 3D model render, clean cel shading',
+  photoreal: 'studio product photography, photorealistic, tack sharp, crisp edges, high detail, 8k resolution',
+  clay:      'matte clay render, smooth neutral surface, even lighting, sharp edges, crisp',
+  neutral:   'flat shaded neutral material, no textures, even lighting, sharp, crisp',
+  toon:      'toon-shaded 3D model render, clean cel shading, crisp outlines, sharp',
   none:      '',
 };
 
@@ -183,7 +183,10 @@ const MATERIAL_CLAUSE: Record<string, string> = {
 const ALWAYS_NEGATIVE =
   'multiple objects, group, set, collection, pair, duplicate, two, three, ' +
   'many, several, scene, environment, surroundings, busy background, ' +
-  'watermark, logo, text, signature, motion blur, depth-of-field bokeh';
+  'watermark, logo, text, signature, ' +
+  'blurry, blur, out of focus, soft focus, fuzzy, hazy, unfocused, ' +
+  'motion blur, depth-of-field bokeh, lens blur, ' +
+  'low resolution, low quality, low detail, grainy, noisy, jpeg artifacts, pixelated';
 
 const composeFinalPrompt = (q: Record<string, any>): string => {
   const userPrompt = String(q.prompt || '').trim();
@@ -207,6 +210,34 @@ const composeFinalPrompt = (q: Record<string, any>): string => {
     if (c) parts.push(c);
   }
   return parts.filter(Boolean).join(', ');
+};
+
+// ─── Smart asset name from prompt ────────────────────────────────────────────
+// Strips articles/prepositions/filler, keeps the first 3 meaningful words,
+// title-cases the result. e.g. "a small ceramic vase with smooth glaze" → "Ceramic Vase"
+const STOP = new Set([
+  'a','an','the','this','that','some','any',
+  'with','without','and','or','but','of','in','on','at','to','for','from','by',
+  'very','quite','really','slightly','heavily','perfectly','beautifully',
+  'small','large','big','tiny','huge','little',
+  'old','new','modern','ancient','simple','complex',
+  'no','not','just','only','also','even',
+]);
+
+const smartAssetName = (prompt: string): string => {
+  const words = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !STOP.has(w));
+
+  // Take up to 3 meaningful words
+  const picked = words.slice(0, 3);
+  if (!picked.length) return prompt.slice(0, 32).trim();
+
+  return picked
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 };
 
 // ─── Provider implementations ────────────────────────────────────────────────
@@ -394,7 +425,7 @@ app.get('/api/text2image', async (req, res) => {
 
         const asset = await createAsset({
           userEmail: email,
-          name: '',
+          name: smartAssetName(String(req.query.prompt || '')),
           prompt: String(req.query.prompt || ''),
           finalPrompt,
           params: {

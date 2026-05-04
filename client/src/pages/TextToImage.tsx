@@ -67,15 +67,15 @@ const PROVIDER_HINT: Record<Provider, string> = {
   'pollinations':     'Free · slower when busy',
   'fal-flux-schnell': '~3s · ~$0.003/image · fast & high quality',
   'fal-flux-pro':     '~6s · ~$0.04/image · top-shelf quality',
-  'hf-flux-schnell':  'Free tier · 10-30s cold start',
+  'hf-flux-schnell':  'Unavailable · service down',
   'openai-dall-e-3':  '~10s · ~$0.04/image · prompt-faithful',
 };
 
 const DEFAULT_PARAMS: GenParams = {
-  bg: 'white',
-  view: 'three_q',
+  bg: 'dark',
+  view: 'front',
   scale: 'margin',
-  style: 'photoreal',
+  style: 'clay',
   material: 'auto',
   negative: '',
   aspect: '1:1',
@@ -89,6 +89,7 @@ const DEFAULT_PARAMS: GenParams = {
 interface GeneratedImage {
   id: string;            // local + server id (same value once persisted)
   prompt: string;
+  name: string;          // editable display name (smart-generated from prompt)
   imageKey: string;      // R2 key — survives reloads
   url: string;           // either /api/image?key=… or a fresh blob ObjectURL
   blob?: Blob;           // populated for in-flight items so we can send to 3D
@@ -98,6 +99,24 @@ interface GeneratedImage {
   finalPrompt?: string;
   seed?: string;
 }
+
+// Mirror of the server's smartAssetName — used for in-memory items generated
+// before the server response arrives (so the name appears immediately).
+const STOP = new Set([
+  'a','an','the','this','that','some','any',
+  'with','without','and','or','but','of','in','on','at','to','for','from','by',
+  'very','quite','really','slightly','heavily','perfectly','beautifully',
+  'small','large','big','tiny','huge','little',
+  'old','new','modern','ancient','simple','complex',
+  'no','not','just','only','also','even',
+]);
+const smartName = (prompt: string): string => {
+  const words = prompt.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)
+    .filter(w => w.length > 1 && !STOP.has(w));
+  const picked = words.slice(0, 3);
+  if (!picked.length) return prompt.slice(0, 32).trim();
+  return picked.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+};
 
 const ASPECT_PIXELS: Record<AspectRatio, { w: number; h: number }> = {
   '1:1':  { w: 1024, h: 1024 },
@@ -906,6 +925,44 @@ const EmptyAssets = styled.div`
   align-items: center;
 `;
 
+// Name overlay — pinned to the bottom of the card, hidden until hover.
+const CardNameOverlay = styled.div`
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 1.2rem 0.5rem 0.4rem;
+  background: linear-gradient(to top, rgba(0,0,0,0.82), transparent);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+  ${AssetCard}:hover & { opacity: 1; pointer-events: auto; }
+`;
+
+const CardNameText = styled.div`
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+  letter-spacing: 0.02em;
+`;
+
+const CardNameInput = styled.input`
+  width: 100%;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.5);
+  outline: none;
+  padding: 0;
+  letter-spacing: 0.02em;
+  &::placeholder { color: rgba(255,255,255,0.4); }
+`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -927,9 +984,9 @@ const TextToImage: React.FC = () => {
 
   // Multi-select state for the gallery — user picks N favorites then bulk-
   // submits them through the regular /api/upload flow.
-  const [selectedSet, setSelectedSet] = useState<Set<string>>(new Set());
-  const [sending3D, setSending3D] = useState(false);
   const [search, setSearch] = useState('');
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
 
   // Tiny helper to update a single field of `params` immutably.
   const setParam = <K extends keyof GenParams>(k: K, v: GenParams[K]) =>
@@ -956,8 +1013,8 @@ const TextToImage: React.FC = () => {
         const restored: GeneratedImage[] = data.assets.map(a => ({
           id: a.id,
           prompt: a.prompt,
+          name: a.name || smartName(a.prompt),
           imageKey: a.imageKey,
-          // The R2-proxy URL is stable forever; no blob needed until we send to 3D.
           url: `/api/image?key=${encodeURIComponent(a.imageKey)}`,
           createdAt: new Date(a.createdAt).getTime() || Date.now(),
           params: a.params || DEFAULT_PARAMS,
@@ -1019,7 +1076,7 @@ const TextToImage: React.FC = () => {
       const id = serverAssetId || `g${idRef.current}`;
       const url = URL.createObjectURL(blob);
       const next: GeneratedImage = {
-        id, prompt: q, imageKey, blob, url, createdAt: Date.now(),
+        id, prompt: q, name: smartName(q), imageKey, blob, url, createdAt: Date.now(),
         params: { ...params },
         finalPrompt, seed,
       };
@@ -1051,18 +1108,6 @@ const TextToImage: React.FC = () => {
     fetch(`/api/text2image/assets/${id}`, { method: 'DELETE' }).catch(() => {});
   }, []);
 
-  // Toggle selection of an image in the gallery.
-  const onToggleSelect = useCallback((id: string) => {
-    setSelectedSet(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-
-  // Send all currently-selected images through the normal /api/upload (3D
-  // worker) flow — same path a manual upload uses. They stack as 3D jobs and
-  // the worker grinds through them sequentially.
   // Helper: get the bytes for a gallery item, fetching from R2 (via the proxy)
   // if the blob isn't already in memory (i.e. for items loaded on reload).
   const fetchAssetBlob = async (img: GeneratedImage): Promise<Blob> => {
@@ -1072,37 +1117,6 @@ const TextToImage: React.FC = () => {
     return await r.blob();
   };
 
-  const onSendSelectedTo3D = useCallback(async () => {
-    if (sending3D || !user?.email || selectedSet.size === 0) return;
-    setSending3D(true);
-    try {
-      const picks = images.filter(i => selectedSet.has(i.id));
-      for (const img of picks) {
-        try {
-          const blob = await fetchAssetBlob(img);
-          const safe = img.prompt.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
-          const file = new File([blob], `${safe}.png`, { type: blob.type || 'image/png' });
-          const fd = new FormData();
-          fd.append('image', file);
-          fd.append('email', user.email);
-          fd.append('name', img.prompt.slice(0, 60));
-          fd.append('prompt', img.prompt);
-          fd.append('exportFormat', 'GLB');
-          fd.append('inferenceSteps', '5');
-          fd.append('octreeResolution', '256');
-          fd.append('targetFaceCount', '30000');
-          fd.append('guidanceScale', '5');
-          fd.append('doTexture', 'false');
-          await fetch('/api/upload', { method: 'POST', body: fd });
-        } catch {
-          /* continue with the rest */
-        }
-      }
-      setSelectedSet(new Set());
-    } finally {
-      setSending3D(false);
-    }
-  }, [sending3D, user?.email, selectedSet, images]);
 
   const onSendTo3D = useCallback(async () => {
     if (!selected) return;
@@ -1129,6 +1143,19 @@ const TextToImage: React.FC = () => {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, [selected]);
+
+  const commitName = useCallback(async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setImages(prev => prev.map(i => i.id === id ? { ...i, name: trimmed } : i));
+    setEditingNameId(null);
+    // Persist to server (best-effort — non-persisted ids will 404 silently)
+    fetch(`/api/text2image/assets/${id}/name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: trimmed }),
+    }).catch(() => {});
+  }, []);
 
   const onSignOut = async () => {
     await signOutUser();
@@ -1318,8 +1345,8 @@ const TextToImage: React.FC = () => {
               value={params.provider}
               onChange={v => setParam('provider', v)}
               width={260}
-              options={(['fal-flux-schnell', 'fal-flux-pro', 'openai-dall-e-3', 'hf-flux-schnell', 'pollinations'] as Provider[])
-                .map(p => ({ value: p, label: PROVIDER_LABEL[p], hint: PROVIDER_HINT[p] }))}
+              options={(['fal-flux-schnell', 'fal-flux-pro', 'openai-dall-e-3', 'pollinations', 'hf-flux-schnell'] as Provider[])
+                .map(p => ({ value: p, label: PROVIDER_LABEL[p], hint: PROVIDER_HINT[p], disabled: p === 'hf-flux-schnell' }))}
             />
             <VBHint>{PROVIDER_HINT[params.provider]}</VBHint>
           </ViewportBar>
@@ -1416,31 +1443,9 @@ const TextToImage: React.FC = () => {
             <AsideHint>
               {images.length === 0
                 ? 'Your generations will appear here.'
-                : `${images.length} image${images.length === 1 ? '' : 's'}${selectedSet.size ? ` · ${selectedSet.size} picked` : ''}`}
+                : `${images.length} image${images.length === 1 ? '' : 's'}`}
             </AsideHint>
           </AsideHeader>
-
-          {/* Always-visible Send-to-3D bar (disabled when nothing picked) */}
-          <SendToThreeDBar>
-            <SendToThreeDBtn
-              type="button"
-              disabled={sending3D || selectedSet.size === 0}
-              onClick={onSendSelectedTo3D}
-            >
-              {sending3D
-                ? `Sending ${selectedSet.size}…`
-                : selectedSet.size === 0
-                  ? '↗ Send to 3D'
-                  : `↗ Send ${selectedSet.size} to 3D`}
-            </SendToThreeDBtn>
-            <SendToThreeDClearBtn
-              type="button"
-              onClick={() => setSelectedSet(new Set())}
-              disabled={selectedSet.size === 0}
-            >
-              Clear
-            </SendToThreeDClearBtn>
-          </SendToThreeDBar>
 
           <AssetGrid>
             {images.length === 0 && (
@@ -1451,9 +1456,7 @@ const TextToImage: React.FC = () => {
             )}
             {images
               .filter(img => !search.trim() || img.prompt.toLowerCase().includes(search.trim().toLowerCase()))
-              .map(img => {
-              const picked = selectedSet.has(img.id);
-              return (
+              .map(img => (
                 <AssetCard
                   key={img.id}
                   $active={selectedId === img.id}
@@ -1462,14 +1465,34 @@ const TextToImage: React.FC = () => {
                   style={{ position: 'relative' }}
                 >
                   <AssetThumb src={img.url} alt="" />
-                  <PickToggle
-                    type="button"
-                    $picked={picked}
-                    onClick={(e) => { e.stopPropagation(); onToggleSelect(img.id); }}
-                    title={picked ? 'Unpick for 3D' : 'Pick for 3D'}
-                  >
-                    {picked ? '✓' : ''}
-                  </PickToggle>
+                  <CardNameOverlay>
+                    {editingNameId === img.id ? (
+                      <CardNameInput
+                        autoFocus
+                        value={nameDraft}
+                        placeholder={img.name}
+                        onChange={e => setNameDraft(e.target.value)}
+                        onBlur={() => commitName(img.id, nameDraft || img.name)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') commitName(img.id, nameDraft || img.name);
+                          if (e.key === 'Escape') setEditingNameId(null);
+                          e.stopPropagation();
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    ) : (
+                      <CardNameText
+                        onDoubleClick={e => {
+                          e.stopPropagation();
+                          setEditingNameId(img.id);
+                          setNameDraft(img.name);
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {img.name}
+                      </CardNameText>
+                    )}
+                  </CardNameOverlay>
                   <DeleteBtn
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onDeleteAsset(img.id); }}
@@ -1478,8 +1501,7 @@ const TextToImage: React.FC = () => {
                     ×
                   </DeleteBtn>
                 </AssetCard>
-              );
-            })}
+              ))}
           </AssetGrid>
         </Aside>
       </Body>
