@@ -12,13 +12,27 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob } from './jobsRepo';
+import { listPacks, createCheckout, stripeWebhook } from './billing';
 
 const app = express();
 const port = process.env.PORT || 8110;
 const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
 
 app.use(cors({ origin: clientOrigin, credentials: true }));
+
+// Stripe webhook needs the raw body for signature verification — register it
+// BEFORE the JSON body parser kicks in.
+app.post(
+  '/api/billing/webhook',
+  express.raw({ type: 'application/json' }),
+  stripeWebhook,
+);
+
 app.use(express.json());
+
+// Other billing routes (after express.json is set up).
+app.get('/api/billing/packs', listPacks);
+app.post('/api/billing/checkout', createCheckout);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 

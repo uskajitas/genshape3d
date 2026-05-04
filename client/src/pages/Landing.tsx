@@ -919,21 +919,20 @@ const Landing: React.FC = () => {
         <HeroGrid>
           <HeroLeft>
             <HeroBadge>
-              <BadgeDot /> AI-Powered 3D Generation
+              <BadgeDot /> Image to 3D — in minutes
             </HeroBadge>
             <HeroTitle>
-              Forge stunning<br />
-              <GradientText>3D meshes</GradientText><br />
-              from imagination
+              Turn any image into a<br />
+              <GradientText>real 3D model</GradientText>
             </HeroTitle>
             <HeroSubtitle>
-              GenShape3D transforms your text or image prompts into fully detailed,
-              export-ready 3D meshes in seconds. Sculpt, refine, and deploy — no
-              modelling experience required.
+              Upload a photo, sketch, or concept art. GenShape3D reconstructs the
+              geometry and gives you back an export-ready mesh. No modelling
+              experience required.
             </HeroSubtitle>
             <HeroCTAs>
               <CTAPrimary onClick={handleStartFree}>
-                ⚡ Start generating free
+                ⚡ Start free
               </CTAPrimary>
               <CTASecondary onClick={handleGuest}>
                 👁 Preview as guest
@@ -941,16 +940,16 @@ const Landing: React.FC = () => {
             </HeroCTAs>
             <HeroStats>
               <Stat>
-                <StatNum>50K+</StatNum>
-                <StatLabel>Meshes generated</StatLabel>
+                <StatNum>1</StatNum>
+                <StatLabel>Free generation, no credit card</StatLabel>
               </Stat>
               <Stat>
-                <StatNum>12K+</StatNum>
-                <StatLabel>Active creators</StatLabel>
+                <StatNum>GLB</StatNum>
+                <StatLabel>Standard export format</StatLabel>
               </Stat>
               <Stat>
-                <StatNum>&lt;30s</StatNum>
-                <StatLabel>Avg. generation time</StatLabel>
+                <StatNum>$3</StatNum>
+                <StatLabel>Per generation pack</StatLabel>
               </Stat>
             </HeroStats>
           </HeroLeft>
@@ -1000,38 +999,26 @@ const Landing: React.FC = () => {
       <Section id="features" $alt>
         <Container>
           <SectionHead>
-            <SectionLabel>Capabilities</SectionLabel>
-            <SectionTitle>Everything you need to<br />create stunning 3D</SectionTitle>
+            <SectionLabel>What you get</SectionLabel>
+            <SectionTitle>Image to 3D —<br />the simple way</SectionTitle>
             <SectionDesc>
-              From a simple text prompt to a print-ready or game-ready asset,
-              GenShape3D handles the full pipeline with AI precision.
+              We're starting focused. One thing, done well: turn an image into
+              a clean, export-ready 3D mesh. More tools land as the platform grows.
             </SectionDesc>
           </SectionHead>
           <FeatGrid>
             {[
               {
-                icon: '✦', title: 'Text-to-3D', accent: '#7c3aed',
-                desc: 'Describe any object in natural language and watch it materialise into a fully-detailed 3D mesh within seconds.',
+                icon: '⬡', title: 'Image-to-3D', accent: '#A855F7',
+                desc: 'Upload a reference photo or concept art. GenShape3D reconstructs the geometry from a single image.',
               },
               {
-                icon: '⬡', title: 'Image-to-3D', accent: '#8b5cf6',
-                desc: 'Upload a reference photo or concept art and let GenShape3D reconstruct the exact geometry and surface details.',
+                icon: '◈', title: 'Clean topology', accent: '#EC4899',
+                desc: 'AI-optimised polygon distribution gives you a usable mesh — no manual retopology before exporting.',
               },
               {
-                icon: '◈', title: 'Smart Topology', accent: '#10b981',
-                desc: 'AI-optimised polygon distribution keeps your mesh game-ready or print-ready without manual retopology.',
-              },
-              {
-                icon: '◇', title: 'PBR Textures', accent: '#7c3aed',
-                desc: 'Auto-generated physically based rendering maps: diffuse, normal, roughness, metalness and ambient occlusion.',
-              },
-              {
-                icon: '⬟', title: 'Multi-format Export', accent: '#8b5cf6',
-                desc: 'Download in GLB, OBJ, FBX, USDZ and STL — ready for Unity, Unreal, Blender, or your 3D printer.',
-              },
-              {
-                icon: '◉', title: 'Mesh Sculptor', accent: '#10b981',
-                desc: 'Fine-tune the generated geometry in our browser-based sculpting view before exporting.',
+                icon: '⬟', title: 'GLB export', accent: '#A855F7',
+                desc: 'Download a standard GLB ready for Blender, Unity, Unreal, three.js, or any other 3D pipeline.',
               },
             ].map(f => (
               <FeatCard key={f.title} $accent={f.accent}>
@@ -1053,9 +1040,9 @@ const Landing: React.FC = () => {
           </SectionHead>
           <StepsGrid>
             {[
-              { n: '01', title: 'Describe or upload', desc: 'Type a text prompt or drop an image. Be as detailed or abstract as you like — our models understand context.' },
-              { n: '02', title: 'Configure & generate', desc: 'Choose polygon budget, detail level, texture resolution and style. Hit Forge and the AI gets to work.' },
-              { n: '03', title: 'Refine & export', desc: 'Preview in 3D, sculpt tweaks in-browser, then download in the format your pipeline needs.' },
+              { n: '01', title: 'Upload an image', desc: 'A photo, sketch, or piece of concept art. One image — front-facing works best.' },
+              { n: '02', title: 'Generate', desc: 'Hit Generate and the AI reconstructs the geometry on our GPU. Sit tight for a few minutes.' },
+              { n: '03', title: 'Preview & export', desc: 'Inspect the mesh in the browser, then download as GLB ready for your 3D pipeline.' },
             ].map(s => (
               <Step key={s.n}>
                 <StepNum>{s.n}</StepNum>
@@ -1101,60 +1088,60 @@ const Landing: React.FC = () => {
         <Container>
           <SectionHead>
             <SectionLabel>Pricing</SectionLabel>
-            <SectionTitle>Start free, scale as you create</SectionTitle>
+            <SectionTitle>Try free, pay as you go</SectionTitle>
             <SectionDesc>
-              Every plan gives access to the GenShape3D portal.
-              Upgrade anytime to unlock more generation credits and advanced features.
+              We're keeping prices low while we grow. Buy a small pack and only
+              spend credits when you generate. No subscription required to start.
             </SectionDesc>
           </SectionHead>
           <PricingGrid>
-            {/* Guest */}
+            {/* Free trial */}
             <PricingCard>
-              <PricingTier>Guest</PricingTier>
-              <PricingPrice>Free</PricingPrice>
-              <PricingPer>No account needed</PricingPer>
+              <PricingTier>Free trial</PricingTier>
+              <PricingPrice>$<sup>0</sup>0</PricingPrice>
+              <PricingPer>1 generation — no credit card</PricingPer>
               <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Browse the gallery</PricingFeature>
-                <PricingFeature><CheckIcon>✓</CheckIcon> View community meshes</PricingFeature>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Explore features</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Generate meshes</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Download assets</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Save projects</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> 1 free image-to-3D generation</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> GLB download</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> Browser preview</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> Save your generation</PricingFeature>
+                <PricingFeature $disabled><XIcon>✕</XIcon> Priority queue</PricingFeature>
+                <PricingFeature $disabled><XIcon>✕</XIcon> Commercial license</PricingFeature>
               </PricingFeatures>
-              <PricingCTA onClick={handleGuest}>Continue as guest</PricingCTA>
+              <PricingCTA onClick={handleStartFree}>Start free</PricingCTA>
             </PricingCard>
 
-            {/* Free */}
+            {/* Starter pack */}
             <PricingCard $featured>
               <PricingBadge>Most Popular</PricingBadge>
-              <PricingTier>Free Account</PricingTier>
-              <PricingPrice>$<sup>0</sup>0</PricingPrice>
-              <PricingPer>Always free — limited credits</PricingPer>
+              <PricingTier>Starter pack</PricingTier>
+              <PricingPrice><sup>$</sup>3</PricingPrice>
+              <PricingPer>10 generations — credits never expire</PricingPer>
               <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Everything in Guest</PricingFeature>
-                <PricingFeature><CheckIcon $color="#10b981">✓</CheckIcon> Generate meshes (limited)</PricingFeature>
-                <PricingFeature><CheckIcon $color="#10b981">✓</CheckIcon> Download GLB & OBJ</PricingFeature>
-                <PricingFeature><CheckIcon $color="#10b981">✓</CheckIcon> Save up to 10 projects</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> Priority queue</PricingFeature>
-                <PricingFeature $disabled><XIcon>✕</XIcon> 4K texture export</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> 10 image-to-3D generations</PricingFeature>
+                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> GLB download</PricingFeature>
+                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Standard queue</PricingFeature>
+                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Personal-use license</PricingFeature>
+                <PricingFeature><CheckIcon $color="#A855F7">✓</CheckIcon> Credits never expire</PricingFeature>
+                <PricingFeature $disabled><XIcon>✕</XIcon> Commercial license</PricingFeature>
               </PricingFeatures>
-              <PricingCTA $featured onClick={handleStartFree}>Get started free</PricingCTA>
+              <PricingCTA $featured onClick={handleStartFree}>Buy starter pack</PricingCTA>
             </PricingCard>
 
-            {/* Pro */}
+            {/* Creator pack */}
             <PricingCard>
-              <PricingTier>Pro</PricingTier>
-              <PricingPrice><sup>$</sup>29</PricingPrice>
-              <PricingPer>per month — billed monthly</PricingPer>
+              <PricingTier>Creator pack</PricingTier>
+              <PricingPrice><sup>$</sup>10</PricingPrice>
+              <PricingPer>40 generations — credits never expire</PricingPer>
               <PricingFeatures>
-                <PricingFeature><CheckIcon>✓</CheckIcon> Everything in Free</PricingFeature>
-                <PricingFeature><CheckIcon $color="#8b5cf6">✓</CheckIcon> Unlimited generations</PricingFeature>
-                <PricingFeature><CheckIcon $color="#8b5cf6">✓</CheckIcon> 4K PBR textures</PricingFeature>
-                <PricingFeature><CheckIcon $color="#8b5cf6">✓</CheckIcon> Priority GPU queue</PricingFeature>
-                <PricingFeature><CheckIcon $color="#8b5cf6">✓</CheckIcon> All export formats</PricingFeature>
-                <PricingFeature><CheckIcon $color="#8b5cf6">✓</CheckIcon> API access</PricingFeature>
+                <PricingFeature><CheckIcon>✓</CheckIcon> 40 image-to-3D generations</PricingFeature>
+                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> GLB download</PricingFeature>
+                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Priority queue</PricingFeature>
+                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Commercial license</PricingFeature>
+                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Credits never expire</PricingFeature>
+                <PricingFeature><CheckIcon $color="#EC4899">✓</CheckIcon> Early access to new features</PricingFeature>
               </PricingFeatures>
-              <PricingCTA onClick={handleStartFree}>Upgrade to Pro</PricingCTA>
+              <PricingCTA onClick={handleStartFree}>Buy creator pack</PricingCTA>
             </PricingCard>
           </PricingGrid>
         </Container>

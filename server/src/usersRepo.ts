@@ -86,3 +86,45 @@ export async function deductCredit(email: string): Promise<boolean> {
   await getDb().query('UPDATE genshape3d_users SET credits = credits - 1 WHERE email = $1', [email]);
   return true;
 }
+
+/**
+ * Grant credits to a user (top-up from a Stripe purchase, promo, refund, etc).
+ * Idempotent on `ref`: if a credit_ledger entry already exists with the same
+ * ref, this is a no-op — Stripe occasionally redelivers webhooks and we don't
+ * want to grant twice.
+ */
+export async function addCredits(
+  email: string,
+  amount: number,
+  meta: { kind: 'topup' | 'promo' | 'refund'; ref: string },
+): Promise<void> {
+  if (amount <= 0) return;
+  const db = getDb();
+
+  // Best-effort ledger — table may not exist on older deployments. Create on
+  // demand so this works without a separate migration step in early dev.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS genshape3d_credit_ledger (
+      id           SERIAL PRIMARY KEY,
+      email        TEXT NOT NULL,
+      delta        INTEGER NOT NULL,
+      kind         TEXT NOT NULL,
+      ref          TEXT NOT NULL UNIQUE,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  // Idempotency check via UNIQUE(ref): if the insert conflicts, we've already
+  // processed this event — skip the credit bump.
+  const ins = await db.query(
+    `INSERT INTO genshape3d_credit_ledger (email, delta, kind, ref)
+     VALUES ($1, $2, $3, $4) ON CONFLICT (ref) DO NOTHING RETURNING id`,
+    [email, amount, meta.kind, meta.ref],
+  );
+  if (ins.rowCount === 0) return; // duplicate webhook delivery
+
+  await db.query(
+    'UPDATE genshape3d_users SET credits = credits + $1 WHERE email = $2',
+    [amount, email],
+  );
+}
