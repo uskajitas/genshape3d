@@ -685,7 +685,7 @@ const Landing: React.FC = () => {
         </BrandWrap>
         <NavTabs>
           <NavTabLink href="#how">How it works</NavTabLink>
-          <NavTabLink href="#pricing">Pricing</NavTabLink>
+          <NavTabLink href="#access">Free access</NavTabLink>
         </NavTabs>
         <NavSpacer />
         {isAuthenticated ? (
@@ -721,16 +721,16 @@ const Landing: React.FC = () => {
           </CtaRow>
           <HeroStats>
             <Stat>
-              <StatNum>1</StatNum>
-              <StatLabel>Free generation, no card</StatLabel>
+              <StatNum>Free</StatNum>
+              <StatLabel>During early access</StatLabel>
             </Stat>
             <Stat>
               <StatNum>GLB</StatNum>
               <StatLabel>Standard export format</StatLabel>
             </Stat>
             <Stat>
-              <StatNum>$3</StatNum>
-              <StatLabel>10-pack starter price</StatLabel>
+              <StatNum>~5 min</StatNum>
+              <StatLabel>Typical generation time</StatLabel>
             </Stat>
           </HeroStats>
         </HeroLeft>
@@ -785,75 +785,36 @@ const Landing: React.FC = () => {
       </Section>
 
       {/* ─────── Pricing ─────── */}
-      <Section id="pricing">
+      {/* ─────── Free during early access ─────── */}
+      <Section id="access" $alt>
         <Container>
           <SectionHead>
-            <SectionLabel>Pricing</SectionLabel>
-            <SectionTitle>Try free, pay as you go</SectionTitle>
+            <SectionLabel>Early access</SectionLabel>
+            <SectionTitle>Free while we build</SectionTitle>
             <SectionDesc>
-              Low launch prices while we grow. Buy a small pack and only spend
-              credits when you generate. No subscription required.
+              GenShape3D is in early access. Generations run on a single GPU we
+              own — no cloud bill, no subscription, no card required. Wait time
+              scales with the queue, but every generation is on us.
             </SectionDesc>
           </SectionHead>
 
-          <PriceGrid>
-            {/* Free trial */}
-            <PriceCard>
-              <PriceTier>Free trial</PriceTier>
-              <PriceAmount>$<sup>0</sup>0</PriceAmount>
-              <PriceUnit>1 generation · no credit card</PriceUnit>
-              <PriceFeatures>
-                <PriceFeature><Check>✓</Check> 1 image-to-3D generation</PriceFeature>
-                <PriceFeature><Check>✓</Check> GLB download</PriceFeature>
-                <PriceFeature><Check>✓</Check> Browser preview</PriceFeature>
-                <PriceFeature $disabled><Cross>✕</Cross> Priority queue</PriceFeature>
-                <PriceFeature $disabled><Cross>✕</Cross> Commercial license</PriceFeature>
-              </PriceFeatures>
-              <PriceCTA to="/login">Start free</PriceCTA>
-            </PriceCard>
-
-            {/* Starter — featured */}
-            <PriceCard $featured>
-              <PriceBadge>Most popular</PriceBadge>
-              <PriceTier>Starter pack</PriceTier>
-              <PriceAmount><sup>$</sup>3</PriceAmount>
-              <PriceUnit>10 generations · credits never expire</PriceUnit>
-              <PriceFeatures>
-                <PriceFeature><Check $color="#A855F7">✓</Check> 10 image-to-3D generations</PriceFeature>
-                <PriceFeature><Check $color="#A855F7">✓</Check> GLB download</PriceFeature>
-                <PriceFeature><Check $color="#A855F7">✓</Check> Standard queue</PriceFeature>
-                <PriceFeature><Check $color="#A855F7">✓</Check> Personal-use license</PriceFeature>
-                <PriceFeature $disabled><Cross>✕</Cross> Commercial license</PriceFeature>
-              </PriceFeatures>
-              <PriceCTAButton
-                $featured
-                disabled={buying === 'starter'}
-                onClick={() => handleBuyPack('starter')}
-              >
-                {buying === 'starter' ? 'Opening checkout…' : 'Buy starter pack'}
-              </PriceCTAButton>
-            </PriceCard>
-
-            {/* Creator */}
-            <PriceCard>
-              <PriceTier>Creator pack</PriceTier>
-              <PriceAmount><sup>$</sup>10</PriceAmount>
-              <PriceUnit>40 generations · credits never expire</PriceUnit>
-              <PriceFeatures>
-                <PriceFeature><Check $color="#EC4899">✓</Check> 40 image-to-3D generations</PriceFeature>
-                <PriceFeature><Check $color="#EC4899">✓</Check> GLB download</PriceFeature>
-                <PriceFeature><Check $color="#EC4899">✓</Check> Priority queue</PriceFeature>
-                <PriceFeature><Check $color="#EC4899">✓</Check> Commercial license</PriceFeature>
-                <PriceFeature><Check $color="#EC4899">✓</Check> Early access to new features</PriceFeature>
-              </PriceFeatures>
-              <PriceCTAButton
-                disabled={buying === 'creator'}
-                onClick={() => handleBuyPack('creator')}
-              >
-                {buying === 'creator' ? 'Opening checkout…' : 'Buy creator pack'}
-              </PriceCTAButton>
-            </PriceCard>
-          </PriceGrid>
+          <StepsGrid>
+            <Step>
+              <StepNum>✓</StepNum>
+              <StepTitle>No payment, no card</StepTitle>
+              <StepDesc>Sign in with Google and start generating. Your account is yours.</StepDesc>
+            </Step>
+            <Step>
+              <StepNum>✓</StepNum>
+              <StepTitle>Honest wait times</StepTitle>
+              <StepDesc>You see the live queue and a realistic time estimate before you submit.</StepDesc>
+            </Step>
+            <Step>
+              <StepNum>✓</StepNum>
+              <StepTitle>Yours to download</StepTitle>
+              <StepDesc>Every generated GLB is saved to your account and yours to keep, forever.</StepDesc>
+            </Step>
+          </StepsGrid>
         </Container>
       </Section>
 
@@ -880,7 +841,7 @@ const Landing: React.FC = () => {
           <FooterBrand>GENSHAPE3D</FooterBrand>
           <FooterLinks>
             <FooterLink href="#how">How</FooterLink>
-            <FooterLink href="#pricing">Pricing</FooterLink>
+            <FooterLink href="#access">Free access</FooterLink>
             <FooterLink href="#">Privacy</FooterLink>
             <FooterLink href="#">Terms</FooterLink>
           </FooterLinks>

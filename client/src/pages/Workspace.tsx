@@ -31,10 +31,18 @@ const MeshViewer = lazy(() => import('../components/MeshViewer'));
 interface Job {
   id: string;
   name?: string;
-  status: 'pending' | 'running' | 'done' | 'error' | 'cancelled';
+  status: 'pending' | 'running' | 'processing' | 'done' | 'failed' | 'error' | 'cancelled';
   imageUrl?: string;
   resultUrl?: string;
   createdAt?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  inferenceSteps?: number;
+  octreeResolution?: number;
+  targetFaceCount?: number;
+  doTexture?: boolean;
+  progressPct?: number;
+  progressPhase?: string;
 }
 
 const fetchJobs = async (email: string): Promise<Job[]> => {
@@ -44,17 +52,44 @@ const fetchJobs = async (email: string): Promise<Job[]> => {
   return Array.isArray(data) ? data : (data.jobs || []);
 };
 
-const submitJob = async (email: string, file: File): Promise<Job | null> => {
+interface SubmitOpts {
+  quality: 'standard' | 'high';
+  doTexture: boolean;
+}
+
+const renameJob = async (id: string, name: string): Promise<void> => {
+  await fetch(`/api/jobs/${id}/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+};
+
+const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<Job | null> => {
   const form = new FormData();
   form.append('image', file);
   form.append('email', email);
+  // Default the asset name to the uploaded file's stem (no extension), so each
+  // generated asset is labelled out of the gate. User can rename later.
+  const stem = file.name.replace(/\.[^.]+$/, '');
+  form.append('name', stem);
   form.append('exportFormat', 'GLB');
-  form.append('octreeResolution', '256');
-  form.append('targetFaceCount', '10000');
-  form.append('inferenceSteps', '5');
+  // Map quality → Hunyuan params (matches worker.py's build_params).
+  if (opts.quality === 'high') {
+    form.append('inferenceSteps', '15');
+    form.append('octreeResolution', '384');
+    form.append('targetFaceCount', '100000');
+    form.append('guidanceScale', '6');
+  } else {
+    form.append('inferenceSteps', '5');
+    form.append('octreeResolution', '256');
+    form.append('targetFaceCount', '30000');
+    form.append('guidanceScale', '5');
+  }
+  form.append('doTexture', String(opts.doTexture));
   const r = await fetch('/api/upload', { method: 'POST', body: form });
   if (!r.ok) return null;
-  const data = await r.json();
+  const data: any = await r.json();
   return data.job ?? data;
 };
 
@@ -191,24 +226,24 @@ const NavSpacer = styled.div`
   flex: 1;
 `;
 
-const CreditPill = styled.button`
+const CreditPill = styled.button<{ $admin?: boolean }>`
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.5rem;
   font: inherit;
-  cursor: pointer;
-  padding: 0.32rem 0.85rem;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.surfaceHigh};
+  cursor: default;
+  padding: 0.4rem 1rem;
+  border: 1.5px solid ${p => p.$admin ? p.theme.colors.violet : p.theme.colors.borderHigh};
+  background: ${p => p.$admin
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`
+    : p.theme.colors.surfaceHigh};
   color: ${p => p.theme.colors.text};
   border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  transition: border-color 0.15s, background 0.15s;
-  &:hover {
-    border-color: ${p => p.theme.colors.violet}66;
-    background: ${p => p.theme.colors.surface};
-  }
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  ${p => p.$admin && `box-shadow: 0 0 14px ${p.theme.colors.violet}55;`}
 `;
 
 const CoinDot = styled.span`
@@ -814,6 +849,13 @@ const AssetGrid = styled.div`
   align-content: start;
 `;
 
+// Outer wrapper holding the thumbnail card + the editable name underneath.
+const AssetItem = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+`;
+
 const AssetCard = styled.button<{ $active?: boolean }>`
   position: relative;
   aspect-ratio: 1;
@@ -823,12 +865,82 @@ const AssetCard = styled.button<{ $active?: boolean }>`
   overflow: hidden;
   padding: 0;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
   transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
   &:hover {
     transform: translateY(-2px);
     border-color: ${p => p.theme.colors.violet};
     box-shadow: 0 6px 20px ${p => p.theme.colors.violet}44;
   }
+  &:hover .asset-overlay { opacity: 1; }
+`;
+
+const AssetName = styled.div<{ $empty?: boolean }>`
+  font-size: 0.72rem;
+  color: ${p => p.$empty ? p.theme.colors.textMuted : p.theme.colors.text};
+  font-style: ${p => p.$empty ? 'italic' : 'normal'};
+  font-weight: ${p => p.$empty ? 400 : 600};
+  padding: 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+  &:hover { color: ${p => p.theme.colors.violet}; }
+`;
+
+const AssetNameInput = styled.input`
+  width: 100%;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 4px;
+  border: 1px solid ${p => p.theme.colors.violet};
+  border-radius: 4px;
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  outline: none;
+`;
+
+// Overlay strip pinned to the bottom of the thumb. Hidden by default,
+// fades in on card hover so resting view stays clean.
+const AssetOverlay = styled.div`
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: linear-gradient(to top, rgba(10,10,12,0.92), rgba(10,10,12,0.45) 70%, transparent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+`;
+
+const AssetTag = styled.span<{ $color?: string }>`
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: ${p => p.$color ? `${p.$color}40` : 'rgba(255,255,255,0.15)'};
+  color: ${p => p.$color || '#fff'};
+  border: 1px solid ${p => p.$color || 'rgba(255,255,255,0.3)'};
+  backdrop-filter: blur(4px);
+`;
+
+const AssetTime = styled.span`
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 0.54rem;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 `;
 
 const AssetThumb = styled.img`
@@ -861,6 +973,8 @@ const AssetBadge = styled.div<{ $color: string }>`
   backdrop-filter: blur(6px);
 `;
 
+// Meta strip under the thumb — shows what's *different* between cards (quality,
+// texture flag, run time) so duplicate inputs aren't visually indistinguishable.
 const EmptyAssets = styled.div`
   grid-column: 1 / -1;
   text-align: center;
@@ -899,31 +1013,45 @@ const Workspace: React.FC = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
+  const [doTexture, setDoTexture] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
+  const [limits, setLimits] = useState<{ used24h: number; limit24h: number | null } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const email = user?.email || '';
-  const credits = isAuthenticated ? (appUser?.credits ?? 0) : 0;
-  const generationCost = quality === 'high' ? 2 : 1;
+  const isAdmin = appUser?.role === 'admin';
+  // Non-admins are pinned to Standard / no-texture while we're on the GTX 1080.
+  const effectiveQuality = isAdmin ? quality : 'standard';
+  const effectiveTexture = isAdmin ? doTexture : false;
 
   // ── Effects
+  // Initial load + steady poll every 5s. Cheap (single GET, small JSON) and
+  // means new jobs from anywhere (e.g. the benchmark harness) appear in the
+  // asset rail without a manual refresh.
   useEffect(() => {
     if (!isAuthenticated || !email) return;
-    fetchJobs(email).then(setJobs);
+    let cancelled = false;
+    const tick = async () => {
+      const [j, l] = await Promise.all([
+        fetchJobs(email),
+        fetch(`/api/limits?email=${encodeURIComponent(email)}`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null),
+      ]);
+      if (cancelled) return;
+      setJobs(j);
+      if (l) setLimits({ used24h: l.used24h, limit24h: l.limit24h });
+    };
+    tick();
+    const t = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
-
-  // Poll for running jobs
-  useEffect(() => {
-    if (!isAuthenticated || !email) return;
-    const hasActive = jobs.some(j => j.status === 'pending' || j.status === 'running');
-    if (!hasActive) return;
-    const t = setInterval(() => fetchJobs(email).then(setJobs), 4000);
-    return () => clearInterval(t);
-  }, [isAuthenticated, email, jobs]);
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -964,7 +1092,10 @@ const Workspace: React.FC = () => {
     }
     if (!file || !email || submitting) return;
     setSubmitting(true);
-    const job = await submitJob(email, file);
+    const job = await submitJob(email, file, {
+      quality: effectiveQuality,
+      doTexture: effectiveTexture,
+    });
     setSubmitting(false);
     if (job) {
       setJobs(prev => [job, ...prev]);
@@ -973,7 +1104,7 @@ const Workspace: React.FC = () => {
       setFile(null);
       setPreviewUrl(null);
     }
-  }, [isAuthenticated, navigate, file, email, submitting, previewUrl]);
+  }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
 
   const onSignOut = async () => {
     await signOutUser();
@@ -987,7 +1118,7 @@ const Workspace: React.FC = () => {
   );
 
   const runningJob = useMemo(
-    () => jobs.find(j => j.status === 'pending' || j.status === 'running') ?? null,
+    () => jobs.find(j => j.status === 'pending' || j.status === 'running' || j.status === 'processing') ?? null,
     [jobs],
   );
 
@@ -1015,18 +1146,18 @@ const Workspace: React.FC = () => {
         <NavTabs>
           <NavTab $active>Workspace</NavTab>
           <NavTab onClick={() => navigate('/#how')}>How it works</NavTab>
-          <NavTab onClick={() => navigate('/#pricing')}>Pricing</NavTab>
+          <NavTab onClick={() => navigate('/#access')}>Free access</NavTab>
         </NavTabs>
         <NavSpacer />
         {isAuthenticated && (
-          <CreditPill title="Your credits">
+          <CreditPill
+            $admin={isAdmin}
+            title={isAdmin ? 'Admin — full access to all settings' : 'Free user — Standard quality only during early access'}
+          >
             <CoinDot />
-            {credits}
+            {isAdmin ? '⚙ Admin' : 'Free user'}
           </CreditPill>
         )}
-        <UpgradeBtn onClick={() => navigate(isAuthenticated ? '/dashboard?upgrade=1' : '/login')}>
-          ✦ Upgrade
-        </UpgradeBtn>
         {isAuthenticated ? (
           user?.photoURL
             ? <ProfileImg src={user.photoURL} alt={user.displayName || 'Profile'} onClick={onSignOut} title="Sign out" />
@@ -1046,6 +1177,17 @@ const Workspace: React.FC = () => {
           <RailDivider />
           <RailItem icon="📦" label="Assets" title="My assets" />
           <RailItem icon="⚙" label="Settings" title="Settings" />
+          {isAdmin && (
+            <>
+              <RailDivider />
+              <RailItem
+                icon="📊"
+                label="Stats"
+                title="Admin stats"
+                onClick={() => navigate('/admin/stats')}
+              />
+            </>
+          )}
         </Rail>
 
         {/* ──────── Config panel ──────── */}
@@ -1098,16 +1240,36 @@ const Workspace: React.FC = () => {
             </Field>
 
             <Field>
-              <FieldLabel>Quality</FieldLabel>
+              <FieldLabel>
+                Quality
+                {!isAdmin && <FieldHint>Standard only — free tier</FieldHint>}
+              </FieldLabel>
               <Segmented>
-                <SegmentedBtn $active={quality === 'standard'} onClick={() => setQuality('standard')}>
+                <SegmentedBtn
+                  $active={effectiveQuality === 'standard'}
+                  onClick={() => isAdmin && setQuality('standard')}
+                >
                   Standard
                 </SegmentedBtn>
-                <SegmentedBtn $active={quality === 'high'} onClick={() => setQuality('high')}>
-                  High
+                <SegmentedBtn
+                  $active={isAdmin && quality === 'high'}
+                  $disabled={!isAdmin}
+                  onClick={() => isAdmin && setQuality('high')}
+                >
+                  High {!isAdmin && <ComingSoonTag>admin</ComingSoonTag>}
                 </SegmentedBtn>
               </Segmented>
             </Field>
+
+            {isAdmin && (
+              <Field>
+                <FieldLabel>Texture <FieldHint>admin only</FieldHint></FieldLabel>
+                <Segmented>
+                  <SegmentedBtn $active={!doTexture} onClick={() => setDoTexture(false)}>Off</SegmentedBtn>
+                  <SegmentedBtn $active={doTexture} onClick={() => setDoTexture(true)}>On</SegmentedBtn>
+                </Segmented>
+              </Field>
+            )}
 
             <Field>
               <FieldLabel>Format</FieldLabel>
@@ -1120,11 +1282,36 @@ const Workspace: React.FC = () => {
           </PanelBody>
           <PanelFooter>
             <CostRow>
-              <span>Estimated cost</span>
-              <CostValue><CoinDot />{generationCost} credit{generationCost > 1 ? 's' : ''}</CostValue>
+              <span>Expected wait</span>
+              <CostValue>
+                ⏱{' '}
+                {effectiveQuality === 'high'
+                  ? (effectiveTexture ? '~45 min' : '~30-200 min')
+                  : (effectiveTexture ? '~15 min' : '~5 min')}
+              </CostValue>
             </CostRow>
+            {!isAdmin && limits && limits.limit24h !== null && (
+              <CostRow>
+                <span>Daily usage</span>
+                <CostValue>
+                  {limits.used24h}/{limits.limit24h} in last 24h
+                </CostValue>
+              </CostRow>
+            )}
+            {!isAdmin && (
+              <CostRow>
+                <span style={{ fontSize: '0.74rem', lineHeight: 1.45 }}>
+                  Free during early access. Generation runs on a shared queue — wait time scales with load.
+                </span>
+              </CostRow>
+            )}
             <GenerateBtn
-              $disabled={!isAuthenticated ? false : (!file || submitting || credits < generationCost)}
+              $disabled={
+                !isAuthenticated
+                  ? false
+                  : (!file || submitting ||
+                     (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h))
+              }
               onClick={onGenerate}
             >
               {!isAuthenticated
@@ -1133,9 +1320,9 @@ const Workspace: React.FC = () => {
                   ? 'Submitting…'
                   : !file
                     ? 'Upload an image first'
-                    : credits < generationCost
-                      ? 'Not enough credits — Upgrade'
-                      : '✦ Generate'}
+                    : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
+                      ? 'Daily limit reached — try again later'
+                      : '✦ Generate (free)'}
             </GenerateBtn>
           </PanelFooter>
         </Panel>
@@ -1143,10 +1330,17 @@ const Workspace: React.FC = () => {
         {/* ──────── Central viewport ──────── */}
         <Viewport>
           <GridBg />
-          {runningJob && (
+          {/*
+            Only show the floating "Generating mesh…" overlay if either:
+            - the user has selected the running job, or
+            - nothing is selected yet (so the overlay sits on the empty state).
+            When the user clicks an older finished asset, we let them inspect
+            it without a misleading "generating" badge over the viewer.
+          */}
+          {runningJob && (selectedJobId === runningJob.id || !selectedJob) && (
             <RunningCard>
               <RunningSpinner />
-              Generating mesh…
+              Generating mesh… {runningJob.progressPct ?? 0}%
             </RunningCard>
           )}
           {meshUrl ? (
@@ -1204,21 +1398,87 @@ const Workspace: React.FC = () => {
               const thumb = thumbKey ? `/api/image?key=${encodeURIComponent(thumbKey)}` : null;
               const badgeColor =
                 job.status === 'done' ? '#10B981' :
-                job.status === 'error' ? '#EF4444' :
+                job.status === 'failed' || job.status === 'error' ? '#EF4444' :
                 job.status === 'cancelled' ? '#6B7280' :
                 '#A855F7';
+
+              // Derive presentation tags
+              const isHigh = (job.inferenceSteps ?? 5) > 10;
+              const hasTex = !!job.doTexture;
+
+              // Run-time string (mm:ss for done, "running" for in-flight)
+              let timeStr = '';
+              if (job.status === 'done' && job.startedAt && job.completedAt) {
+                const secs = Math.round(
+                  (new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime()) / 1000,
+                );
+                timeStr = secs < 60 ? `${secs}s` : `${(secs / 60).toFixed(1)}m`;
+              } else if (job.status === 'processing') {
+                timeStr = `${job.progressPct ?? 0}%`;
+              }
+
+              const commitName = async () => {
+                const next = nameDraft.trim();
+                if (next && next !== job.name) {
+                  await renameJob(job.id, next);
+                  setJobs(prev => prev.map(j => j.id === job.id ? { ...j, name: next } : j));
+                }
+                setEditingNameId(null);
+              };
+
               return (
-                <AssetCard
-                  key={job.id}
-                  $active={selectedJobId === job.id}
-                  onClick={() => setSelectedJobId(job.id)}
-                  title={job.name || job.id}
-                >
-                  {thumb
-                    ? <AssetThumb src={thumb} alt="" />
-                    : <AssetPlaceholder>⬡</AssetPlaceholder>}
-                  <AssetBadge $color={badgeColor}>{job.status}</AssetBadge>
-                </AssetCard>
+                <AssetItem key={job.id}>
+                  <AssetCard
+                    $active={selectedJobId === job.id}
+                    onClick={() => setSelectedJobId(job.id)}
+                  >
+                    {thumb
+                      ? <AssetThumb
+                          src={thumb}
+                          alt=""
+                          style={
+                            !hasTex && job.status === 'done'
+                              ? { filter: 'grayscale(0.85) brightness(0.85)' }
+                              : undefined
+                          }
+                        />
+                      : <AssetPlaceholder>⬡</AssetPlaceholder>}
+                    <AssetBadge $color={badgeColor}>{job.status}</AssetBadge>
+                    <AssetOverlay className="asset-overlay">
+                      <AssetTag $color={isHigh ? '#C084FC' : undefined}>
+                        {isHigh ? 'HIGH' : 'STD'}
+                      </AssetTag>
+                      <AssetTag $color={hasTex ? '#EC4899' : undefined}>
+                        {hasTex ? 'TEXTURED' : 'NO TEX'}
+                      </AssetTag>
+                      {timeStr && <AssetTime>{timeStr}</AssetTime>}
+                    </AssetOverlay>
+                  </AssetCard>
+                  {editingNameId === job.id ? (
+                    <AssetNameInput
+                      autoFocus
+                      value={nameDraft}
+                      placeholder="name…"
+                      onChange={e => setNameDraft(e.target.value)}
+                      onBlur={commitName}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitName();
+                        if (e.key === 'Escape') setEditingNameId(null);
+                      }}
+                    />
+                  ) : (
+                    <AssetName
+                      $empty={!job.name}
+                      title="double-click to rename"
+                      onDoubleClick={() => {
+                        setEditingNameId(job.id);
+                        setNameDraft(job.name || '');
+                      }}
+                    >
+                      {job.name || 'Untitled'}
+                    </AssetName>
+                  )}
+                </AssetItem>
               );
             })}
           </AssetGrid>

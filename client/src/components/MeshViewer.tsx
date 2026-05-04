@@ -9,6 +9,18 @@ interface MeshViewerProps {
   showGrid?: boolean;
 }
 
+// Dispose a material and any textures it references. Called from cleanup
+// so we don't leak GPU memory between mounts.
+const disposeMaterial = (m: THREE.Material): void => {
+  for (const k of Object.keys(m) as (keyof THREE.Material)[]) {
+    const v = (m as any)[k];
+    if (v && typeof v === 'object' && 'isTexture' in v && (v as THREE.Texture).isTexture) {
+      (v as THREE.Texture).dispose();
+    }
+  }
+  m.dispose();
+};
+
 const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGrid = true }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
@@ -41,22 +53,30 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGri
     renderer.shadowMap.enabled = true;
     mount.appendChild(renderer.domElement);
 
-    // Lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    // Lights — three-point + hemisphere + extra fill so no part of the mesh
+    // sits in deep shadow regardless of orientation.
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x8b5cf6, 0.9);
+    scene.add(hemi);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambient);
 
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
     key.position.set(5, 8, 5);
     key.castShadow = true;
     scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0x8b5cf6, 0.4);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.9);
     fill.position.set(-5, 2, -3);
     scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(0x10b981, 0.3);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
     rim.position.set(0, -3, -5);
     scene.add(rim);
+
+    const top = new THREE.DirectionalLight(0xffffff, 0.5);
+    top.position.set(0, 10, 0);
+    scene.add(top);
 
     // Grid / floor plane
     const grid = new THREE.GridHelper(4, 20, 0x1e1b2e, 0x1e1b2e);
@@ -141,7 +161,23 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGri
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
       controls.dispose();
+
+      // Dispose mesh geometry / materials / textures so the GPU memory is
+      // freed immediately (otherwise it lingers until the next GC pass).
+      meshesRef.current.forEach(mesh => {
+        mesh.geometry?.dispose();
+        const mat = mesh.material;
+        if (Array.isArray(mat)) mat.forEach(m => disposeMaterial(m as THREE.Material));
+        else if (mat) disposeMaterial(mat as THREE.Material);
+      });
+      meshesRef.current = [];
+
+      // Force the WebGL context to be released NOW. Browsers cap at ~16
+      // contexts; clicking through a few assets without this triggers
+      // "Too many active WebGL contexts" warnings.
       renderer.dispose();
+      renderer.forceContextLoss();
+
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }

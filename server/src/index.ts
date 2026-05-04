@@ -11,7 +11,7 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
-import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob } from './jobsRepo';
+import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 
 const app = express();
@@ -106,15 +106,52 @@ app.get('/api/auth/me', async (req, res) => {
 
 // ── Upload → R2 → job ─────────────────────────────────────────────────────────
 
+// ── Rate limit (free tier) ───────────────────────────────────────────────────
+// Free users get FREE_LIMIT_PER_24H jobs in any rolling 24 h window. Admins
+// are exempt. The cap is intentionally low while we run on a single home GPU
+// so wait times stay reasonable for everyone.
+
+const FREE_LIMIT_PER_24H = parseInt(process.env.FREE_LIMIT_PER_24H || '3', 10);
+
+const checkRateLimit = async (email: string): Promise<{ ok: boolean; used: number; limit: number }> => {
+  if (isAdminEmail(email)) return { ok: true, used: 0, limit: Infinity as any };
+  const used = await countUserJobsSince(email, 24);
+  return { ok: used < FREE_LIMIT_PER_24H, used, limit: FREE_LIMIT_PER_24H };
+};
+
+app.get('/api/limits', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const lim = await checkRateLimit(email);
+  res.json({
+    used24h: lim.used,
+    limit24h: lim.limit === Infinity ? null : lim.limit,
+    isAdmin: isAdminEmail(email),
+  });
+});
+
 app.post('/api/upload', upload.single('image'), async (req, res) => {
   const email = req.body.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   if (!req.file) return res.status(400).json({ error: 'image required' });
+
+  // Enforce free-tier rate limit before paying for R2 upload
+  const lim = await checkRateLimit(email);
+  if (!lim.ok) {
+    return res.status(429).json({
+      error: 'rate_limited',
+      detail: `Free tier limit reached (${lim.used}/${lim.limit} in last 24 h). Try again later.`,
+      used24h: lim.used,
+      limit24h: lim.limit,
+    });
+  }
+
   try {
     const { url } = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
     const job = await createJob({
       userEmail:     email,
       imageUrl:      url,
+      name:          req.body.name          || '',
       prompt:        req.body.prompt        || '',
       style:         req.body.style         || 'Realistic',
       polygonBudget:    req.body.polygonBudget || 'Medium (50k-200k)',
@@ -217,6 +254,121 @@ app.patch('/api/admin/jobs/:id/status', async (req, res) => {
   const { status, resultUrl } = req.body as { status: string; resultUrl?: string };
   await updateJobStatus(req.params.id as any, status as any, resultUrl);
   res.json({ ok: true });
+});
+
+// ── Stats (admin) ────────────────────────────────────────────────────────────
+// Aggregate usage data for the admin dashboard. Read-only, single round-trip.
+
+app.get('/api/admin/stats', async (req, res) => {
+  const caller = req.headers['x-user-email'] as string;
+  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const { getDb } = require('./db');
+    const db = getDb();
+
+    // Totals + status breakdown
+    const totals = await db.query(`
+      SELECT status, COUNT(*)::int AS count
+      FROM genshape3d_jobs
+      GROUP BY status
+    `);
+
+    // Per-day counts for the last 14 days
+    const byDay = await db.query(`
+      SELECT
+        DATE("createdAt"::timestamptz AT TIME ZONE 'UTC') AS day,
+        COUNT(*)::int AS submitted,
+        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END)::int AS done,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)::int AS failed
+      FROM genshape3d_jobs
+      WHERE "createdAt"::timestamptz > NOW() - INTERVAL '14 days'
+      GROUP BY day
+      ORDER BY day DESC
+    `);
+
+    // Avg / median / p95 run-time (seconds) over last 30 days
+    const timing = await db.query(`
+      WITH t AS (
+        SELECT EXTRACT(EPOCH FROM ("completedAt"::timestamptz - "startedAt"::timestamptz)) AS run_s,
+               "doTexture" AS tex,
+               "inferenceSteps" AS steps
+        FROM genshape3d_jobs
+        WHERE status = 'done'
+          AND "completedAt" IS NOT NULL
+          AND "startedAt" IS NOT NULL
+          AND "completedAt" > NOW() - INTERVAL '30 days'
+      )
+      SELECT
+        COUNT(*)::int AS n,
+        ROUND(AVG(run_s))::int AS avg_s,
+        ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY run_s))::int AS p50_s,
+        ROUND(percentile_cont(0.95) WITHIN GROUP (ORDER BY run_s))::int AS p95_s,
+        tex,
+        CASE WHEN steps > 10 THEN 'high' ELSE 'standard' END AS quality
+      FROM t
+      GROUP BY tex, quality
+      ORDER BY quality, tex
+    `);
+
+    // Users + signups
+    const users = await db.query(`
+      SELECT
+        COUNT(*)::int AS total_users,
+        SUM(CASE WHEN "createdAt"::timestamptz > NOW() - INTERVAL '7 days'  THEN 1 ELSE 0 END)::int AS new_7d,
+        SUM(CASE WHEN "createdAt"::timestamptz > NOW() - INTERVAL '24 hours' THEN 1 ELSE 0 END)::int AS new_24h
+      FROM genshape3d_users
+    `);
+
+    // Active users (submitted at least one job in last 7 / 24h)
+    const active = await db.query(`
+      SELECT
+        COUNT(DISTINCT "userEmail") FILTER (WHERE "createdAt"::timestamptz > NOW() - INTERVAL '7 days')::int  AS active_7d,
+        COUNT(DISTINCT "userEmail") FILTER (WHERE "createdAt"::timestamptz > NOW() - INTERVAL '24 hours')::int AS active_24h
+      FROM genshape3d_jobs
+    `);
+
+    // Current queue depth (jobs not yet finished)
+    const queue = await db.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending')::int    AS pending,
+        COUNT(*) FILTER (WHERE status = 'processing')::int AS processing
+      FROM genshape3d_jobs
+    `);
+
+    // Recent generations — who, when, what (last 30 days, up to 500 rows).
+    // Client filters by time range / status / quality; we send everything once.
+    const recent = await db.query(`
+      SELECT
+        id,
+        "userEmail"     AS email,
+        status,
+        "createdAt"     AS submitted_at,
+        "startedAt"     AS started_at,
+        "completedAt"   AS completed_at,
+        "inferenceSteps" AS steps,
+        "octreeResolution" AS octree,
+        "doTexture"     AS tex
+      FROM genshape3d_jobs
+      WHERE "createdAt"::timestamptz > NOW() - INTERVAL '30 days'
+      ORDER BY "createdAt" DESC
+      LIMIT 500
+    `);
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      byStatus: totals.rows,
+      byDay: byDay.rows,
+      timing: timing.rows,
+      users: users.rows[0],
+      active: active.rows[0],
+      queue: queue.rows[0],
+      recent: recent.rows,
+    });
+  } catch (e: any) {
+    console.error('[admin/stats]', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

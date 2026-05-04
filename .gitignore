@@ -7,3 +7,8 @@ dist/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Bench-harness artifacts (downloaded GLBs + run output)
+server/scripts/bench-output/
+server/scripts/bench-results.csv
+server/scripts/bench-summary.json

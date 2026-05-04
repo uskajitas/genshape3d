@@ -2,6 +2,26 @@
 
 Read this if you are deploying changes to the live site `https://genshape3d.com`. It is written for both humans and AI agents with no prior context.
 
+## ⚠ Latest commit notes — read these before deploying
+
+The most recent push (free-tier launch + admin stats) introduces these surfaces. Most are zero-config, but two need attention on the i7:
+
+1. **Frontend lockdown for non-admin users.** Workspace UI now hides quality + texture controls for anyone whose `users.role != 'admin'`. The "Upgrade" button + credit pill are gone; replaced by a `FREE` / `ADMIN` badge. This is hard-coded — there is **nothing to configure** on the i7 to make this work. Just `git pull` + auto-reload.
+
+2. **New endpoint `/api/admin/stats`.** Returns aggregate metrics (queue depth, signups, jobs/day, p50/p95 timing). Admin-gated via `x-user-email` header → `isAdminEmail()`. Driven by `ADMIN_EMAILS` env var (already set on the i7 to `usquiano@gmail.com`). No env change needed unless you want to grant another admin — comma-separate emails.
+
+3. **New page `/admin/stats`.** Admin-only client-side route. Queries `/api/admin/stats` every 10 s. The 📊 icon at the bottom of the left rail in `/dashboard` only appears when the signed-in user's role is `admin`.
+
+4. **`Workspace.tsx` now sends quality + texture params explicitly** in the upload form data. Non-admin browsers will always send `inferenceSteps=5, octreeResolution=256, doTexture=false` (Standard, no texture). Admin browsers can send anything.
+
+   **Server-side enforcement is NOT yet in place** — a determined non-admin could craft a `curl` POST with `doTexture=true` and the worker would honour it. This is acceptable for v1 (we trust the small user pool) but should be hardened before traffic grows. To harden later: in `server/src/index.ts` `/api/upload` handler, look up the user's role and clamp the params if `role != 'admin'`. Marked as TODO for a follow-up.
+
+5. **Schema is unchanged** — no new columns or tables. `genshape3d_jobs`, `genshape3d_users`, `genshape3d_login_events` are all read by the new stats endpoint via SQL aggregations, no migrations needed.
+
+6. **No new env vars.** `.env.example` did not change in this commit.
+
+After pulling: just verify the page at `https://genshape3d.com/dashboard` shows the FREE/ADMIN badge in the nav, and that signing in as an admin reveals the 📊 icon. If not, hard-reload the browser; HMR sometimes needs help when new context-using files are added.
+
 ## How "deploy" works in this project
 
 There is **no separate production build or CI/CD pipeline**. The home server (an i7 + GTX 1080 Windows machine) permanently runs `npm run dev` for both the client (Vite) and the server (`ts-node-dev`), and a Cloudflare Tunnel exposes those local dev servers as `genshape3d.com` (frontend) and `api.genshape3d.com` (backend). Both dev servers **auto-reload on source file changes**, so deploying = updating the source on the home server.

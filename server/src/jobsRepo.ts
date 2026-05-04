@@ -32,6 +32,21 @@ export interface Job {
   seed: number;
 }
 
+// Count how many jobs a user has submitted in the last `hours`. Used by
+// /api/upload to enforce the free-tier rate limit. Counts every status
+// (pending, processing, done, failed, cancelled) so retry-storms still hit
+// the cap — people don't get to spam by cancelling.
+export async function countUserJobsSince(email: string, hours: number): Promise<number> {
+  const r = await getDb().query(
+    `SELECT COUNT(*)::int AS n
+     FROM genshape3d_jobs
+     WHERE "userEmail" = $1
+       AND "createdAt"::timestamptz > NOW() - ($2 || ' hours')::INTERVAL`,
+    [email, String(hours)],
+  );
+  return r.rows[0]?.n ?? 0;
+}
+
 export async function deleteJob(id: string): Promise<void> {
   await getDb().query(`DELETE FROM genshape3d_jobs WHERE id=$1`, [id]);
 }
@@ -53,6 +68,7 @@ export async function cancelJob(id: string): Promise<void> {
 export async function createJob(data: {
   userEmail: string;
   imageUrl: string;
+  name?: string;
   prompt?: string;
   style?: string;
   polygonBudget?: string;
@@ -70,12 +86,13 @@ export async function createJob(data: {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
     `INSERT INTO genshape3d_jobs
-      (id, "userEmail", "imageUrl", prompt, style, status, "resultUrl", "createdAt", "updatedAt",
+      (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed)
-     VALUES ($1,$2,$3,$4,$5,'pending','',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
+      data.name || '',
       data.prompt || '', data.style || 'Realistic', now, now,
       data.polygonBudget || 'Medium (50k-200k)',
       data.textureRes    || '1K',
