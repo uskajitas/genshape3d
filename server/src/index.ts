@@ -24,7 +24,7 @@ app.use(cors({
   credentials: true,
   // Expose the X-Final-Prompt / X-Seed headers from /api/text2image so the
   // browser can read them to display the composed prompt in the UI.
-  exposedHeaders: ['X-Final-Prompt', 'X-Seed', 'X-Provider'],
+  exposedHeaders: ['X-Final-Prompt', 'X-Seed', 'X-Provider', 'X-Asset-Id', 'X-Image-Key'],
 }));
 
 // Stripe webhook needs the raw body for signature verification — register it
@@ -177,12 +177,25 @@ const MATERIAL_CLAUSE: Record<string, string> = {
   stone:   'stone surface, rough finish',
 };
 
-// Tokens we always inject so Pollinations doesn't produce 3D-unfriendly output.
-const ALWAYS_NEGATIVE = 'multiple objects, group, scene, busy background, watermark, logo, text, signature, motion blur, depth-of-field bokeh';
+// Tokens we always inject so the upstream doesn't produce 3D-unfriendly output.
+// Heavier "no plurals / no groups" tokens because models love to interpret
+// e.g. "a pawn" as a chess set context and return all eight.
+const ALWAYS_NEGATIVE =
+  'multiple objects, group, set, collection, pair, duplicate, two, three, ' +
+  'many, several, scene, environment, surroundings, busy background, ' +
+  'watermark, logo, text, signature, motion blur, depth-of-field bokeh';
 
 const composeFinalPrompt = (q: Record<string, any>): string => {
-  const parts: string[] = [String(q.prompt || '').trim()];
-  parts.push('single object, centered composition');
+  const userPrompt = String(q.prompt || '').trim();
+  const strict = String(q.strict_single || '1') !== '0';
+  // When strict, prepend "one single isolated" + suffix "alone" + an explicit
+  // "exactly one subject" line. Three near-synonyms for "exactly one" tend
+  // to override the model's group bias for items that have a contextual
+  // plural (chess pieces, a flock, a deck of cards).
+  const parts: string[] = [
+    strict ? `one single isolated ${userPrompt}, alone` : userPrompt,
+  ];
+  if (strict) parts.push('exactly one subject in frame, no other items');
 
   const bg    = BG_CLAUSE[String(q.bg || 'white')]       ?? BG_CLAUSE.white;
   const view  = VIEW_CLAUSE[String(q.view || 'three_q')] ?? VIEW_CLAUSE.three_q;
@@ -363,15 +376,88 @@ app.get('/api/text2image', async (req, res) => {
       height: h,
       seed,
     });
+
+    // If the caller supplied an email, persist the image to R2 + DB so it
+    // survives reloads. Without an email (e.g. anonymous tests, scripts) we
+    // just stream the bytes back as before.
+    const email = String(req.query.email || '').trim();
+    let assetId = '';
+    let imageKey = '';
+    if (email) {
+      try {
+        const ext = contentType.includes('png') ? '.png' : '.jpg';
+        const filename = `t2i-${Date.now()}${ext}`;
+        const uploaded = await uploadToR2(buf, filename, contentType);
+        // The uploadToR2 helper puts everything under uploads/ — for clarity
+        // we keep that; the proxy /api/image?key=… already accepts any key.
+        imageKey = uploaded.key;
+
+        const asset = await createAsset({
+          userEmail: email,
+          name: '',
+          prompt: String(req.query.prompt || ''),
+          finalPrompt,
+          params: {
+            bg: req.query.bg, view: req.query.view, scale: req.query.scale,
+            style: req.query.style, material: req.query.material,
+            aspect: req.query.aspect, w, h,
+            strict_single: req.query.strict_single,
+          },
+          provider,
+          imageKey,
+          seed,
+        });
+        assetId = asset.id;
+      } catch (saveErr: any) {
+        // Non-fatal: still return the image bytes so the user sees a result.
+        console.error('[text2image] save failed:', saveErr.message);
+      }
+    }
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Final-Prompt', encodeURIComponent(finalPrompt));
     res.setHeader('X-Seed', String(seed));
     res.setHeader('X-Provider', provider);
+    if (assetId)  res.setHeader('X-Asset-Id', assetId);
+    if (imageKey) res.setHeader('X-Image-Key', encodeURIComponent(imageKey));
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image]', provider, e.message);
     res.status(502).json({ error: e.message });
+  }
+});
+
+// ── Text-to-image asset CRUD ────────────────────────────────────────────────
+
+app.get('/api/text2image/assets', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const assets = await listAssetsByUser(email);
+    res.json({ assets });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/text2image/assets/:id/name', async (req, res) => {
+  const { name } = req.body as { name?: string };
+  if (typeof name !== 'string') return res.status(400).json({ error: 'name required' });
+  try {
+    await renameAsset(req.params.id, name.trim());
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/text2image/assets/:id', async (req, res) => {
+  try {
+    await deleteAsset(req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -433,6 +519,111 @@ app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   res.json({ jobs: await getJobsByUser(email) });
+});
+
+// Submit a 3D job re-using an existing R2 upload key. Lets the user pick
+// from the gallery of already-uploaded inputs and start a fresh 3D run
+// without re-uploading the same bytes. Body: { email, key, name, ...params }.
+app.post('/api/jobs/from-key', async (req, res) => {
+  const { email, key, name, prompt } = req.body as {
+    email?: string; key?: string; name?: string; prompt?: string;
+  };
+  if (!email || !key) return res.status(400).json({ error: 'email + key required' });
+
+  const lim = await checkRateLimit(email);
+  if (!lim.ok) {
+    return res.status(429).json({
+      error: 'rate_limited',
+      detail: `Free tier limit reached (${lim.used}/${lim.limit} in last 24 h).`,
+      used24h: lim.used, limit24h: lim.limit,
+    });
+  }
+
+  const bucket = process.env.R2_BUCKET || 'genshape3d';
+  const publicUrl = process.env.R2_PUBLIC_URL || `${process.env.R2_ENDPOINT}/${bucket}`;
+  const url = `${publicUrl}/${key}`;
+  try {
+    const job = await createJob({
+      userEmail: email,
+      imageUrl: url,
+      name: name || '',
+      prompt: prompt || '',
+      style: 'Realistic',
+      polygonBudget: 'Low (10k-50k)',
+      textureRes: '1K',
+      exportFormat: 'GLB',
+      detailLevel: 'Standard',
+      doTexture: req.body.doTexture === true || req.body.doTexture === 'true',
+      octreeResolution: parseInt(req.body.octreeResolution) || 256,
+      targetFaceCount:  parseInt(req.body.targetFaceCount)  || 30000,
+      inferenceSteps:   parseInt(req.body.inferenceSteps)   || 5,
+      guidanceScale:    parseFloat(req.body.guidanceScale)  || 5,
+      numChunks:        parseInt(req.body.numChunks)        || 0,
+      seed:             parseInt(req.body.seed)             || 0,
+    });
+    res.json({ job });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Re-link a job's input thumbnail to a different R2 upload. Used by the
+// "pick a thumbnail" UI for recovered jobs whose original input pairing
+// was lost or auto-matched incorrectly.
+app.patch('/api/jobs/:id/image-url', async (req, res) => {
+  const { imageUrl } = req.body as { imageUrl?: string };
+  if (typeof imageUrl !== 'string') return res.status(400).json({ error: 'imageUrl required' });
+  try {
+    const { getDb } = require('./db');
+    await getDb().query(
+      `UPDATE genshape3d_jobs SET "imageUrl" = $1, "updatedAt" = $2 WHERE id = $3`,
+      [imageUrl, new Date().toISOString(), req.params.id],
+    );
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List every input image in R2 (uploads/) so the UI can show a picker.
+// Returns { uploads: [{ key, url, lastModified, size }] } newest first.
+app.get('/api/uploads', async (req, res) => {
+  try {
+    const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint: process.env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId:     process.env.R2_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+      },
+      forcePathStyle: true,
+    });
+    const bucket = process.env.R2_BUCKET || 'genshape3d';
+    const publicUrl = process.env.R2_PUBLIC_URL || `${process.env.R2_ENDPOINT}/${bucket}`;
+
+    const all: { key: string; url: string; lastModified: string; size: number }[] = [];
+    let token: string | undefined;
+    do {
+      const r = await s3.send(new ListObjectsV2Command({
+        Bucket: bucket, Prefix: 'uploads/', ContinuationToken: token, MaxKeys: 1000,
+      }));
+      for (const o of r.Contents || []) {
+        all.push({
+          key: o.Key,
+          url: `${publicUrl}/${o.Key}`,
+          lastModified: o.LastModified?.toISOString() || '',
+          size: o.Size || 0,
+        });
+      }
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token);
+
+    all.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+    res.json({ uploads: all });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/jobs/:id', async (req, res) => {

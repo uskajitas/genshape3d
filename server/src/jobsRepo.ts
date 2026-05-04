@@ -47,8 +47,13 @@ export async function countUserJobsSince(email: string, hours: number): Promise<
   return r.rows[0]?.n ?? 0;
 }
 
+// Soft-delete: marks the row hidden but never drops it. GPU time is
+// expensive — hard deletion is never allowed at this layer.
 export async function deleteJob(id: string): Promise<void> {
-  await getDb().query(`DELETE FROM genshape3d_jobs WHERE id=$1`, [id]);
+  await getDb().query(
+    `UPDATE genshape3d_jobs SET deleted = true, "updatedAt" = $1 WHERE id = $2`,
+    [new Date().toISOString(), id],
+  );
 }
 
 export async function renameJob(id: string, name: string): Promise<void> {
@@ -112,27 +117,35 @@ export async function createJob(data: {
 
 export async function getJobsByUser(userEmail: string): Promise<Job[]> {
   const { rows } = await getDb().query(
-    'SELECT * FROM genshape3d_jobs WHERE "userEmail"=$1 ORDER BY "createdAt" DESC',
+    `SELECT * FROM genshape3d_jobs
+     WHERE "userEmail"=$1 AND deleted = false
+     ORDER BY "createdAt" DESC`,
     [userEmail]
   );
   return rows;
 }
 
 export async function listAllJobs(): Promise<Job[]> {
-  const { rows } = await getDb().query('SELECT * FROM genshape3d_jobs ORDER BY "createdAt" DESC');
+  const { rows } = await getDb().query(
+    `SELECT * FROM genshape3d_jobs WHERE deleted = false ORDER BY "createdAt" DESC`
+  );
   return rows;
 }
 
 export async function listPendingJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
-    `SELECT * FROM genshape3d_jobs WHERE status='pending' ORDER BY "createdAt" ASC`
+    `SELECT * FROM genshape3d_jobs
+     WHERE status='pending' AND deleted = false
+     ORDER BY "createdAt" ASC`
   );
   return rows;
 }
 
 export async function listCancelledJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
-    `SELECT * FROM genshape3d_jobs WHERE status='cancelled' ORDER BY "completedAt" DESC`
+    `SELECT * FROM genshape3d_jobs
+     WHERE status='cancelled' AND deleted = false
+     ORDER BY "completedAt" DESC`
   );
   return rows;
 }

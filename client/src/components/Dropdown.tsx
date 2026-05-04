@@ -7,7 +7,8 @@
 // the same component drives Provider/Material/Aspect/etc.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import styled, { keyframes } from 'styled-components';
 
 export interface DropdownOption<T extends string> {
@@ -86,12 +87,10 @@ const Caret = styled.span<{ $open: boolean }>`
   margin-left: 0.15rem;
 `;
 
-const Panel = styled.div<{ $align: 'left' | 'right'; $width?: number | string }>`
-  position: absolute;
-  top: calc(100% + 6px);
-  ${p => p.$align === 'right' ? 'right: 0;' : 'left: 0;'}
-  min-width: 100%;
-  width: ${p => typeof p.$width === 'number' ? `${p.$width}px` : (p.$width || 'auto')};
+// Panel is rendered into a portal so it isn't clipped by the parent's
+// `overflow: hidden`, scrolls properly, and z-orders above any sibling.
+const Panel = styled.div`
+  position: fixed;
   background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
   border: 1px solid ${p => p.theme.colors.borderHigh};
   border-radius: 12px;
@@ -100,7 +99,7 @@ const Panel = styled.div<{ $align: 'left' | 'right'; $width?: number | string }>
     0 14px 40px rgba(0, 0, 0, 0.55),
     0 0 0 1px ${p => p.theme.colors.violet}33,
     0 0 30px ${p => p.theme.colors.primary}1f;
-  z-index: 200;
+  z-index: 1000;
   animation: ${fadeIn} 0.14s ease;
   backdrop-filter: blur(8px);
   display: flex;
@@ -126,7 +125,7 @@ const Item = styled.button<{ $active: boolean; $disabled?: boolean }>`
     : 'transparent'};
   color: ${p => p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
   opacity: ${p => p.$disabled ? 0.5 : 1};
-  transition: background 0.12s;
+  transition: background 0.12s, color 0.12s, transform 0.1s;
   position: relative;
   ${p => p.$active && `
     &::before {
@@ -139,7 +138,15 @@ const Item = styled.button<{ $active: boolean; $disabled?: boolean }>`
     }
   `}
   &:hover {
-    ${p => !p.$disabled && !p.$active && `background: ${p.theme.colors.surfaceHigh};`}
+    ${p => !p.$disabled && `
+      background: ${p.$active
+        ? `linear-gradient(135deg, ${p.theme.colors.primary}3d, ${p.theme.colors.violet}3d)`
+        : `linear-gradient(135deg, ${p.theme.colors.primary}1a, ${p.theme.colors.violet}1a)`};
+      color: ${p.theme.colors.text};
+    `}
+  }
+  &:active {
+    ${p => !p.$disabled && `transform: translateY(1px);`}
   }
 `;
 
@@ -160,12 +167,68 @@ export function Dropdown<T extends string>({
 }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
-  // Click-outside closes
+  // Position the portal-rendered panel relative to the trigger, clamped to
+  // the viewport (so we never spill off the right edge or below the bottom).
+  const reposition = () => {
+    const w = wrapRef.current;
+    if (!w) return;
+    const rect = w.getBoundingClientRect();
+    const margin = 8;
+
+    const desiredWidth = typeof width === 'number'
+      ? width
+      : (typeof width === 'string' && width)
+        ? null  // CSS handles it
+        : Math.max(rect.width, 180);
+
+    const panelW = (desiredWidth ?? rect.width);
+    const panelMaxH = 360;
+
+    // Horizontal — start aligned to the configured edge, then clamp.
+    let left = align === 'right'
+      ? rect.right - panelW
+      : rect.left;
+    left = Math.max(margin, Math.min(left, window.innerWidth - panelW - margin));
+
+    // Vertical — open below by default, flip up if not enough room.
+    const spaceBelow = window.innerHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const top = spaceBelow >= panelMaxH || spaceBelow >= spaceAbove
+      ? rect.bottom + 6
+      : Math.max(margin, rect.top - 6 - panelMaxH);
+
+    setPanelStyle({
+      top,
+      left,
+      width: typeof width === 'string' && width ? width : (desiredWidth ?? rect.width),
+      maxHeight: panelMaxH,
+    });
+  };
+
+  // Re-measure when opened, on resize, on scroll
+  useLayoutEffect(() => {
+    if (!open) return;
+    reposition();
+    const onResize = () => reposition();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onResize, true);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onResize, true);
+    };
+  }, [open]);  // eslint-disable-line
+
+  // Click-outside closes (works across portals because both ref subtrees are checked)
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -195,8 +258,8 @@ export function Dropdown<T extends string>({
         <TriggerValue>{current?.label ?? '—'}</TriggerValue>
         <Caret $open={open}>▾</Caret>
       </Trigger>
-      {open && (
-        <Panel $align={align} $width={width}>
+      {open && createPortal(
+        <Panel ref={panelRef} style={panelStyle}>
           {options.map(opt => (
             <Item
               key={opt.value}
@@ -213,7 +276,8 @@ export function Dropdown<T extends string>({
               {opt.hint && <ItemHint>{opt.hint}</ItemHint>}
             </Item>
           ))}
-        </Panel>
+        </Panel>,
+        document.body,
       )}
     </Wrap>
   );

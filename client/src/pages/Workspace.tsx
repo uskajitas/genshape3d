@@ -129,6 +129,9 @@ const Shell = styled.div`
   display: grid;
   grid-template-rows: 56px 1fr;
   height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
   background:
     radial-gradient(ellipse 80% 50% at 50% 0%, ${p => p.theme.colors.primary}14, transparent 60%),
     radial-gradient(ellipse 60% 40% at 100% 100%, ${p => p.theme.colors.violet}10, transparent 60%),
@@ -823,7 +826,9 @@ const Aside = styled.aside`
     radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.violet}0d, transparent 70%),
     linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
   min-width: 0;
+  width: 100%;
   overflow: hidden;
+  box-sizing: border-box;
 
   @media (max-width: 1024px) { display: none; }
 `;
@@ -865,11 +870,15 @@ const Search = styled.input`
 const AssetGrid = styled.div`
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.6rem;
   padding: 0.85rem 1rem 1rem;
   overflow-y: auto;
+  overflow-x: hidden;
   align-content: start;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 // Outer wrapper holding the thumbnail card + the editable name underneath.
@@ -982,6 +991,101 @@ const AssetPlaceholder = styled.div`
   font-size: 1.5rem;
 `;
 
+// Tiny "pick thumbnail" button that appears on hover — bottom-right corner.
+// Lets the user re-link an asset's input image when the auto-pairing was wrong
+// (e.g. recovered jobs from R2 orphans).
+// Modal: pick which R2 upload should be the asset's thumbnail.
+const PickerOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  padding: 1.5rem;
+`;
+
+const PickerPanel = styled.div`
+  background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 14px;
+  width: 100%;
+  max-width: 900px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+`;
+
+const PickerHeader = styled.div`
+  display: flex;
+  align-items: center;
+  padding: 0.85rem 1rem 0.5rem;
+`;
+
+const PickerTitle = styled.h2`
+  font-size: 1rem;
+  font-weight: 800;
+  margin: 0;
+  flex: 1;
+`;
+
+const PickerClose = styled.button`
+  background: none;
+  border: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.textMuted};
+  cursor: pointer;
+  &:hover { color: ${p => p.theme.colors.text}; }
+`;
+
+const PickerHint = styled.div`
+  padding: 0 1rem 0.6rem;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.78rem;
+`;
+
+const PickerGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.55rem;
+  padding: 0 1rem 1rem;
+  overflow-y: auto;
+`;
+
+const PickerCard = styled.button`
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1.5px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  span {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 4px 6px;
+    background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+    color: white;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  &:hover {
+    transform: translateY(-2px);
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 6px 22px ${p => p.theme.colors.violet}55;
+  }
+`;
+
 const AssetBadge = styled.div<{ $color: string }>`
   position: absolute;
   top: 6px; left: 6px;
@@ -1045,6 +1149,38 @@ const Workspace: React.FC = () => {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
   const [limits, setLimits] = useState<{ used24h: number; limit24h: number | null } | null>(null);
+  // "Submit existing images" picker — modal of all R2 uploads, user multi-
+  // selects, click "Submit N" → each becomes a fresh 3D job via the
+  // /api/jobs/from-key endpoint (no re-upload).
+  const [showSubmitPicker, setShowSubmitPicker] = useState(false);
+  const [submitPicks, setSubmitPicks] = useState<Set<string>>(new Set());
+  const [uploadOptions, setUploadOptions] = useState<{ key: string; url: string; lastModified: string }[]>([]);
+  useEffect(() => {
+    if (!showSubmitPicker) return;
+    fetch('/api/uploads')
+      .then(r => r.ok ? r.json() : { uploads: [] })
+      .then(d => setUploadOptions(d.uploads || []))
+      .catch(() => setUploadOptions([]));
+  }, [showSubmitPicker]);
+  const onSubmitFromPicker = async () => {
+    if (!user?.email || submitPicks.size === 0) return;
+    for (const key of submitPicks) {
+      try {
+        await fetch('/api/jobs/from-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: user.email, key,
+            name: key.split('/').pop()?.slice(0, 40),
+            inferenceSteps: 5, octreeResolution: 256,
+            targetFaceCount: 30000, doTexture: false,
+          }),
+        });
+      } catch { /* keep going */ }
+    }
+    setSubmitPicks(new Set());
+    setShowSubmitPicker(false);
+  };
   // Text-to-image mode (Pollinations) — free, no key, generates a 1024² image
   // from a prompt and stuffs it into `file` so the rest of the flow is identical.
   const [textPrompt, setTextPrompt] = useState('');
@@ -1478,6 +1614,22 @@ const Workspace: React.FC = () => {
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            <button
+              type="button"
+              onClick={() => setShowSubmitPicker(true)}
+              style={{
+                padding: '0.4rem 0.6rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                border: '1px solid #2A2A2E',
+                background: '#1E1E22',
+                color: '#F4F4F6',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              + Submit from existing images
+            </button>
           </AsideHeader>
           <AssetGrid>
             {!isAuthenticated && (
@@ -1554,7 +1706,7 @@ const Workspace: React.FC = () => {
                       </AssetTag>
                       {timeStr && <AssetTime>{timeStr}</AssetTime>}
                     </AssetOverlay>
-                  </AssetCard>
+                    </AssetCard>
                   {editingNameId === job.id ? (
                     <AssetNameInput
                       autoFocus
@@ -1585,6 +1737,74 @@ const Workspace: React.FC = () => {
           </AssetGrid>
         </Aside>
       </Body>
+
+      {/* Multi-pick submit modal */}
+      {showSubmitPicker && (
+        <PickerOverlay onClick={() => { setShowSubmitPicker(false); setSubmitPicks(new Set()); }}>
+          <PickerPanel onClick={e => e.stopPropagation()}>
+            <PickerHeader>
+              <PickerTitle>Pick images to submit as 3D</PickerTitle>
+              <PickerClose onClick={() => { setShowSubmitPicker(false); setSubmitPicks(new Set()); }}>×</PickerClose>
+            </PickerHeader>
+            <PickerHint>{submitPicks.size} selected. Click any image to toggle. Standard quality, no texture.</PickerHint>
+            <div style={{ padding: '0 1rem 0.6rem', display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={onSubmitFromPicker}
+                disabled={submitPicks.size === 0}
+                style={{
+                  padding: '0.5rem 0.9rem',
+                  fontWeight: 700,
+                  border: 0,
+                  borderRadius: 8,
+                  background: submitPicks.size > 0
+                    ? 'linear-gradient(135deg, #A855F7, #EC4899)'
+                    : '#26262C',
+                  color: submitPicks.size > 0 ? 'white' : '#A4A4AC',
+                  cursor: submitPicks.size > 0 ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Submit {submitPicks.size}
+              </button>
+            </div>
+            <PickerGrid>
+              {uploadOptions.map(u => {
+                const picked = submitPicks.has(u.key);
+                return (
+                  <PickerCard
+                    key={u.key}
+                    onClick={() => setSubmitPicks(prev => {
+                      const next = new Set(prev);
+                      if (next.has(u.key)) next.delete(u.key); else next.add(u.key);
+                      return next;
+                    })}
+                    style={picked ? { borderColor: '#A855F7', boxShadow: '0 0 0 2px #A855F766' } : {}}
+                  >
+                    <img src={`/api/image?key=${encodeURIComponent(u.key)}`} alt="" />
+                    {picked && (
+                      <div style={{
+                        position: 'absolute', top: 6, left: 6,
+                        width: 22, height: 22, borderRadius: 6,
+                        background: 'linear-gradient(135deg, #A855F7, #EC4899)',
+                        color: 'white', fontWeight: 800,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '0.8rem',
+                      }}>✓</div>
+                    )}
+                    <span>{u.lastModified.slice(0, 16).replace('T', ' ')}</span>
+                  </PickerCard>
+                );
+              })}
+              {uploadOptions.length === 0 && (
+                <div style={{ gridColumn: '1 / -1', color: '#A4A4AC', textAlign: 'center', padding: '2rem' }}>
+                  Loading…
+                </div>
+              )}
+            </PickerGrid>
+          </PickerPanel>
+        </PickerOverlay>
+      )}
+
     </Shell>
   );
 };

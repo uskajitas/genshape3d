@@ -50,6 +50,9 @@ interface GenParams {
   negative: string;
   aspect: AspectRatio;
   provider: Provider;
+  // When true, we hard-enforce "exactly one subject" so prompts like "a pawn"
+  // don't return a full chess set.
+  strictSingle: boolean;
 }
 
 const PROVIDER_LABEL: Record<Provider, string> = {
@@ -77,16 +80,22 @@ const DEFAULT_PARAMS: GenParams = {
   negative: '',
   aspect: '1:1',
   provider: 'fal-flux-schnell',
+  strictSingle: true,
 };
 
+// One asset in the gallery. After persistence each generated image is saved
+// to R2 + Postgres, so `imageKey` (R2 key) is the canonical identity. We
+// render via /api/image?key=…  which streams the bytes through our backend.
 interface GeneratedImage {
-  id: string;
+  id: string;            // local + server id (same value once persisted)
   prompt: string;
-  blob: Blob;
-  url: string; // ObjectURL for preview
+  imageKey: string;      // R2 key — survives reloads
+  url: string;           // either /api/image?key=… or a fresh blob ObjectURL
+  blob?: Blob;           // populated for in-flight items so we can send to 3D
+                         //   without re-fetching from R2 immediately
   createdAt: number;
   params: GenParams;
-  finalPrompt?: string; // Composed prompt the server actually sent upstream
+  finalPrompt?: string;
   seed?: string;
 }
 
@@ -140,12 +149,14 @@ const Shell = styled.div`
 
 const Body = styled.div`
   display: grid;
-  grid-template-columns: 64px 320px 1fr 320px;
+  grid-template-columns: 64px 320px minmax(0, 1fr) 320px;
   min-height: 0;
+  width: 100%;
   overflow: hidden;
-  @media (max-width: 1280px) { grid-template-columns: 64px 300px 1fr 280px; }
-  @media (max-width: 1024px) { grid-template-columns: 56px 280px 1fr; }
-  @media (max-width: 720px)  { grid-template-columns: 56px 1fr; }
+  @media (max-width: 1280px) { grid-template-columns: 64px 300px minmax(0, 1fr) 280px; }
+  @media (max-width: 1100px) { grid-template-columns: 64px 280px minmax(0, 1fr) 240px; }
+  @media (max-width: 1024px) { grid-template-columns: 56px 280px minmax(0, 1fr); }
+  @media (max-width: 720px)  { grid-template-columns: 56px minmax(0, 1fr); }
 `;
 
 const NavBar = styled.header`
@@ -359,6 +370,46 @@ const Row = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
+`;
+
+// Custom toggle to replace native checkboxes (which look out of place against
+// our gradient theme).
+const ToggleRow = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.74rem;
+  color: ${p => p.theme.colors.textMuted};
+  cursor: pointer;
+  margin-top: 0.2rem;
+  user-select: none;
+  &:hover { color: ${p => p.theme.colors.text}; }
+`;
+
+const ToggleSwitch = styled.span<{ $on: boolean }>`
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: ${p => p.$on
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : p.theme.colors.surfaceHigh};
+  border: 1px solid ${p => p.$on ? 'transparent' : p.theme.colors.borderHigh};
+  transition: background 0.15s, border-color 0.15s;
+  ${p => p.$on && `box-shadow: 0 0 8px ${p.theme.colors.primary}66;`}
+`;
+
+const ToggleKnob = styled.span<{ $on: boolean }>`
+  position: absolute;
+  top: 1px;
+  left: ${p => p.$on ? '15px' : '1px'};
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: ${p => p.$on ? '#fff' : p.theme.colors.text};
+  transition: left 0.16s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 `;
 
 const TextToImageBulkBtn = styled.button<{ $disabled?: boolean }>`
@@ -677,6 +728,9 @@ const Aside = styled.aside`
 const AsideHeader = styled.div`
   padding: 0.85rem 1rem 0.65rem;
   border-bottom: 1px solid ${p => p.theme.colors.border};
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 `;
 
 const AsideTitle = styled.h2`
@@ -685,12 +739,29 @@ const AsideTitle = styled.h2`
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: ${p => p.theme.colors.textMuted};
-  margin: 0 0 0.4rem;
+  margin: 0;
 `;
 
 const AsideHint = styled.div`
   font-size: 0.7rem;
   color: ${p => p.theme.colors.textMuted};
+`;
+
+const Search = styled.input`
+  width: 100%;
+  padding: 0.5rem 0.8rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: 9px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
 `;
 
 const AssetGrid = styled.div`
@@ -700,7 +771,9 @@ const AssetGrid = styled.div`
   gap: 0.6rem;
   padding: 0.85rem 1rem 1rem;
   overflow-y: auto;
+  overflow-x: hidden;
   align-content: start;
+  min-width: 0;
 `;
 
 const AssetCard = styled.button<{ $active?: boolean }>`
@@ -728,13 +801,16 @@ const AssetThumb = styled.img`
   display: block;
 `;
 
-// Floating "Send N to 3D" bar that appears above the gallery when selection > 0.
+// Always-visible "Send N to 3D" bar above the gallery — disabled (greyed)
+// when nothing is picked, so the UI never shifts up/down.
 const SendToThreeDBar = styled.div`
   display: flex;
   gap: 0.4rem;
   padding: 0.55rem 0.85rem;
-  background: linear-gradient(135deg, ${p => p.theme.colors.primary}22, ${p => p.theme.colors.violet}22);
-  border-bottom: 1px solid ${p => p.theme.colors.borderHigh};
+  background: linear-gradient(135deg, ${p => p.theme.colors.primary}14, ${p => p.theme.colors.violet}14);
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  flex-wrap: wrap;
+  min-width: 0;
 `;
 
 const SendToThreeDBtn = styled.button`
@@ -749,13 +825,18 @@ const SendToThreeDBtn = styled.button`
   background: linear-gradient(135deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
   color: white;
   box-shadow: 0 6px 20px ${p => p.theme.colors.primary}55;
-  &:hover { filter: brightness(1.1); }
-  &:disabled { opacity: 0.6; cursor: not-allowed; }
+  &:hover:not(:disabled) { filter: brightness(1.1); }
+  &:disabled {
+    background: ${p => p.theme.colors.surfaceHigh};
+    color: ${p => p.theme.colors.textMuted};
+    box-shadow: none;
+    cursor: not-allowed;
+  }
 `;
 
 const SendToThreeDClearBtn = styled.button`
   padding: 0.5rem 0.75rem;
-  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border: 1px solid ${p => p.theme.colors.border};
   border-radius: 8px;
   font: inherit;
   font-size: 0.78rem;
@@ -763,7 +844,32 @@ const SendToThreeDClearBtn = styled.button`
   background: transparent;
   color: ${p => p.theme.colors.textMuted};
   cursor: pointer;
-  &:hover { color: ${p => p.theme.colors.text}; }
+  &:hover:not(:disabled) { color: ${p => p.theme.colors.text}; border-color: ${p => p.theme.colors.borderHigh}; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
+// Per-card delete button (top-right, pairs with PickToggle in top-left).
+const DeleteBtn = styled.button`
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255,255,255,0.4);
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  transition: opacity 0.14s, background 0.12s, border-color 0.12s;
+  ${AssetCard}:hover & { opacity: 1; }
+  &:hover {
+    background: #EF4444cc;
+    border-color: #EF4444;
+  }
 `;
 
 // Per-card pick-for-3D checkbox in the top-left of the thumb.
@@ -823,6 +929,7 @@ const TextToImage: React.FC = () => {
   // submits them through the regular /api/upload flow.
   const [selectedSet, setSelectedSet] = useState<Set<string>>(new Set());
   const [sending3D, setSending3D] = useState(false);
+  const [search, setSearch] = useState('');
 
   // Tiny helper to update a single field of `params` immutably.
   const setParam = <K extends keyof GenParams>(k: K, v: GenParams[K]) =>
@@ -836,8 +943,40 @@ const TextToImage: React.FC = () => {
     [images, selectedId],
   );
 
-  // Free object URLs on unmount
-  useEffect(() => () => { images.forEach(i => URL.revokeObjectURL(i.url)); }, []);  // eslint-disable-line
+  // Load persisted assets on mount
+  useEffect(() => {
+    if (!user?.email) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/text2image/assets?email=${encodeURIComponent(user.email!)}`);
+        if (!r.ok) return;
+        const data = await r.json() as { assets: Array<any> };
+        if (cancelled) return;
+        const restored: GeneratedImage[] = data.assets.map(a => ({
+          id: a.id,
+          prompt: a.prompt,
+          imageKey: a.imageKey,
+          // The R2-proxy URL is stable forever; no blob needed until we send to 3D.
+          url: `/api/image?key=${encodeURIComponent(a.imageKey)}`,
+          createdAt: new Date(a.createdAt).getTime() || Date.now(),
+          params: a.params || DEFAULT_PARAMS,
+          finalPrompt: a.finalPrompt,
+          seed: a.seed != null ? String(a.seed) : undefined,
+        }));
+        setImages(restored);
+      } catch {
+        /* offline-friendly: ignore, gallery just shows empty */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.email]);
+
+  // Free in-flight object URLs on unmount (persisted /api/image URLs are fine
+  // to leave; they're plain HTTP).
+  useEffect(() => () => {
+    images.forEach(i => { if (i.blob && i.url.startsWith('blob:')) URL.revokeObjectURL(i.url); });
+  }, []);  // eslint-disable-line
 
   const onGenerate = useCallback(async () => {
     const q = prompt.trim();
@@ -856,7 +995,10 @@ const TextToImage: React.FC = () => {
         style:    params.style,
         material: params.material,
         provider: params.provider,
+        strict_single: params.strictSingle ? '1' : '0',
       });
+      // Pass the user's email so the server saves the image to R2 + DB.
+      if (user?.email) qs.set('email', user.email);
       if (params.negative.trim()) qs.set('negative', params.negative.trim());
 
       const r = await fetch(`/api/text2image?${qs.toString()}`);
@@ -864,16 +1006,20 @@ const TextToImage: React.FC = () => {
       const blob = await r.blob();
       if (blob.size === 0) throw new Error('empty response — try again');
 
-      // Pull back the actual composed prompt + seed for transparency.
       const finalPromptHdr = r.headers.get('X-Final-Prompt');
       const finalPrompt = finalPromptHdr ? decodeURIComponent(finalPromptHdr) : undefined;
       const seed = r.headers.get('X-Seed') || undefined;
+      const serverAssetId = r.headers.get('X-Asset-Id') || '';
+      const imageKeyHdr = r.headers.get('X-Image-Key');
+      const imageKey = imageKeyHdr ? decodeURIComponent(imageKeyHdr) : '';
 
       idRef.current += 1;
-      const id = `g${idRef.current}`;
+      // Use the server-assigned asset id when available so future fetches
+      // line up with the persisted row.
+      const id = serverAssetId || `g${idRef.current}`;
       const url = URL.createObjectURL(blob);
       const next: GeneratedImage = {
-        id, prompt: q, blob, url, createdAt: Date.now(),
+        id, prompt: q, imageKey, blob, url, createdAt: Date.now(),
         params: { ...params },
         finalPrompt, seed,
       };
@@ -884,7 +1030,26 @@ const TextToImage: React.FC = () => {
     } finally {
       setGenerating(false);
     }
-  }, [prompt, params, generating]);
+  }, [prompt, params, generating, user?.email]);
+
+  // Remove an image from the gallery — locally + persisted (server DELETE).
+  // Falls back gracefully if the asset was never persisted (in-flight only).
+  const onDeleteAsset = useCallback((id: string) => {
+    setImages(prev => {
+      const target = prev.find(i => i.id === id);
+      if (target?.blob && target.url.startsWith('blob:')) URL.revokeObjectURL(target.url);
+      return prev.filter(i => i.id !== id);
+    });
+    setSelectedSet(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setSelectedId(curr => curr === id ? null : curr);
+    // Best-effort server delete. Non-persisted ids will 404, that's fine.
+    fetch(`/api/text2image/assets/${id}`, { method: 'DELETE' }).catch(() => {});
+  }, []);
 
   // Toggle selection of an image in the gallery.
   const onToggleSelect = useCallback((id: string) => {
@@ -898,26 +1063,36 @@ const TextToImage: React.FC = () => {
   // Send all currently-selected images through the normal /api/upload (3D
   // worker) flow — same path a manual upload uses. They stack as 3D jobs and
   // the worker grinds through them sequentially.
+  // Helper: get the bytes for a gallery item, fetching from R2 (via the proxy)
+  // if the blob isn't already in memory (i.e. for items loaded on reload).
+  const fetchAssetBlob = async (img: GeneratedImage): Promise<Blob> => {
+    if (img.blob) return img.blob;
+    const r = await fetch(`/api/image?key=${encodeURIComponent(img.imageKey)}`);
+    if (!r.ok) throw new Error(`fetch image ${r.status}`);
+    return await r.blob();
+  };
+
   const onSendSelectedTo3D = useCallback(async () => {
     if (sending3D || !user?.email || selectedSet.size === 0) return;
     setSending3D(true);
     try {
       const picks = images.filter(i => selectedSet.has(i.id));
       for (const img of picks) {
-        const safe = img.prompt.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
-        const file = new File([img.blob], `${safe}.png`, { type: img.blob.type || 'image/png' });
-        const fd = new FormData();
-        fd.append('image', file);
-        fd.append('email', user.email);
-        fd.append('name', img.prompt.slice(0, 60));
-        fd.append('prompt', img.prompt);
-        fd.append('exportFormat', 'GLB');
-        fd.append('inferenceSteps', '5');
-        fd.append('octreeResolution', '256');
-        fd.append('targetFaceCount', '30000');
-        fd.append('guidanceScale', '5');
-        fd.append('doTexture', 'false');
         try {
+          const blob = await fetchAssetBlob(img);
+          const safe = img.prompt.slice(0, 40).replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '') || 'prompt';
+          const file = new File([blob], `${safe}.png`, { type: blob.type || 'image/png' });
+          const fd = new FormData();
+          fd.append('image', file);
+          fd.append('email', user.email);
+          fd.append('name', img.prompt.slice(0, 60));
+          fd.append('prompt', img.prompt);
+          fd.append('exportFormat', 'GLB');
+          fd.append('inferenceSteps', '5');
+          fd.append('octreeResolution', '256');
+          fd.append('targetFaceCount', '30000');
+          fd.append('guidanceScale', '5');
+          fd.append('doTexture', 'false');
           await fetch('/api/upload', { method: 'POST', body: fd });
         } catch {
           /* continue with the rest */
@@ -931,8 +1106,7 @@ const TextToImage: React.FC = () => {
 
   const onSendTo3D = useCallback(async () => {
     if (!selected) return;
-    // Hand the blob to the Workspace page through sessionStorage.
-    // Stored as a base64 data URL (sessionStorage can't hold binary directly).
+    const blob = await fetchAssetBlob(selected);
     const reader = new FileReader();
     reader.onloadend = () => {
       sessionStorage.setItem(PENDING_IMAGE_KEY, JSON.stringify({
@@ -941,17 +1115,19 @@ const TextToImage: React.FC = () => {
       }));
       navigate('/dashboard');
     };
-    reader.readAsDataURL(selected.blob);
+    reader.readAsDataURL(blob);
   }, [selected, navigate]);
 
-  const onDownload = useCallback(() => {
+  const onDownload = useCallback(async () => {
     if (!selected) return;
+    const blob = await fetchAssetBlob(selected);
     const a = document.createElement('a');
-    a.href = selected.url;
+    a.href = URL.createObjectURL(blob);
     a.download = `${selected.prompt.slice(0, 40).replace(/[^\w-]+/g, '_') || 'image'}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, [selected]);
 
   const onSignOut = async () => {
@@ -1018,6 +1194,12 @@ const TextToImage: React.FC = () => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onGenerate();
                 }}
               />
+              <ToggleRow
+                onClick={() => setParam('strictSingle', !params.strictSingle)}
+              >
+                <ToggleSwitch $on={params.strictSingle}><ToggleKnob $on={params.strictSingle} /></ToggleSwitch>
+                Force exactly one subject (no plurals / no groups)
+              </ToggleRow>
             </Field>
 
             <SectionHeader>Composition</SectionHeader>
@@ -1222,32 +1404,44 @@ const TextToImage: React.FC = () => {
           </StageWrap>
         </Viewport>
 
-        {/* Right rail — session gallery with multi-select bulk-to-3D */}
+        {/* Right rail — gallery with multi-select bulk-to-3D */}
         <Aside>
           <AsideHeader>
-            <AsideTitle>This session</AsideTitle>
+            <AsideTitle>My assets</AsideTitle>
+            <Search
+              placeholder="Search…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
             <AsideHint>
               {images.length === 0
                 ? 'Your generations will appear here.'
-                : `${images.length} image${images.length === 1 ? '' : 's'}${selectedSet.size ? ` · ${selectedSet.size} selected` : ''}`}
+                : `${images.length} image${images.length === 1 ? '' : 's'}${selectedSet.size ? ` · ${selectedSet.size} picked` : ''}`}
             </AsideHint>
           </AsideHeader>
-          {selectedSet.size > 0 && (
-            <SendToThreeDBar>
-              <SendToThreeDBtn
-                type="button"
-                disabled={sending3D}
-                onClick={onSendSelectedTo3D}
-              >
-                {sending3D
-                  ? `Sending ${selectedSet.size}…`
+
+          {/* Always-visible Send-to-3D bar (disabled when nothing picked) */}
+          <SendToThreeDBar>
+            <SendToThreeDBtn
+              type="button"
+              disabled={sending3D || selectedSet.size === 0}
+              onClick={onSendSelectedTo3D}
+            >
+              {sending3D
+                ? `Sending ${selectedSet.size}…`
+                : selectedSet.size === 0
+                  ? '↗ Send to 3D'
                   : `↗ Send ${selectedSet.size} to 3D`}
-              </SendToThreeDBtn>
-              <SendToThreeDClearBtn type="button" onClick={() => setSelectedSet(new Set())}>
-                Clear
-              </SendToThreeDClearBtn>
-            </SendToThreeDBar>
-          )}
+            </SendToThreeDBtn>
+            <SendToThreeDClearBtn
+              type="button"
+              onClick={() => setSelectedSet(new Set())}
+              disabled={selectedSet.size === 0}
+            >
+              Clear
+            </SendToThreeDClearBtn>
+          </SendToThreeDBar>
+
           <AssetGrid>
             {images.length === 0 && (
               <EmptyAssets>
@@ -1255,7 +1449,9 @@ const TextToImage: React.FC = () => {
                 Nothing yet — generate your first image.
               </EmptyAssets>
             )}
-            {images.map(img => {
+            {images
+              .filter(img => !search.trim() || img.prompt.toLowerCase().includes(search.trim().toLowerCase()))
+              .map(img => {
               const picked = selectedSet.has(img.id);
               return (
                 <AssetCard
@@ -1274,6 +1470,13 @@ const TextToImage: React.FC = () => {
                   >
                     {picked ? '✓' : ''}
                   </PickToggle>
+                  <DeleteBtn
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeleteAsset(img.id); }}
+                    title="Delete"
+                  >
+                    ×
+                  </DeleteBtn>
                 </AssetCard>
               );
             })}

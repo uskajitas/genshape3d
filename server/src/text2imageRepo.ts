@@ -56,7 +56,8 @@ export async function createAsset(data: Omit<T2IAsset, 'id' | 'createdAt'>): Pro
 export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
   const r = await getDb().query(
     `SELECT * FROM genshape3d_text2image_assets
-     WHERE user_email = $1 ORDER BY created_at DESC LIMIT 200`,
+     WHERE user_email = $1 AND deleted = false
+     ORDER BY created_at DESC LIMIT 200`,
     [email],
   );
   return r.rows.map(rowToAsset);
@@ -69,6 +70,10 @@ export async function renameAsset(id: string, name: string): Promise<void> {
   );
 }
 
+// Soft-delete only. Generated images aren't free either — never drop the row.
 export async function deleteAsset(id: string): Promise<void> {
-  await getDb().query(`DELETE FROM genshape3d_text2image_assets WHERE id=$1`, [id]);
+  await getDb().query(
+    `UPDATE genshape3d_text2image_assets SET deleted = true WHERE id = $1`,
+    [id],
+  );
 }
