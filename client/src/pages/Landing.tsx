@@ -6,9 +6,9 @@
 // page: top nav → hero → how it works → pricing → footer.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import styled, { keyframes } from 'styled-components';
+import styled, { keyframes, css } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -567,7 +567,7 @@ const Cross = styled(Check)`
   color: ${p => p.theme.colors.grey};
 `;
 
-const PriceCTA = styled(Link)<{ $featured?: boolean }>`
+const priceCtaCss = css<{ $featured?: boolean }>`
   display: block;
   text-align: center;
   text-decoration: none;
@@ -588,6 +588,15 @@ const PriceCTA = styled(Link)<{ $featured?: boolean }>`
       border-color: ${p.theme.colors.violet};
     `}
   }
+`;
+
+const PriceCTA = styled(Link)<{ $featured?: boolean }>`${priceCtaCss}`;
+
+const PriceCTAButton = styled.button<{ $featured?: boolean }>`
+  ${priceCtaCss}
+  cursor: pointer;
+  font-family: inherit;
+  &[disabled] { opacity: 0.65; cursor: wait; }
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,9 +649,32 @@ const FooterCopy = styled.div`
 
 const Landing: React.FC = () => {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const [buying, setBuying] = useState<'starter' | 'creator' | null>(null);
 
   const goWorkspace = () => navigate(isAuthenticated ? '/dashboard' : '/login');
+
+  const handleBuyPack = async (packId: 'starter' | 'creator') => {
+    if (!isAuthenticated || !user?.email) {
+      sessionStorage.setItem('postLoginBuy', packId);
+      navigate('/login');
+      return;
+    }
+    try {
+      setBuying(packId);
+      const r = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packId, email: user.email }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.url) throw new Error(data.error || 'Checkout failed');
+      window.location.href = data.url;
+    } catch (e: any) {
+      setBuying(null);
+      alert(`Could not start checkout: ${e.message}`);
+    }
+  };
 
   return (
     <Page>
@@ -793,7 +825,13 @@ const Landing: React.FC = () => {
                 <PriceFeature><Check $color="#A855F7">✓</Check> Personal-use license</PriceFeature>
                 <PriceFeature $disabled><Cross>✕</Cross> Commercial license</PriceFeature>
               </PriceFeatures>
-              <PriceCTA $featured to="/login">Buy starter pack</PriceCTA>
+              <PriceCTAButton
+                $featured
+                disabled={buying === 'starter'}
+                onClick={() => handleBuyPack('starter')}
+              >
+                {buying === 'starter' ? 'Opening checkout…' : 'Buy starter pack'}
+              </PriceCTAButton>
             </PriceCard>
 
             {/* Creator */}
@@ -808,7 +846,12 @@ const Landing: React.FC = () => {
                 <PriceFeature><Check $color="#EC4899">✓</Check> Commercial license</PriceFeature>
                 <PriceFeature><Check $color="#EC4899">✓</Check> Early access to new features</PriceFeature>
               </PriceFeatures>
-              <PriceCTA to="/login">Buy creator pack</PriceCTA>
+              <PriceCTAButton
+                disabled={buying === 'creator'}
+                onClick={() => handleBuyPack('creator')}
+              >
+                {buying === 'creator' ? 'Opening checkout…' : 'Buy creator pack'}
+              </PriceCTAButton>
             </PriceCard>
           </PriceGrid>
         </Container>
