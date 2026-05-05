@@ -1,21 +1,11 @@
-' Launch the GenShape3D server with NO visible console window.
-' Run with: wscript.exe start-hidden.vbs
+' Launch start-server.ps1 with NO visible window.
+' This file lives at:
+'   F:\cloudflare\genshape3d\server\start-hidden.vbs   (canonical, in repo)
+'   %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\genshape3d-server.vbs (auto-launches at logon)
 '
-' Window style 0 = hidden. The cmd /c keeps the parent alive long enough
-' to spawn ts-node-dev, then exits. ts-node-dev itself writes to the
-' files configured below (stdout / stderr redirected) so we still get logs.
+' Window style 0 = hidden. The PowerShell script does the real work via
+' Start-Process so the server is fully detached.
 
-Dim shell, cmd, logDir, outLog, errLog
+Dim shell
 Set shell = CreateObject("WScript.Shell")
-
-logDir = "F:\cloudflare\.pm2-logs"
-outLog = logDir & "\genshape3d-server.out.log"
-errLog = logDir & "\genshape3d-server.err.log"
-
-' cd into the server dir, then run ts-node-dev with stdout+stderr redirected.
-cmd = "cmd /c cd /d F:\cloudflare\genshape3d\server && " & _
-      "node node_modules\ts-node-dev\lib\bin.js --respawn --transpile-only src\index.ts " & _
-      ">>""" & outLog & """ 2>>""" & errLog & """"
-
-' Run hidden (0), don't wait for it to finish (false).
-shell.Run cmd, 0, False
+shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""F:\cloudflare\genshape3d\server\start-server.ps1""", 0, False
