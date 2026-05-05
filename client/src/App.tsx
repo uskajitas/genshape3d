@@ -7,6 +7,7 @@ import Workspace from './pages/Workspace';
 import TextToImage from './pages/TextToImage';
 import AdminStats from './pages/AdminStats';
 import { UserProvider, useAppUser } from './context/UserContext';
+import { ConfirmHost } from './components/ConfirmModal';
 
 const AuthSync: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
@@ -54,6 +55,7 @@ const App: React.FC = () => {
         <Route path="/admin/stats" element={<AdminStats />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <ConfirmHost />
     </UserProvider>
   );
 };

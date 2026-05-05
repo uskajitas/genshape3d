@@ -64,12 +64,23 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   'openai-dall-e-3':  'OpenAI · DALL-E 3',
 };
 
-const PROVIDER_HINT: Record<Provider, string> = {
+// Admin-only hints — show per-image cost so we can keep an eye on spend
+// when picking a provider.
+const PROVIDER_HINT_ADMIN: Record<Provider, string> = {
   'pollinations':     'Free · slower when busy',
   'fal-flux-schnell': '~3s · ~$0.003/image · fast & high quality',
   'fal-flux-pro':     '~6s · ~$0.04/image · top-shelf quality',
   'hf-flux-schnell':  'Unavailable · service down',
   'openai-dall-e-3':  '~10s · ~$0.04/image · prompt-faithful',
+};
+
+// User-facing hints — speed + quality only, no pricing exposed.
+const PROVIDER_HINT_USER: Record<Provider, string> = {
+  'pollinations':     'Free · slower when busy',
+  'fal-flux-schnell': 'Fast · high quality',
+  'fal-flux-pro':     'Slower · top quality',
+  'hf-flux-schnell':  'Unavailable · service down',
+  'openai-dall-e-3':  'Slower · prompt-faithful',
 };
 
 const DEFAULT_PARAMS: GenParams = {
@@ -1181,12 +1192,6 @@ const TextToImage: React.FC = () => {
       if (target?.blob && target.url.startsWith('blob:')) URL.revokeObjectURL(target.url);
       return prev.filter(i => i.id !== id);
     });
-    setSelectedSet(prev => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
     setSelectedId(curr => curr === id ? null : curr);
     // Best-effort server delete. Non-persisted ids will 404, that's fine.
     fetch(`/api/text2image/assets/${id}`, { method: 'DELETE' }).catch(() => {});
@@ -1430,9 +1435,16 @@ const TextToImage: React.FC = () => {
               onChange={v => setParam('provider', v)}
               width={260}
               options={(['fal-flux-schnell', 'fal-flux-pro', 'openai-dall-e-3', 'pollinations', 'hf-flux-schnell'] as Provider[])
-                .map(p => ({ value: p, label: PROVIDER_LABEL[p], hint: PROVIDER_HINT[p], disabled: p === 'hf-flux-schnell' }))}
+                .map(p => ({
+                  value: p,
+                  label: PROVIDER_LABEL[p],
+                  hint: (isAdmin ? PROVIDER_HINT_ADMIN : PROVIDER_HINT_USER)[p],
+                  disabled: p === 'hf-flux-schnell',
+                }))}
             />
-            <VBHint>{PROVIDER_HINT[params.provider]}</VBHint>
+            <VBHint>
+              {(isAdmin ? PROVIDER_HINT_ADMIN : PROVIDER_HINT_USER)[params.provider]}
+            </VBHint>
           </ViewportBar>
 
           {generating && (

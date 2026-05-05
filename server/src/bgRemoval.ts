@@ -26,26 +26,33 @@ const REMBG_CONFIG: Config = {
   model: 'small',
 };
 
-// Track whether the ONNX model has been loaded into memory. The first
-// removeBackground() call is slow because it lazy-loads the model. We expose
-// warmRembg() so server startup can pre-pay that cost.
+// Track whether the ONNX model has been loaded into memory. First real
+// removeBackground() call pays the ~3s lazy-load cost. We deliberately do
+// NOT pre-warm with a synthetic image: getting a tiny test image past the
+// lib's decoder + encoder + 4-channel requirements isn't worth the
+// fragility. The first user upload after a cold start is ~3s slower; every
+// subsequent upload is fast.
 let warmed = false;
 
+// IMPORTANT: @imgly/background-removal-node detects the input format from the
+// Blob's MIME type. If you pass a raw Buffer the lib wraps it in `new Blob([buf])`
+// with NO type — which then fails the format dispatch with the cryptic error
+// "Unsupported format: ". Always wrap the buffer ourselves with a proper
+// image/* MIME so the JPEG/PNG/WebP branch fires.
+function toBlob(buf: Buffer, mime: string): Blob {
+  // Default to image/jpeg if mime is empty/unknown — Sharp will sniff the
+  // actual format from the bytes anyway, the MIME just has to be one of the
+  // four whitelisted strings to pass the dispatch.
+  const safeMime =
+    mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/webp'
+      ? mime
+      : 'image/jpeg';
+  return new Blob([buf], { type: safeMime });
+}
+
+// No-op kept for index.ts boot wiring — see comment on `warmed` above.
 export async function warmRembg(): Promise<void> {
-  if (warmed) return;
-  try {
-    // 1×1 transparent PNG — smallest possible valid input. The model loads
-    // even though the "image" is degenerate.
-    const tiny = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-      'base64',
-    );
-    await removeBackground(tiny, REMBG_CONFIG);
-    warmed = true;
-    console.log('[rembg] model warmed');
-  } catch (e: any) {
-    console.warn('[rembg] warmup failed (non-fatal):', e?.message || e);
-  }
+  return;
 }
 
 export interface StripResult {
@@ -58,11 +65,12 @@ export interface StripResult {
   ok: boolean;
 }
 
-export async function stripBackground(buf: Buffer): Promise<StripResult> {
+export async function stripBackground(buf: Buffer, mimeIn = 'image/jpeg'): Promise<StripResult> {
   try {
-    const blob = await removeBackground(buf, REMBG_CONFIG);
+    const blob = await removeBackground(toBlob(buf, mimeIn), REMBG_CONFIG);
     const ab = await blob.arrayBuffer();
     warmed = true;
+    console.log(`[rembg] stripped ${buf.length}B (${mimeIn}) → ${ab.byteLength}B png`);
     return { buffer: Buffer.from(ab), mimetype: 'image/png', ok: true };
   } catch (e: any) {
     console.warn('[rembg] strip failed, falling back to original:', e?.message || e);

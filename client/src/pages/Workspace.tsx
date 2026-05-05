@@ -21,6 +21,9 @@ import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
 import { signOutUser } from '../firebase';
+import { confirm } from '../components/ConfirmModal';
+import { IconClose, IconTrash } from '../components/Icons';
+import { Tooltip } from '../components/Tooltip';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -960,24 +963,53 @@ const AssetTabBtn = styled.button<{ $active?: boolean }>`
   &:hover { color: ${p => p.theme.colors.text}; border-color: ${p => p.theme.colors.borderHigh}; }
 `;
 
-const CancelJobBtn = styled.button`
+// Shared base for the small top-right action chip on asset cards.
+// Notes on the polish:
+//   - NO transform / scale on hover — that was making the icon visibly
+//     shift due to sub-pixel rounding. Hover is communicated via colour
+//     and a soft outer glow instead, so the icon stays pixel-locked.
+//   - Fixed pixel size, padding:0, line-height:0, & > svg { display:block }
+//     — together these guarantee the SVG is centred without any baseline
+//     gap or descender offset.
+//   - 200ms transitions on bg/border/colour/shadow only — long enough to
+//     feel deliberate, short enough to feel responsive.
+const CardActionBtn = styled.button`
   position: absolute;
-  top: 5px; right: 5px;
-  width: 20px; height: 20px;
+  top: 6px; right: 6px;
+  width: 24px; height: 24px;
+  padding: 0;
+  margin: 0;
   border-radius: 50%;
-  border: 1px solid rgba(239,68,68,0.5);
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(4px);
-  color: #EF4444;
-  font-size: 0.7rem;
-  font-weight: 800;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(8, 6, 16, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255,255,255,0.78);
   cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  font-size: 0;            /* kill any inherited line-box */
   opacity: 0;
-  transition: opacity 0.14s, background 0.12s;
+  transition: opacity 160ms ease, background 200ms ease, color 200ms ease,
+              border-color 200ms ease, box-shadow 200ms ease;
   z-index: 3;
-  &:hover { background: #EF4444; color: white; }
+  & > svg { display: block; }   /* no descender gap */
+  &:hover {
+    background: ${p => p.theme.colors.violet};
+    border-color: ${p => p.theme.colors.violet};
+    color: #fff;
+    box-shadow: 0 4px 14px ${p => p.theme.colors.violet}55;
+  }
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}55;
+  }
 `;
+
+const CancelJobBtn = styled(CardActionBtn)``;
+const DeleteJobBtn = styled(CardActionBtn)``;
 
 const AssetGrid = styled.div`
   flex: 1;
@@ -1019,6 +1051,7 @@ const AssetCard = styled.button<{ $active?: boolean }>`
   }
   &:hover .asset-overlay { opacity: 1; }
   &:hover .cancel-btn    { opacity: 1; }
+  &:hover .delete-btn    { opacity: 1; }
 `;
 
 const AssetName = styled.div<{ $empty?: boolean }>`
@@ -1313,8 +1346,17 @@ const Workspace: React.FC = () => {
   }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
 
 
-  const onCancelJob = useCallback(async (id: string, e: React.MouseEvent) => {
+  const onCancelJob = useCallback(async (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const label = name?.trim() || 'this job';
+    const ok = await confirm({
+      title: `Cancel ${label}?`,
+      message: 'The job will stop. If it has already started, the worker will shut down at the next safe checkpoint.',
+      confirmLabel: 'Cancel job',
+      cancelLabel: 'Keep running',
+      variant: 'danger',
+    });
+    if (!ok) return;
     await fetch(`/api/jobs/${id}/cancel`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1322,6 +1364,28 @@ const Workspace: React.FC = () => {
     });
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'cancelled' } : j));
   }, [email]);
+
+  // Soft-deletes the job server-side (sets deleted=true; row + R2 file
+  // remain so an admin can recover) and removes it from the rail.
+  const onDeleteJob = useCallback(async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const label = name?.trim() || 'this asset';
+    const ok = await confirm({
+      title: `Delete ${label}?`,
+      message: 'It will disappear from your asset rail. This removes it from your view only — the file stays archived server-side.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    const r = await fetch(`/api/jobs/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      console.warn('Delete failed', await r.text());
+      return;
+    }
+    setJobs(prev => prev.filter(j => j.id !== id));
+    setSelectedJobId(prev => (prev === id ? null : prev));
+  }, []);
 
   const onSignOut = async () => {
     await signOutUser();
@@ -1738,12 +1802,24 @@ const Workspace: React.FC = () => {
                         ? `#${queuePos[job.id]} queue`
                         : job.status}
                     </AssetBadge>
-                    {job.status === 'pending' && (
-                      <CancelJobBtn
-                        className="cancel-btn"
-                        title="Cancel job"
-                        onClick={e => onCancelJob(job.id, e)}
-                      >✕</CancelJobBtn>
+                    {job.status === 'pending' || job.status === 'processing' || job.status === 'running' ? (
+                      <Tooltip text="Cancel job" placement="left">
+                        <CancelJobBtn
+                          className="cancel-btn"
+                          aria-label="Cancel job"
+                          onClick={e => onCancelJob(job.id, job.name || '', e)}
+                        >
+                          <IconClose size={13} />
+                        </CancelJobBtn>
+                      </Tooltip>
+                    ) : (
+                      <DeleteJobBtn
+                        className="delete-btn"
+                        aria-label="Delete asset"
+                        onClick={e => onDeleteJob(job.id, job.name || '', e)}
+                      >
+                        <IconTrash size={13} />
+                      </DeleteJobBtn>
                     )}
                     <AssetOverlay className="asset-overlay">
                       <AssetTag $color={isHigh ? '#C084FC' : undefined}>

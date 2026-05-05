@@ -534,7 +534,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
     let originalName = req.file.originalname;
     let mimetype = req.file.mimetype;
     if (!skipBg) {
-      const stripped = await stripBackground(req.file.buffer);
+      const stripped = await stripBackground(req.file.buffer, req.file.mimetype);
       if (stripped.ok) {
         buf = stripped.buffer;
         mimetype = stripped.mimetype;
