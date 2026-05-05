@@ -64,9 +64,15 @@ export async function renameJob(id: string, name: string): Promise<void> {
 }
 
 export async function cancelJob(id: string): Promise<void> {
+  // Pending jobs are cancelled immediately (worker hasn't touched them yet).
+  // Processing jobs get requestCancel=true so the worker shuts down cleanly.
   await getDb().query(
-    `UPDATE genshape3d_jobs SET "requestCancel" = true WHERE id = $1`,
-    [id]
+    `UPDATE genshape3d_jobs
+     SET "requestCancel" = true,
+         status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END,
+         "updatedAt" = $1
+     WHERE id = $2`,
+    [new Date().toISOString(), id]
   );
 }
 

@@ -11,6 +11,7 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
+import { stripBackground, warmRembg } from './bgRemoval';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset } from './text2imageRepo';
@@ -140,6 +141,7 @@ const BG_CLAUSE: Record<string, string> = {
   white:  'plain white background, no shadows on background',
   studio: 'soft grey studio backdrop, gentle gradient, no harsh shadows',
   dark:   'deep neutral dark backdrop, low-key lighting, no clutter',
+  black:  'pure solid black background #000000, no gradients, no reflections on background',
   iso:    'isolated subject, no background details, plain off-white surround',
   none:   '',
 };
@@ -520,7 +522,29 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
   }
 
   try {
-    const { url } = await uploadToR2(req.file.buffer, req.file.originalname, req.file.mimetype);
+    // Strip the background BEFORE uploading. Hunyuan3D's internal rembg
+    // step is unreliable on dark/black backgrounds — doing it here with a
+    // controlled model means the worker always gets a clean alpha-masked
+    // PNG. Failure is non-fatal: we fall back to the original buffer.
+    // Caller can opt out with skipBgRemoval=true (e.g. for debugging or
+    // when the source is already a cutout).
+    const skipBg =
+      req.body.skipBgRemoval === 'true' || req.body.skipBgRemoval === true;
+    let buf = req.file.buffer;
+    let originalName = req.file.originalname;
+    let mimetype = req.file.mimetype;
+    if (!skipBg) {
+      const stripped = await stripBackground(req.file.buffer);
+      if (stripped.ok) {
+        buf = stripped.buffer;
+        mimetype = stripped.mimetype;
+        // Force .png extension — the cutout has an alpha channel, so JPEG
+        // would silently drop transparency and re-introduce a background.
+        originalName = req.file.originalname.replace(/\.[^.]+$/, '') + '.png';
+      }
+    }
+
+    const { url } = await uploadToR2(buf, originalName, mimetype);
     const job = await createJob({
       userEmail:     email,
       imageUrl:      url,
@@ -853,6 +877,9 @@ app.get('/api/admin/stats', async (req, res) => {
 
 initDb().then(() => {
   app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
+  // Pre-load the rembg ONNX model so the first /api/upload doesn't pay the
+  // ~3s cold-start cost. Best-effort — failures are logged inside warmRembg.
+  warmRembg();
 }).catch(err => {
   console.error('Failed to init DB:', err);
   process.exit(1);

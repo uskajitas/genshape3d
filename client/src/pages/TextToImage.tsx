@@ -18,6 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
@@ -34,7 +35,7 @@ export const PENDING_IMAGE_KEY = 'genshape3d.pendingTextImage';
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9';
-type Background = 'white' | 'studio' | 'dark' | 'iso';
+type Background = 'white' | 'studio' | 'dark' | 'black' | 'iso';
 type ViewAngle  = 'front' | 'three_q' | 'side' | 'iso';
 type Scale      = 'fill' | 'margin';
 type StyleKind  = 'photoreal' | 'clay' | 'neutral' | 'toon';
@@ -125,7 +126,7 @@ const ASPECT_PIXELS: Record<AspectRatio, { w: number; h: number }> = {
   '16:9': { w: 1280, h: 720  },
 };
 
-const BG_LABEL: Record<Background, string>     = { white: 'Plain white', studio: 'Studio grey', dark: 'Dark studio', iso: 'Isolated' };
+const BG_LABEL: Record<Background, string>     = { white: 'Plain white', studio: 'Studio grey', dark: 'Dark studio', black: 'Pure black', iso: 'Isolated' };
 const VIEW_LABEL: Record<ViewAngle, string>    = { front: 'Front',       three_q: '3/4 front',  side: 'Side',         iso: 'Isometric' };
 const SCALE_LABEL: Record<Scale, string>       = { fill: 'Fill frame',   margin: 'Centered + margin' };
 const STYLE_LABEL: Record<StyleKind, string>   = { photoreal: 'Photoreal', clay: 'Clay render', neutral: 'Neutral matte', toon: 'Toon 3D' };
@@ -740,7 +741,9 @@ const Aside = styled.aside`
     radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.violet}0d, transparent 70%),
     linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
   min-width: 0;
+  width: 100%;
   overflow: hidden;
+  box-sizing: border-box;
   @media (max-width: 1024px) { display: none; }
 `;
 
@@ -786,17 +789,30 @@ const Search = styled.input`
 const AssetGrid = styled.div`
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem 0.6rem;
   padding: 0.85rem 1rem 1rem;
   overflow-y: auto;
   overflow-x: hidden;
   align-content: start;
   min-width: 0;
+  box-sizing: border-box;
+  width: 100%;
+`;
+
+/* Wrapper so name lives below the square thumb — prevents grid stretch
+   from breaking the card's aspect-ratio. position:relative anchors the tooltip. */
+const AssetItem = styled.div`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 `;
 
 const AssetCard = styled.button<{ $active?: boolean }>`
   position: relative;
+  width: 100%;
   aspect-ratio: 1;
   border-radius: 10px;
   border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
@@ -806,6 +822,7 @@ const AssetCard = styled.button<{ $active?: boolean }>`
   cursor: pointer;
   font: inherit;
   color: inherit;
+  flex-shrink: 0;          /* don't let column flex compress the card */
   transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
   &:hover {
     transform: translateY(-2px);
@@ -884,7 +901,7 @@ const DeleteBtn = styled.button`
   display: flex; align-items: center; justify-content: center;
   opacity: 0;
   transition: opacity 0.14s, background 0.12s, border-color 0.12s;
-  ${AssetCard}:hover & { opacity: 1; }
+  ${AssetItem}:hover & { opacity: 1; }
   &:hover {
     background: #EF4444cc;
     border-color: #EF4444;
@@ -915,6 +932,40 @@ const PickToggle = styled.button<{ $picked: boolean }>`
   &:hover { box-shadow: 0 0 0 2px ${p => p.theme.colors.violet}55; }
 `;
 
+// Portal tooltip bubble — rendered into document.body via ReactDOM.createPortal.
+// position:fixed so it escapes any overflow:hidden ancestor.
+// $side drives which edge the arrow appears on.
+const TooltipBubble = styled.div<{ $side: 'left' | 'right' | 'top' }>`
+  position: fixed;
+  z-index: 9999;
+  width: 224px;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: ${p => p.theme.colors.surface};
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.35);
+  color: ${p => p.theme.colors.text};
+  font-size: 0.72rem;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  &::after {
+    content: '';
+    position: absolute;
+    width: 10px; height: 10px;
+    background: ${p => p.theme.colors.surface};
+    border-top: 1px solid ${p => p.theme.colors.borderHigh};
+    border-right: 1px solid ${p => p.theme.colors.borderHigh};
+    /* left → arrow points right, sits on the right edge of bubble */
+    ${p => p.$side === 'left'  && `right:-6px; top:50%; transform:translateY(-50%) rotate(45deg);`}
+    /* right → arrow points left, sits on the left edge of bubble */
+    ${p => p.$side === 'right' && `left:-6px;  top:50%; transform:translateY(-50%) rotate(225deg);`}
+    /* top → arrow points down, sits on the bottom edge of bubble */
+    ${p => p.$side === 'top'   && `bottom:-6px; left:50%; transform:translateX(-50%) rotate(135deg);`}
+  }
+`;
+
 const EmptyAssets = styled.div`
   grid-column: 1 / -1;
   text-align: center;
@@ -925,42 +976,34 @@ const EmptyAssets = styled.div`
   align-items: center;
 `;
 
-// Name overlay — pinned to the bottom of the card, hidden until hover.
-const CardNameOverlay = styled.div`
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  padding: 1.2rem 0.5rem 0.4rem;
-  background: linear-gradient(to top, rgba(0,0,0,0.82), transparent);
-  opacity: 0;
-  transition: opacity 0.18s ease;
-  pointer-events: none;
-  ${AssetCard}:hover & { opacity: 1; pointer-events: auto; }
-`;
-
+// Name row — lives BELOW the card thumbnail, always visible.
 const CardNameText = styled.div`
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: text;
   letter-spacing: 0.02em;
+  padding: 0 2px;
+  transition: color 0.12s;
+  ${AssetItem}:hover & { color: ${p => p.theme.colors.text}; }
 `;
 
 const CardNameInput = styled.input`
   width: 100%;
   font: inherit;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.text};
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(255,255,255,0.5);
+  border-bottom: 1px solid ${p => p.theme.colors.violet};
   outline: none;
-  padding: 0;
+  padding: 0 2px;
   letter-spacing: 0.02em;
-  &::placeholder { color: rgba(255,255,255,0.4); }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -987,6 +1030,47 @@ const TextToImage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
+
+  // ── Portal tooltip state ────────────────────────────────────────────────
+  const [tooltip, setTooltip] = useState<{
+    content: string;
+    x: number;
+    y: number;
+    side: 'left' | 'right' | 'top';
+  } | null>(null);
+
+  const TOOLTIP_W = 224; // must match TooltipBubble width
+  const TOOLTIP_H = 90;  // conservative estimate for vertical clamping
+
+  const showTooltip = useCallback((e: React.MouseEvent<HTMLDivElement>, content: string) => {
+    const r   = e.currentTarget.getBoundingClientRect();
+    const vw  = window.innerWidth;
+    const vh  = window.innerHeight;
+    const GAP = 10;  // gap between card edge and bubble
+    const PAD = 8;   // min distance from viewport edge
+
+    // Prefer left — right-rail cards have plenty of canvas space to the left.
+    if (r.left - TOOLTIP_W - GAP >= PAD) {
+      const x = r.left - TOOLTIP_W - GAP;
+      const y = Math.max(PAD, Math.min(r.top + r.height / 2 - TOOLTIP_H / 2, vh - TOOLTIP_H - PAD));
+      setTooltip({ content, x, y, side: 'left' });
+      return;
+    }
+    // Fall back to right (e.g. small viewports or left-rail cards in the future).
+    if (r.right + TOOLTIP_W + GAP <= vw - PAD) {
+      const x = r.right + GAP;
+      const y = Math.max(PAD, Math.min(r.top + r.height / 2 - TOOLTIP_H / 2, vh - TOOLTIP_H - PAD));
+      setTooltip({ content, x, y, side: 'right' });
+      return;
+    }
+    // Last resort: above the card.
+    const x = Math.max(PAD, Math.min(r.left + r.width / 2 - TOOLTIP_W / 2, vw - TOOLTIP_W - PAD));
+    const y = Math.max(PAD, r.top - TOOLTIP_H - GAP);
+    setTooltip({ content, x, y, side: 'top' });
+  }, []);
+
+  const hideTooltip = useCallback(() => setTooltip(null), []);
+  // ────────────────────────────────────────────────────────────────────────
 
   // Tiny helper to update a single field of `params` immutably.
   const setParam = <K extends keyof GenParams>(k: K, v: GenParams[K]) =>
@@ -1234,7 +1318,7 @@ const TextToImage: React.FC = () => {
             <Field>
               <FieldLabel>Background</FieldLabel>
               <Segmented>
-                {(['white','studio','dark','iso'] as Background[]).map(v => (
+                {(['white','studio','dark','black','iso'] as Background[]).map(v => (
                   <SegmentedBtn key={v} $active={params.bg === v} onClick={() => setParam('bg', v)}>
                     {BG_LABEL[v]}
                   </SegmentedBtn>
@@ -1434,7 +1518,7 @@ const TextToImage: React.FC = () => {
         {/* Right rail — gallery with multi-select bulk-to-3D */}
         <Aside>
           <AsideHeader>
-            <AsideTitle>My assets</AsideTitle>
+            <AsideTitle>My images</AsideTitle>
             <Search
               placeholder="Search…"
               value={search}
@@ -1457,54 +1541,66 @@ const TextToImage: React.FC = () => {
             {images
               .filter(img => !search.trim() || img.prompt.toLowerCase().includes(search.trim().toLowerCase()))
               .map(img => (
-                <AssetCard
+                <AssetItem
                   key={img.id}
-                  $active={selectedId === img.id}
-                  onClick={() => setSelectedId(img.id)}
-                  title={img.prompt}
-                  style={{ position: 'relative' }}
+                  onMouseEnter={e => showTooltip(e, img.prompt)}
+                  onMouseLeave={hideTooltip}
                 >
-                  <AssetThumb src={img.url} alt="" />
-                  <CardNameOverlay>
-                    {editingNameId === img.id ? (
-                      <CardNameInput
-                        autoFocus
-                        value={nameDraft}
-                        placeholder={img.name}
-                        onChange={e => setNameDraft(e.target.value)}
-                        onBlur={() => commitName(img.id, nameDraft || img.name)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') commitName(img.id, nameDraft || img.name);
-                          if (e.key === 'Escape') setEditingNameId(null);
-                          e.stopPropagation();
-                        }}
-                        onClick={e => e.stopPropagation()}
-                      />
-                    ) : (
-                      <CardNameText
-                        onDoubleClick={e => {
-                          e.stopPropagation();
-                          setEditingNameId(img.id);
-                          setNameDraft(img.name);
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {img.name}
-                      </CardNameText>
-                    )}
-                  </CardNameOverlay>
-                  <DeleteBtn
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onDeleteAsset(img.id); }}
-                    title="Delete"
+                  <AssetCard
+                    $active={selectedId === img.id}
+                    onClick={() => setSelectedId(img.id)}
                   >
-                    ×
-                  </DeleteBtn>
-                </AssetCard>
+                    <AssetThumb src={img.url} alt="" />
+                    <DeleteBtn
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDeleteAsset(img.id); }}
+                      title="Delete"
+                    >
+                      ×
+                    </DeleteBtn>
+                  </AssetCard>
+                  {editingNameId === img.id ? (
+                    <CardNameInput
+                      autoFocus
+                      value={nameDraft}
+                      placeholder={img.name}
+                      onChange={e => setNameDraft(e.target.value)}
+                      onBlur={() => commitName(img.id, nameDraft || img.name)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitName(img.id, nameDraft || img.name);
+                        if (e.key === 'Escape') setEditingNameId(null);
+                        e.stopPropagation();
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  ) : (
+                    <CardNameText
+                      onDoubleClick={e => {
+                        e.stopPropagation();
+                        setEditingNameId(img.id);
+                        setNameDraft(img.name);
+                      }}
+                      title="Double-click to rename"
+                    >
+                      {img.name}
+                    </CardNameText>
+                  )}
+                </AssetItem>
               ))}
           </AssetGrid>
         </Aside>
       </Body>
+
+      {/* Portal tooltip — rendered into document.body, escapes all overflow:hidden ancestors */}
+      {tooltip && ReactDOM.createPortal(
+        <TooltipBubble
+          $side={tooltip.side}
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          {tooltip.content}
+        </TooltipBubble>,
+        document.body,
+      )}
     </Shell>
   );
 };

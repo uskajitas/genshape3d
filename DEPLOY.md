@@ -4,6 +4,58 @@ Read this if you are deploying changes to the live site `https://genshape3d.com`
 
 ## ⚠ Latest commit notes — read these before deploying
 
+### Server-side background removal (this commit)
+
+**What changed:** every image uploaded via `/api/upload` is now run through a background-removal AI model **before** being saved to R2 and handed to the 3D worker. This fixes the "flat wall behind the mesh" problem on dark/black backgrounds.
+
+**Why it was needed:** the Hunyuan3D worker has its own internal background-removal step (`rembg`), but it fails silently on dark / low-contrast inputs — the worker then treats the whole frame as the subject and extrudes a flat plane behind the mesh. Doing the cutout on our server with a controlled model means the worker always gets a clean alpha-masked PNG.
+
+**Deploy steps on the i7:**
+
+```sh
+cd /f/cloudflare/genshape3d
+git pull
+cd server && npm install && cd ..
+# That's it — ts-node-dev auto-reloads.
+```
+
+The `npm install` is required because a new dependency was added: `@imgly/background-removal-node ^1.4.5`. It pulls in ONNX Runtime + a small (~50MB) U2-Net model. The model file is downloaded on first use and cached under `server/node_modules/@imgly/background-removal-node/`.
+
+**What you'll see in the server log on first boot after the deploy:**
+
+```
+GenShape3D API listening on http://localhost:8110
+[rembg] model warmed
+```
+
+The `[rembg] model warmed` line means the AI model loaded successfully. It takes ~3 seconds. If you instead see `[rembg] warmup failed: ...`, the model couldn't load — most likely the npm install didn't complete or there's not enough RAM. The server will still run, but the first user upload will be slower (model loads on demand).
+
+**Files touched:**
+- `server/src/bgRemoval.ts` (new) — wraps `removeBackground()` with error handling + warm-up.
+- `server/src/index.ts` — `/api/upload` calls `stripBackground()` before R2 upload, forces `.png` extension on success.
+- `server/package.json` — adds `@imgly/background-removal-node`.
+
+**No DB migrations. No env vars. No client changes.**
+
+**How to verify:**
+1. Upload an image with a dark background through the Workspace.
+2. Server log should show no `[rembg] strip failed` warning.
+3. The R2 key for that upload ends in `.png` (you can see it in the network tab — the `imageUrl` returned by `/api/upload`).
+4. The 3D mesh comes out clean, no flat wall.
+
+**Failure mode (graceful):** if `removeBackground()` throws (e.g. malformed input, OOM), the original image bytes go to R2 unchanged and the worker tries its own internal rembg — i.e. you fall back to the old behaviour. Nothing breaks, you just don't get the fix for that one image.
+
+**Opt-out:** the `/api/upload` endpoint accepts `skipBgRemoval=true` in the form data. Useful for debugging or if a user uploads an already-cut-out image. The client doesn't currently set this; it's there for future use.
+
+**Notes:**
+- Disk usage will grow by ~50MB the first time anyone uploads — that's the U2-Net model getting cached.
+- Subsequent uploads are ~300–500ms slower than before due to the segmentation pass. Acceptable; the user already waits ~30s for the 3D mesh.
+- The `/api/jobs/from-key` endpoint (which re-runs an existing R2 upload) does NOT re-strip the bytes — they're already in R2 and we don't fetch them. Old gallery entries from before this commit will still produce flat-wall meshes if re-run. New uploads are fine.
+
+---
+
+### Earlier commit (free-tier launch + admin stats)
+
 The most recent push (free-tier launch + admin stats) introduces these surfaces. Most are zero-config, but two need attention on the i7:
 
 1. **Frontend lockdown for non-admin users.** Workspace UI now hides quality + texture controls for anyone whose `users.role != 'admin'`. The "Upgrade" button + credit pill are gone; replaced by a `FREE` / `ADMIN` badge. This is hard-coded — there is **nothing to configure** on the i7 to make this work. Just `git pull` + auto-reload.

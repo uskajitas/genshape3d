@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1026.0",
+    "@imgly/background-removal-node": "^1.4.5",
     "@types/multer": "^2.1.0",
     "@types/pg": "^8.20.0",
     "cors": "^2.8.5",

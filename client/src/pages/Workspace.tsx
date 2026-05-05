@@ -626,28 +626,25 @@ const FilmArrow = styled.button<{ $dir: 'left' | 'right' }>`
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  ${p => p.$dir === 'left' ? 'left: 0;' : 'right: 0;'}
+  ${p => p.$dir === 'left' ? 'left: 4px;' : 'right: 4px;'}
   z-index: 5;
-  width: 26px;
-  height: 44px;
-  border: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: ${p => p.theme.colors.surface}ee;
+  backdrop-filter: blur(6px);
+  color: ${p => p.theme.colors.textMuted};
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
-  color: white;
-  background: ${p => p.$dir === 'left'
-    ? `linear-gradient(to right, ${p.theme.colors.primary}dd, transparent)`
-    : `linear-gradient(to left, ${p.theme.colors.violet}dd, transparent)`};
-  border-radius: ${p => p.$dir === 'left' ? '0 4px 4px 0' : '4px 0 0 4px'};
+  font-size: 0.55rem;
   opacity: 0;
-  transition: opacity 0.18s, background 0.15s;
-  pointer-events: auto;
+  transition: opacity 0.15s, color 0.12s, border-color 0.12s;
   &:hover {
-    background: ${p => p.$dir === 'left'
-      ? `linear-gradient(to right, ${p.theme.colors.primary}, transparent)`
-      : `linear-gradient(to left, ${p.theme.colors.violet}, transparent)`};
+    color: ${p => p.theme.colors.text};
+    border-color: ${p => p.theme.colors.violet};
   }
 `;
 
@@ -940,6 +937,48 @@ const Search = styled.input`
   &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
 `;
 
+const AssetTabs = styled.div`
+  display: flex;
+  gap: 0.2rem;
+`;
+
+const AssetTabBtn = styled.button<{ $active?: boolean }>`
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : 'transparent'};
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`
+    : 'transparent'};
+  color: ${p => p.$active ? p.theme.colors.text : p.theme.colors.textMuted};
+  cursor: pointer;
+  transition: all 0.12s;
+  &:hover { color: ${p => p.theme.colors.text}; border-color: ${p => p.theme.colors.borderHigh}; }
+`;
+
+const CancelJobBtn = styled.button`
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(239,68,68,0.5);
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  color: #EF4444;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  transition: opacity 0.14s, background 0.12s;
+  z-index: 3;
+  &:hover { background: #EF4444; color: white; }
+`;
+
 const AssetGrid = styled.div`
   flex: 1;
   display: grid;
@@ -979,6 +1018,7 @@ const AssetCard = styled.button<{ $active?: boolean }>`
     box-shadow: 0 6px 20px ${p => p.theme.colors.violet}44;
   }
   &:hover .asset-overlay { opacity: 1; }
+  &:hover .cancel-btn    { opacity: 1; }
 `;
 
 const AssetName = styled.div<{ $empty?: boolean }>`
@@ -1126,6 +1166,7 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
+  const [assetTab, setAssetTab] = useState<'all' | 'pending' | 'done' | 'cancelled'>('all');
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -1272,6 +1313,16 @@ const Workspace: React.FC = () => {
   }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
 
 
+  const onCancelJob = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await fetch(`/api/jobs/${id}/cancel`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, status: 'cancelled' } : j));
+  }, [email]);
+
   const onSignOut = async () => {
     await signOutUser();
     window.location.href = '/';
@@ -1294,11 +1345,25 @@ const Workspace: React.FC = () => {
     [jobs],
   );
 
+  // Queue position map — pending jobs sorted oldest-first (worker order).
+  // { [jobId]: 1-based position } used to show "#N" on the badge without hover.
+  const queuePos = useMemo(() => {
+    const pending = [...jobs]
+      .filter(j => j.status === 'pending')
+      .sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
+    return Object.fromEntries(pending.map((j, i) => [j.id, i + 1]));
+  }, [jobs]);
+
   const filteredJobs = useMemo(() => {
+    let list = assetTab === 'all' ? jobs : jobs.filter(j => j.status === assetTab);
     const q = search.trim().toLowerCase();
-    if (!q) return jobs;
-    return jobs.filter(j => (j.name || j.id).toLowerCase().includes(q));
-  }, [jobs, search]);
+    if (q) list = list.filter(j => (j.name || j.id).toLowerCase().includes(q));
+    // Processing/running jobs always surface first, regardless of tab or search order.
+    return [...list].sort((a, b) => {
+      const isActive = (s: string) => s === 'processing' || s === 'running' ? 0 : 1;
+      return isActive(a.status) - isActive(b.status);
+    });
+  }, [jobs, search, assetTab]);
 
   const meshUrl = selectedJob?.resultUrl
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
@@ -1588,6 +1653,13 @@ const Workspace: React.FC = () => {
         <Aside>
           <AsideHeader>
             <AsideTitle>My assets</AsideTitle>
+            <AssetTabs>
+              {(['all', 'pending', 'done', 'cancelled'] as const).map(t => (
+                <AssetTabBtn key={t} $active={assetTab === t} onClick={() => setAssetTab(t)}>
+                  {t}
+                </AssetTabBtn>
+              ))}
+            </AssetTabs>
             <Search
               placeholder="Search…"
               value={search}
@@ -1613,9 +1685,11 @@ const Workspace: React.FC = () => {
                 : job.imageUrl;
               const thumb = thumbKey ? `/api/image?key=${encodeURIComponent(thumbKey)}` : null;
               const badgeColor =
-                job.status === 'done' ? '#10B981' :
-                job.status === 'failed' || job.status === 'error' ? '#EF4444' :
-                job.status === 'cancelled' ? '#6B7280' :
+                job.status === 'done'                              ? '#10B981' :
+                job.status === 'processing' || job.status === 'running' ? '#F59E0B' :
+                job.status === 'pending'                           ? '#3B82F6' :
+                job.status === 'failed'  || job.status === 'error'? '#EF4444' :
+                job.status === 'cancelled'                         ? '#6B7280' :
                 '#A855F7';
 
               // Derive presentation tags
@@ -1659,7 +1733,18 @@ const Workspace: React.FC = () => {
                           }
                         />
                       : <AssetPlaceholder>⬡</AssetPlaceholder>}
-                    <AssetBadge $color={badgeColor}>{job.status}</AssetBadge>
+                    <AssetBadge $color={badgeColor}>
+                      {job.status === 'pending' && queuePos[job.id]
+                        ? `#${queuePos[job.id]} queue`
+                        : job.status}
+                    </AssetBadge>
+                    {job.status === 'pending' && (
+                      <CancelJobBtn
+                        className="cancel-btn"
+                        title="Cancel job"
+                        onClick={e => onCancelJob(job.id, e)}
+                      >✕</CancelJobBtn>
+                    )}
                     <AssetOverlay className="asset-overlay">
                       <AssetTag $color={isHigh ? '#C084FC' : undefined}>
                         {isHigh ? 'HIGH' : 'STD'}
