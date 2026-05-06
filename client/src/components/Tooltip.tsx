@@ -39,6 +39,12 @@ interface TooltipProps {
   placement?: Placement;
   /** Max width in px. Default 220. */
   maxWidth?: number;
+  /** When true the bubble wraps and grows vertically — good for long
+   *  multi-sentence content like a composed prompt. Default false. */
+  multiline?: boolean;
+  /** Visual tone. 'admin' uses a gold colour scheme so admin-only info
+   *  (like per-action cost) is unambiguous at a glance. */
+  tone?: 'default' | 'admin';
 }
 
 interface TipState {
@@ -49,31 +55,44 @@ interface TipState {
 
 // ── Bubble ───────────────────────────────────────────────────────────────────
 
-const Bubble = styled.div<{ $side: Side; $maxW: number }>`
+// Gold palette used for admin-only tooltips (cost surfaces, billing hints).
+// Picked to read clearly without competing with the violet/pink theme.
+const ADMIN_BORDER = '#b88a30';
+const ADMIN_BG     = '#241a09';
+const ADMIN_TEXT   = '#e8c267';
+
+const Bubble = styled.div<{
+  $side: Side;
+  $maxW: number;
+  $multiline?: boolean;
+  $tone?: 'default' | 'admin';
+}>`
   position: fixed;
   z-index: 10000;
   max-width: ${p => p.$maxW}px;
-  padding: 0.4rem 0.65rem;
+  padding: ${p => (p.$multiline ? '0.55rem 0.75rem' : '0.4rem 0.65rem')};
   border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.borderHigh};
-  background: ${p => p.theme.colors.surface};
+  border: 1px solid ${p => (p.$tone === 'admin' ? ADMIN_BORDER : p.theme.colors.borderHigh)};
+  background: ${p => (p.$tone === 'admin' ? ADMIN_BG : p.theme.colors.surface)};
   box-shadow:
     0 8px 24px rgba(0,0,0,0.5),
     0 2px 8px rgba(0,0,0,0.32);
-  color: ${p => p.theme.colors.text};
+  color: ${p => (p.$tone === 'admin' ? ADMIN_TEXT : p.theme.colors.text)};
   font-size: 0.72rem;
-  line-height: 1.45;
+  line-height: 1.5;
   font-weight: 500;
   letter-spacing: 0.01em;
   pointer-events: none;
-  white-space: nowrap;
+  ${p => (p.$multiline
+    ? 'white-space: normal; word-break: break-word;'
+    : 'white-space: nowrap;')}
   &::after {
     content: '';
     position: absolute;
     width: 8px; height: 8px;
-    background: ${p => p.theme.colors.surface};
-    border-top: 1px solid ${p => p.theme.colors.borderHigh};
-    border-right: 1px solid ${p => p.theme.colors.borderHigh};
+    background: ${p => (p.$tone === 'admin' ? ADMIN_BG : p.theme.colors.surface)};
+    border-top: 1px solid ${p => (p.$tone === 'admin' ? ADMIN_BORDER : p.theme.colors.borderHigh)};
+    border-right: 1px solid ${p => (p.$tone === 'admin' ? ADMIN_BORDER : p.theme.colors.borderHigh)};
     ${p => p.$side === 'left'   && `right:-5px;  top:50%; transform:translateY(-50%) rotate(45deg);`}
     ${p => p.$side === 'right'  && `left:-5px;   top:50%; transform:translateY(-50%) rotate(225deg);`}
     ${p => p.$side === 'top'    && `bottom:-5px; left:50%; transform:translateX(-50%) rotate(135deg);`}
@@ -138,19 +157,22 @@ export const Tooltip: React.FC<TooltipProps> = ({
   children,
   placement = 'top',
   maxWidth = 220,
+  multiline = false,
+  tone = 'default',
 }) => {
   const [tip, setTip] = useState<TipState | null>(null);
 
   const show = useCallback((e: React.MouseEvent<HTMLElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    // Use a conservative estimate for the bubble dimensions BEFORE first
-    // render — once it mounts the actual size will match closely enough
-    // that the math-clamped position still looks right. We re-measure
-    // after mount via the layout effect below.
+    // Conservative dimension estimate so the math-clamped position is
+    // close enough to look right on first paint. Multiline grows
+    // vertically based on text length / column width.
     const estW = Math.min(maxWidth, Math.max(80, text.length * 7));
-    const estH = 28;
+    const estH = multiline
+      ? Math.min(280, Math.ceil((text.length * 7) / Math.max(120, maxWidth)) * 18 + 22)
+      : 28;
     setTip(pickPlacement(rect, placement, estW, estH, window.innerWidth, window.innerHeight));
-  }, [maxWidth, placement, text]);
+  }, [maxWidth, placement, text, multiline]);
 
   const hide = useCallback(() => setTip(null), []);
 
@@ -194,7 +216,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
     <>
       {child}
       {tip && ReactDOM.createPortal(
-        <Bubble $side={tip.side} $maxW={maxWidth} style={{ left: tip.x, top: tip.y }}>
+        <Bubble
+          $side={tip.side}
+          $maxW={maxWidth}
+          $multiline={multiline}
+          $tone={tone}
+          style={{ left: tip.x, top: tip.y }}
+        >
           {text}
         </Bubble>,
         document.body,

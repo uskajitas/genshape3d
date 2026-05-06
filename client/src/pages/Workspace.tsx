@@ -24,6 +24,7 @@ import { signOutUser } from '../firebase';
 import { confirm } from '../components/ConfirmModal';
 import { IconClose, IconTrash } from '../components/Icons';
 import { Tooltip } from '../components/Tooltip';
+import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -1200,6 +1201,9 @@ const Workspace: React.FC = () => {
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
   const [assetTab, setAssetTab] = useState<'all' | 'pending' | 'done' | 'cancelled'>('all');
+  // The job currently being hovered in the right rail. Drives the centre-
+  // viewport DetailOverlay — when null, the overlay isn't shown.
+  const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -1265,11 +1269,16 @@ const Workspace: React.FC = () => {
     setGalleryLoading(true);
     fetch(`/api/text2image/assets?email=${encodeURIComponent(email)}`)
       .then(r => r.ok ? r.json() : { assets: [] })
-      .then(d => setGallery((d.assets || []).map((a: any) => ({
-        id: a.id, imageKey: a.imageKey,
-        name: a.name || a.prompt.slice(0, 32),
-        prompt: a.prompt,
-      }))))
+      .then(d => setGallery((d.assets || [])
+        // Only images the user has marked as ready for 3D conversion. The
+        // user toggles this in TextToImage's details panel; default is true,
+        // so existing images keep flowing through.
+        .filter((a: any) => a.readyFor3D !== false)
+        .map((a: any) => ({
+          id: a.id, imageKey: a.imageKey,
+          name: a.name || a.prompt.slice(0, 32),
+          prompt: a.prompt,
+        }))))
       .catch(() => {})
       .finally(() => setGalleryLoading(false));
   }, [isAuthenticated, email]);
@@ -1393,6 +1402,44 @@ const Workspace: React.FC = () => {
   };
 
   // ── Derived
+  // Hovered job → fields for the centre-viewport detail overlay.
+  const hoveredJob = useMemo(
+    () => (hoveredJobId ? jobs.find(j => j.id === hoveredJobId) ?? null : null),
+    [jobs, hoveredJobId],
+  );
+  const hoveredJobOverlay = useMemo(() => {
+    if (!hoveredJob) return null;
+    const j = hoveredJob;
+    const badgeColor =
+      j.status === 'done'                                          ? '#10B981' :
+      j.status === 'processing' || j.status === 'running'         ? '#F59E0B' :
+      j.status === 'pending'                                       ? '#3B82F6' :
+      j.status === 'failed'  || j.status === 'error'              ? '#EF4444' :
+      j.status === 'cancelled'                                     ? '#6B7280' :
+      '#A855F7';
+    let runtime = '—';
+    if (j.status === 'done' && j.startedAt && j.completedAt) {
+      const secs = Math.round(
+        (new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime()) / 1000,
+      );
+      runtime = secs < 60 ? `${secs}s` : `${(secs / 60).toFixed(1)}m`;
+    } else if (j.status === 'processing' || j.status === 'running') {
+      runtime = `${j.progressPct ?? 0}% — ${j.progressPhase || 'in progress'}`;
+    }
+    const fields: DetailField[] = [
+      { label: 'Prompt', value: j.imageUrl ? '(image-driven)' : '—', wide: true },
+      { label: 'Quality',         value: (j.inferenceSteps ?? 5) > 10 ? 'High' : 'Standard' },
+      { label: 'Texture',         value: j.doTexture ? 'Yes' : 'No' },
+      { label: 'Inference steps', value: j.inferenceSteps ?? '—' },
+      { label: 'Octree res',      value: j.octreeResolution || '—' },
+      { label: 'Target faces',    value: j.targetFaceCount ? j.targetFaceCount.toLocaleString() : '—' },
+      { label: 'Runtime',         value: runtime },
+      { label: 'Created',         value: j.createdAt ? new Date(j.createdAt).toLocaleString() : '—' },
+      { label: 'Job id',          value: j.id, mono: true, wide: true },
+    ];
+    return { job: j, fields, badgeColor };
+  }, [hoveredJob]);
+
   const selectedJob = useMemo(
     () => jobs.find(j => j.id === selectedJobId) ?? null,
     [jobs, selectedJobId],
@@ -1675,6 +1722,25 @@ const Workspace: React.FC = () => {
         {/* ──────── Central viewport ──────── */}
         <Viewport>
           <GridBg />
+          {hoveredJobOverlay && (
+            <DetailOverlay
+              visible
+              title={hoveredJobOverlay.job.name?.trim() || 'Untitled asset'}
+              subtitle="3D asset"
+              status={{
+                label:
+                  hoveredJobOverlay.job.status === 'pending' ? 'queued' : hoveredJobOverlay.job.status,
+                color: hoveredJobOverlay.badgeColor,
+              }}
+              fields={hoveredJobOverlay.fields}
+              thumbUrl={(() => {
+                const k = hoveredJobOverlay.job.imageUrl?.includes('/uploads/')
+                  ? `uploads/${hoveredJobOverlay.job.imageUrl.split('/uploads/')[1]}`
+                  : hoveredJobOverlay.job.imageUrl;
+                return k ? `/api/image?key=${encodeURIComponent(k)}` : undefined;
+              })()}
+            />
+          )}
           {/*
             Only show the floating "Generating mesh…" overlay if either:
             - the user has selected the running job, or
@@ -1781,7 +1847,11 @@ const Workspace: React.FC = () => {
               };
 
               return (
-                <AssetItem key={job.id}>
+                <AssetItem
+                  key={job.id}
+                  onMouseEnter={() => setHoveredJobId(job.id)}
+                  onMouseLeave={() => setHoveredJobId(prev => (prev === job.id ? null : prev))}
+                >
                   <AssetCard
                     $active={selectedJobId === job.id}
                     onClick={() => setSelectedJobId(job.id)}

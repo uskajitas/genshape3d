@@ -60,6 +60,46 @@ export const IconAlertTriangle: React.FC<IconProps> = ({ size = 16, ...rest }) =
   </svg>
 );
 
+// Wand — generic "tools / edit" affordance. Used by the right-side
+// tools rail and the bg-removal entry button.
+export const IconWand: React.FC<IconProps> = ({ size = 16, ...rest }) => (
+  <svg {...baseProps(size)} strokeWidth={2} {...rest}>
+    <path d="M14 4l6 6L8 22l-6-6z" />
+    <path d="M14 4l3-3 3 3-3 3" />
+    <path d="M2.5 17.5l3 3" />
+  </svg>
+);
+
+// "Subject cutout" icon — silhouette in a frame. Used as the entry point
+// for the background-removal tool.
+export const IconCutout: React.FC<IconProps> = ({ size = 16, ...rest }) => (
+  <svg {...baseProps(size)} strokeWidth={1.9} {...rest}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="12" cy="9" r="3" />
+    <path d="M5 21c1.5-3.5 4-5 7-5s5.5 1.5 7 5" />
+  </svg>
+);
+
+// Three stacked frames — used for the "make alt views" action. Reads as
+// "multiple views" without being domain-specific.
+export const IconViews: React.FC<IconProps> = ({ size = 16, ...rest }) => (
+  <svg {...baseProps(size)} strokeWidth={1.9} {...rest}>
+    <rect x="3"  y="6"  width="14" height="12" rx="2" />
+    <rect x="6"  y="3"  width="14" height="12" rx="2" />
+    <rect x="9"  y="9"  width="12" height="9"  rx="2" />
+  </svg>
+);
+
+// Circular refresh / regenerate arrow.
+export const IconRefresh: React.FC<IconProps> = ({ size = 16, ...rest }) => (
+  <svg {...baseProps(size)} strokeWidth={2} {...rest}>
+    <path d="M3 12 a9 9 0 0 1 15.5 -6.3 L21 8" />
+    <path d="M21 3 V8 H16" />
+    <path d="M21 12 a9 9 0 0 1 -15.5 6.3 L3 16" />
+    <path d="M3 21 V16 H8" />
+  </svg>
+);
+
 export const IconInfo: React.FC<IconProps> = ({ size = 16, ...rest }) => (
   <svg {...baseProps(size)} {...rest}>
     <circle cx="12" cy="12" r="9" />

@@ -114,6 +114,26 @@ export async function initDb(): Promise<void> {
     // return the existing finished job instead of queueing a duplicate.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS "imageHash" TEXT NOT NULL DEFAULT ''`,
     `CREATE INDEX IF NOT EXISTS idx_jobs_user_hash ON genshape3d_jobs ("userEmail", "imageHash")`,
+    // Multi-view extensions to text-to-image assets:
+    //   parentAssetId — when set, this row is an "alt view" generated from
+    //     the asset whose id matches. NULL = primary / front view.
+    //   viewLabel     — human label for the angle ("front", "three_q", "side", "back").
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS "parentAssetId" UUID`,
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS "viewLabel"     TEXT NOT NULL DEFAULT ''`,
+    // readyFor3D — when false, the image is excluded from the Workspace
+    // filmstrip (the picker the user uses to choose an image to convert
+    // into a 3D mesh). Lets the user mark "this came out badly, don't
+    // accidentally pick it" without having to delete the image.
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS "readyFor3D"   BOOLEAN NOT NULL DEFAULT true`,
+    // originalImageKey — when NULL, the asset's image_key IS the original.
+    // When set, image_key is an EDITED version (e.g. background removed)
+    // and originalImageKey points back to the original file in R2 so the
+    // user can re-edit from scratch or revert.
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS "originalImageKey" TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_t2i_parent ON genshape3d_text2image_assets ("parentAssetId")`,
+    // Job-side extension for multi-view 3D submissions. Empty array = single-image
+    // (legacy) job. Worker reads this to decide between v2.0 and v2.0-MV pipelines.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "auxImageUrls" JSONB NOT NULL DEFAULT '[]'::jsonb`,
   ];
   for (const sql of alterCols) await db.query(sql);
 

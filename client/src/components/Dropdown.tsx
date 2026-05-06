@@ -187,18 +187,34 @@ export function Dropdown<T extends string>({
     const panelW = (desiredWidth ?? rect.width);
     const panelMaxH = 360;
 
+    // Estimate ACTUAL panel height from the option count + padding. Keying
+    // off panelMaxH instead would cause unnecessary flip-ups: a 4-option
+    // dropdown that only needs ~180px would flip above if the trigger had
+    // less than 360px below it, even when there's plenty of room.
+    // ITEM_H = 42px (padding 0.55rem×2 + label line) — close to the real
+    // height with no per-item hint. Hints add another ~14px each.
+    const ITEM_H = 42;
+    const HINT_H = 14;
+    const PADDING_Y = 12;
+    const estimatedH = Math.min(
+      panelMaxH,
+      options.reduce((h, o) => h + ITEM_H + (o.hint ? HINT_H : 0), 0) + PADDING_Y,
+    );
+
     // Horizontal — start aligned to the configured edge, then clamp.
     let left = align === 'right'
       ? rect.right - panelW
       : rect.left;
     left = Math.max(margin, Math.min(left, window.innerWidth - panelW - margin));
 
-    // Vertical — open below by default, flip up if not enough room.
+    // Vertical — open below if the panel actually fits there. Only flip up
+    // when below is genuinely too cramped AND above has more room.
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
-    const top = spaceBelow >= panelMaxH || spaceBelow >= spaceAbove
+    const fitsBelow = spaceBelow >= estimatedH;
+    const top = fitsBelow || spaceBelow >= spaceAbove
       ? rect.bottom + 6
-      : Math.max(margin, rect.top - 6 - panelMaxH);
+      : Math.max(margin, rect.top - 6 - estimatedH);
 
     setPanelStyle({
       top,

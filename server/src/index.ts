@@ -11,10 +11,10 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
-import { stripBackground, warmRembg } from './bgRemoval';
+import { stripBackground, warmRembg, qualityCheck } from './bgRemoval';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
-import { createAsset, listAssetsByUser, renameAsset, deleteAsset } from './text2imageRepo';
+import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit } from './text2imageRepo';
 
 const app = express();
 const port = process.env.PORT || 8110;
@@ -146,12 +146,27 @@ const BG_CLAUSE: Record<string, string> = {
   none:   '',
 };
 
+// VIEW = camera direction (where the camera is). Pure direction now;
+// projection style lives in PROJECTION_CLAUSE below. Six cardinal-ish
+// options to support full multi-view 3D coverage (front/back/left/right
+// equivalents), plus 3/4 because it's the standard product-shot angle.
 const VIEW_CLAUSE: Record<string, string> = {
-  front:    'front-facing view, head-on perspective',
-  three_q:  '3/4 front view, slight angle showing depth',
-  side:     'side profile view',
-  iso:      'isometric perspective view',
-  none:     '',
+  front:   'front-facing view, head-on, camera at subject eye level',
+  three_q: '3/4 front view, slight angle showing depth on one side',
+  side:    'side profile view, camera at 90° to the subject',
+  back:    'back view, camera directly behind the subject',
+  top:     'top-down view, camera looking straight down at the subject',
+  bottom:  'bottom-up view, camera looking straight up at the subject',
+  none:    '',
+};
+
+// PROJECTION = how the image is drawn. Independent of direction.
+//   perspective — what a real camera sees (vanishing points, foreshortening).
+//   isometric   — parallel projection, no foreshortening, classic game style.
+const PROJECTION_CLAUSE: Record<string, string> = {
+  perspective: 'standard perspective rendering, natural camera lens, realistic depth',
+  isometric:   'isometric projection, parallel lines, no perspective distortion, classic isometric video-game style',
+  none:        '',
 };
 
 const SCALE_CLAUSE: Record<string, string> = {
@@ -202,13 +217,14 @@ const composeFinalPrompt = (q: Record<string, any>): string => {
   ];
   if (strict) parts.push('exactly one subject in frame, no other items');
 
-  const bg    = BG_CLAUSE[String(q.bg || 'white')]       ?? BG_CLAUSE.white;
-  const view  = VIEW_CLAUSE[String(q.view || 'three_q')] ?? VIEW_CLAUSE.three_q;
-  const scale = SCALE_CLAUSE[String(q.scale || 'margin')] ?? SCALE_CLAUSE.margin;
-  const style = STYLE_CLAUSE[String(q.style || 'photoreal')] ?? STYLE_CLAUSE.photoreal;
-  const mat   = MATERIAL_CLAUSE[String(q.material || 'auto')] ?? '';
+  const bg     = BG_CLAUSE[String(q.bg || 'white')]                  ?? BG_CLAUSE.white;
+  const view   = VIEW_CLAUSE[String(q.view || 'three_q')]            ?? VIEW_CLAUSE.three_q;
+  const proj   = PROJECTION_CLAUSE[String(q.projection || 'perspective')] ?? PROJECTION_CLAUSE.perspective;
+  const scale  = SCALE_CLAUSE[String(q.scale || 'margin')]           ?? SCALE_CLAUSE.margin;
+  const style  = STYLE_CLAUSE[String(q.style || 'photoreal')]        ?? STYLE_CLAUSE.photoreal;
+  const mat    = MATERIAL_CLAUSE[String(q.material || 'auto')]       ?? '';
 
-  for (const c of [bg, view, scale, style, mat]) {
+  for (const c of [bg, view, proj, scale, style, mat]) {
     if (c) parts.push(c);
   }
   return parts.filter(Boolean).join(', ');
@@ -307,6 +323,54 @@ const callFalEndpoint = async (
 
 const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
 const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
+
+// ── Alt-view (image-to-image) caller ────────────────────────────────────────
+//
+// Takes a publicly-fetchable URL of an existing image + a prompt describing
+// the new angle, and returns the image-to-image result as a Buffer. We use
+// fal-ai/flux/dev/image-to-image because it's the cheapest hosted Flux
+// variant that accepts an image conditioner.
+//
+// Strength is the key knob: higher = more deviation from source. For
+// "rotate to a new angle" we want noticeable change but with the source
+// still influencing identity / colour / lighting. 0.85 is a reasonable
+// starting point — we'll tune after seeing real outputs.
+async function callFalImageToImage(args: {
+  imageUrl: string;
+  prompt: string;
+  strength?: number;
+  steps?: number;
+  seed?: number;
+  imageSize?: string;
+}): Promise<{ buf: Buffer; contentType: string }> {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+
+  const fr = await fetch('https://fal.run/fal-ai/flux/dev/image-to-image', {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      image_url: args.imageUrl,
+      prompt: args.prompt,
+      strength: args.strength ?? 0.85,
+      num_inference_steps: args.steps ?? 28,
+      seed: args.seed ?? Math.floor(Math.random() * 1e9),
+      image_size: args.imageSize ?? 'square_hd',
+      enable_safety_checker: true,
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal.ai i2i ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const url = data.images?.[0]?.url;
+  if (!url) throw new Error('fal.ai i2i returned no image');
+
+  const ir = await fetch(url);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  return {
+    buf: Buffer.from(await ir.arrayBuffer()),
+    contentType: ir.headers.get('content-type') || 'image/jpeg',
+  };
+}
 
 const callHFInference = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
   const key = process.env.HF_TOKEN;
@@ -431,7 +495,9 @@ app.get('/api/text2image', async (req, res) => {
           prompt: String(req.query.prompt || ''),
           finalPrompt,
           params: {
-            bg: req.query.bg, view: req.query.view, scale: req.query.scale,
+            bg: req.query.bg, view: req.query.view,
+            projection: req.query.projection || 'perspective',
+            scale: req.query.scale,
             style: req.query.style, material: req.query.material,
             aspect: req.query.aspect, w, h,
             strict_single: req.query.strict_single,
@@ -439,6 +505,11 @@ app.get('/api/text2image', async (req, res) => {
           provider,
           imageKey,
           seed,
+          parentAssetId: null,         // primary view — original generation
+          // The actual angle the user picked. Used downstream by the alt-views
+          // generator to skip THIS angle and only produce the missing ones.
+          viewLabel:     String(req.query.view || 'front'),
+          readyFor3D:    true,         // default ON — user can toggle off later
         });
         assetId = asset.id;
       } catch (saveErr: any) {
@@ -471,6 +542,225 @@ app.get('/api/text2image/assets', async (req, res) => {
     res.json({ assets });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// Per-view angle hints. The phrasing is deliberately blunt + repetitive —
+// Flux i2i is strongly biased toward the input image's composition, so
+// the prompt has to hammer the rotation directive hard to actually get a
+// different angle out. We repeat the rotation cue multiple times and
+// include explicit "NOT a front view" negatives because Flux respects
+// those.
+const VIEW_ANGLE_HINTS: Record<string, string> = {
+  front:
+    'front view, head-on, camera facing the subject directly, no rotation, frontal angle',
+  three_q:
+    'three-quarter angle view, 3/4 view, ROTATED 45 DEGREES clockwise, ' +
+    'diagonal perspective, the subject is angled showing both front AND ' +
+    'one side simultaneously, partial profile, NOT a straight-on front view',
+  side:
+    'side profile view, side view, ROTATED 90 DEGREES, full lateral profile, ' +
+    'camera at 90 degrees to the subject, ONLY the side visible, ' +
+    'side silhouette, profile picture, NOT a front view',
+  back:
+    'back view, rear view, ROTATED 180 DEGREES, viewed from directly BEHIND, ' +
+    'back of subject visible, posterior side, looking at the rear, ' +
+    'NOT a front view',
+  top:
+    'top-down view, overhead view, camera looking straight DOWN from above, ' +
+    "bird's-eye view, plan view, NOT a front view",
+  bottom:
+    'bottom-up view, view from below, camera looking straight UP from underneath, ' +
+    "worm's-eye view, NOT a front view",
+};
+
+// Strength controls how far the i2i sampler drifts from the source image.
+// Lower = closer to source (good for identity, bad for rotation). Higher =
+// stronger re-composition (good for rotation, risk of identity drift).
+//
+// We've capped these at 0.85 because Flux i2i above that point starts to
+// re-imagine the subject's *shape*, not just its angle, so a Logitech
+// keyboard ends up as a vaguely keyboard-shaped melted blob. Below 0.7
+// the rotation barely happens at all. There is NO sweet spot for this
+// model — the proper fix is to swap in a multi-view diffusion model
+// (Zero123++ / Era3D / Hunyuan-MV) that actually understands viewpoints.
+const VIEW_STRENGTH: Record<string, number> = {
+  front:   0.55,
+  three_q: 0.78,
+  side:    0.82,
+  back:    0.85,
+  top:     0.82,
+  bottom:  0.82,
+};
+
+// Generate ONE alt view of a primary image at the requested angle.
+// Body: { email, parentAssetId, viewLabel }. Persists ONE new asset row
+// linked to the parent. Returns that single asset.
+//
+// Caveat: Flux image-to-image is NOT a true 3D rotator — it's a noise-
+// conditioned re-paint. Identity preservation is good (~80%) but each
+// alt view may have small colour / detail drift. Cheap first cut; better
+// quality comes from fal-ai/hunyuan3d-mv-paint or Zero123-style models.
+app.post('/api/text2image/alt-views', async (req, res) => {
+  const { email, parentAssetId, viewLabel } = req.body as {
+    email?: string; parentAssetId?: string; viewLabel?: string;
+  };
+  if (!email)         return res.status(400).json({ error: 'email required' });
+  if (!parentAssetId) return res.status(400).json({ error: 'parentAssetId required' });
+  if (!viewLabel)     return res.status(400).json({ error: 'viewLabel required' });
+  const angleHint = VIEW_ANGLE_HINTS[viewLabel];
+  if (!angleHint)     return res.status(400).json({ error: `unknown viewLabel: ${viewLabel}` });
+
+  try {
+    const parent = await getAssetById(parentAssetId, email);
+    if (!parent) return res.status(404).json({ error: 'parent asset not found' });
+    if (parent.viewLabel === viewLabel) {
+      return res.status(409).json({ error: `parent is already a ${viewLabel} view` });
+    }
+
+    // Pull the parent image bytes from R2 and pass them to fal as a
+    // data URL. Going URL-via-public-bucket fails when R2 is configured
+    // for private access (fal can't reach r2.cloudflarestorage.com),
+    // and we don't want to depend on R2_PUBLIC_URL being set + the
+    // bucket being publicly browsable.
+    const r2Result = await getR2Stream(parent.imageKey);
+    const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for await (const chunk of r2Result.Body as any) chunks.push(Buffer.from(chunk));
+    const sourceBytes = Buffer.concat(chunks);
+    const sourceMime = r2Result.ContentType || 'image/jpeg';
+    const sourceUrl  = `data:${sourceMime};base64,${sourceBytes.toString('base64')}`;
+
+    // Carry the parent's projection (perspective | isometric) into the prompt.
+    const projection: string = (parent.params?.projection as string) || 'perspective';
+    const projectionHint = projection === 'isometric'
+      ? 'isometric projection, parallel lines, no perspective distortion'
+      : 'standard perspective rendering, natural lens';
+
+    const baseSubject = parent.prompt;
+    // Lead the prompt with the angle directive so it carries the most
+    // weight in the diffusion guidance (Flux pays the most attention to
+    // the start of the prompt). Identity-preservation cues come AFTER.
+    const prompt =
+      `${angleHint}. ${baseSubject}, ${projectionHint}, ` +
+      `same subject, same colours, same lighting, same materials, ` +
+      `${parent.params?.style || 'clean'} style, studio render, no other items in frame`;
+
+    const strength = VIEW_STRENGTH[viewLabel] ?? 0.9;
+    const { buf, contentType } = await callFalImageToImage({
+      imageUrl: sourceUrl,
+      prompt,
+      strength,
+    });
+    const ext = contentType.includes('png') ? '.png' : '.jpg';
+    const filename = `t2i-${viewLabel}-${Date.now()}${ext}`;
+    const uploaded = await uploadToR2(buf, filename, contentType);
+    const asset = await createAsset({
+      userEmail:     email,
+      name:          `${parent.name} (${viewLabel})`,
+      prompt:        baseSubject,
+      finalPrompt:   prompt,
+      params:        parent.params,
+      provider:      'fal-flux-i2i',
+      imageKey:      uploaded.key,
+      seed:          null,
+      parentAssetId: parent.id,
+      viewLabel,
+      readyFor3D:    true,
+    });
+
+    res.json({ asset });
+  } catch (e: any) {
+    console.error('[alt-views] fatal:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'alt-views failed' });
+  }
+});
+
+// Toggle the readyFor3D flag on a single asset. Body: { ready: boolean }.
+// When false, the image is excluded from the Workspace filmstrip picker so
+// users can mark "this came out badly" without deleting it.
+app.patch('/api/text2image/assets/:id/ready-for-3d', async (req, res) => {
+  const { ready } = req.body as { ready?: boolean };
+  if (typeof ready !== 'boolean') return res.status(400).json({ error: 'ready (boolean) required' });
+  try {
+    await setAssetReadyFor3D(req.params.id, ready);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Edit the background of an asset using user-supplied rembg + harden
+// parameters. Body: {
+//   alphaThreshold?: number 1..254
+//   erodePx?:        number 0..20
+//   fillRgb?:        [r, g, b]   // optional solid background; omit for transparent
+// }
+//
+// The original image is preserved on R2; the asset row's image_key
+// becomes the edited file, originalImageKey holds the original.
+// Re-edits always start from the ORIGINAL (not the previous edit) so
+// the user can iterate on parameters without compounding artifacts.
+app.post('/api/text2image/assets/:id/edit-bg', async (req, res) => {
+  const email = String(req.body?.email || req.query?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const opts = {
+    alphaThreshold: typeof req.body?.alphaThreshold === 'number' ? req.body.alphaThreshold : undefined,
+    erodePx:        typeof req.body?.erodePx        === 'number' ? req.body.erodePx        : undefined,
+    fillRgb:        Array.isArray(req.body?.fillRgb) && req.body.fillRgb.length === 3
+      ? [Number(req.body.fillRgb[0]), Number(req.body.fillRgb[1]), Number(req.body.fillRgb[2])] as [number, number, number]
+      : undefined,
+  };
+
+  try {
+    const asset = await getAssetById(req.params.id, email);
+    if (!asset) return res.status(404).json({ error: 'asset not found' });
+
+    // Always re-edit from the ORIGINAL key (never the current edited
+    // image_key) so re-running with new params doesn't compound artefacts.
+    const sourceKey = asset.originalImageKey || asset.imageKey;
+    const r2Result = await getR2Stream(sourceKey);
+    const chunks: Buffer[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for await (const chunk of r2Result.Body as any) chunks.push(Buffer.from(chunk));
+    const sourceBytes = Buffer.concat(chunks);
+    const sourceMime  = r2Result.ContentType || 'image/jpeg';
+
+    const stripped = await stripBackground(sourceBytes, sourceMime, opts);
+    if (!stripped.ok) {
+      return res.status(500).json({ error: 'background removal failed' });
+    }
+
+    // Upload the edited PNG to a fresh R2 key, then point the asset row
+    // at it. applyAssetEdit() preserves the existing originalImageKey if
+    // already set, otherwise records the current image_key as the original.
+    const filename = `t2i-edit-${Date.now()}.png`;
+    const uploaded = await uploadToR2(stripped.buffer, filename, stripped.mimetype || 'image/png');
+    await applyAssetEdit(asset.id, uploaded.key);
+
+    const updated = await getAssetById(asset.id, email);
+    res.json({ asset: updated });
+  } catch (e: any) {
+    console.error('[edit-bg] failed:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'edit-bg failed' });
+  }
+});
+
+// Revert any edits — swap originalImageKey back to image_key.
+app.post('/api/text2image/assets/:id/revert', async (req, res) => {
+  const email = String(req.body?.email || req.query?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const asset = await getAssetById(req.params.id, email);
+    if (!asset) return res.status(404).json({ error: 'asset not found' });
+    if (!asset.originalImageKey) return res.json({ asset });   // nothing to revert
+    await revertAssetEdit(asset.id);
+    const updated = await getAssetById(asset.id, email);
+    res.json({ asset: updated });
+  } catch (e: any) {
+    console.error('[revert] failed:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'revert failed' });
   }
 });
 
@@ -533,9 +823,26 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
     let buf = req.file.buffer;
     let originalName = req.file.originalname;
     let mimetype = req.file.mimetype;
+    let qcWarnings: string[] = [];
     if (!skipBg) {
       const stripped = await stripBackground(req.file.buffer, req.file.mimetype);
       if (stripped.ok) {
+        // Gate on subject quality BEFORE we burn GPU time. Errors are
+        // hard-rejects (we'd just produce a bad mesh); warnings flow back
+        // to the client so the UI can surface them.
+        if (stripped.stats) {
+          const qc = qualityCheck(stripped.stats);
+          if (!qc.ok) {
+            return res.status(422).json({
+              error: 'image_not_suitable',
+              detail: qc.errors.join(' '),
+              errors: qc.errors,
+              warnings: qc.warnings,
+              stats: stripped.stats,
+            });
+          }
+          qcWarnings = qc.warnings;
+        }
         buf = stripped.buffer;
         mimetype = stripped.mimetype;
         // Force .png extension — the cutout has an alpha channel, so JPEG
@@ -563,7 +870,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       numChunks:        parseInt(req.body.numChunks)        || 0,
       seed:             parseInt(req.body.seed)             || 0,
     });
-    res.json({ job });
+    res.json({ job, warnings: qcWarnings });
   } catch (err: any) {
     console.error('Upload error:', err);
     res.status(500).json({ error: 'Upload failed', detail: err.message });
