@@ -1573,7 +1573,12 @@ const Workspace: React.FC = () => {
                   title={img.name}
                   onClick={() => onPickFromGallery(img)}
                 >
-                  <img src={`/api/image?key=${encodeURIComponent(img.imageKey)}`} alt={img.name} />
+                  <img
+                    src={`/api/image?key=${encodeURIComponent(img.imageKey)}`}
+                    alt={img.name}
+                    loading="lazy"
+                    decoding="async"
+                  />
                   <FilmThumbName>{img.name}</FilmThumbName>
                 </FilmThumb>
               ))}
@@ -1860,6 +1865,8 @@ const Workspace: React.FC = () => {
                       ? <AssetThumb
                           src={thumb}
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           style={
                             !hasTex && job.status === 'done'
                               ? { filter: 'grayscale(0.85) brightness(0.85)' }

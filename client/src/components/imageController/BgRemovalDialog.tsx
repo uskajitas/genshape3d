@@ -33,6 +33,11 @@ interface Props {
    *  stable input. Caller provides the URL (typically the asset's
    *  originalImageKey when set, otherwise the current imageKey). */
   imageUrl?: string;
+  /** Asset id + user email — used to call the live-preview endpoint as
+   *  the user moves sliders, before they hit Apply. When either is
+   *  missing, the preview falls back to showing the original image. */
+  assetId?: string;
+  email?: string;
   /** True when there's an originalImageKey to revert to. */
   hasEdit: boolean;
   busy?: boolean;
@@ -146,6 +151,76 @@ const PreviewBadge = styled.div`
   background: rgba(8, 6, 16, 0.65);
   color: ${p => p.theme.colors.textMuted};
   backdrop-filter: blur(6px);
+`;
+
+// Centered loading overlay covering the preview area. Drops a soft
+// scrim + a spinner + a label so the user has unambiguous feedback
+// that something is happening — even for sub-second operations.
+// Pointer-events stay disabled (sliders on the right remain interactive).
+const PreviewLoadingOverlay = styled.div`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background:
+    radial-gradient(
+      ellipse 70% 70% at 50% 50%,
+      ${p => p.theme.colors.violet}1f,
+      transparent 70%
+    ),
+    rgba(8, 6, 16, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  pointer-events: none;
+  z-index: 4;
+  animation: fadeInOverlay 140ms ease-out;
+  @keyframes fadeInOverlay {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+`;
+
+const SpinnerRing = styled.div`
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid ${p => p.theme.colors.borderHigh};
+  border-top-color: ${p => p.theme.colors.violet};
+  animation: spinRing 0.85s linear infinite;
+  @keyframes spinRing {
+    to { transform: rotate(360deg); }
+  }
+`;
+
+const SpinnerLabel = styled.div`
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: ${p => p.theme.colors.text};
+  animation: pulseLabel 1.6s ease-in-out infinite;
+  @keyframes pulseLabel {
+    0%, 100% { opacity: 0.85; }
+    50%      { opacity: 1;    }
+  }
+`;
+
+const PreviewErrorTag = styled.div`
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #f87171;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
 `;
 
 const Head = styled.div`
@@ -341,26 +416,67 @@ const PillBtn = styled.button<{ $primary?: boolean; $danger?: boolean }>`
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-const FILL_PRESETS: Array<{ id: string; label: string; color: string | undefined; checker?: boolean }> = [
-  { id: 'transparent', label: 'Transparent', color: undefined, checker: true },
-  { id: 'white',       label: 'White',       color: '#ffffff' },
-  { id: 'grey',        label: 'Grey',        color: '#7f7f7f' },
-  { id: 'black',       label: 'Black',       color: '#000000' },
+// Backgrounds for the cutout. The first 4 are normal output choices.
+// The "test" group at the bottom is for INSPECTION only — bright,
+// unnatural chroma colours that make any leftover pixel-level holes,
+// fringes, or partial transparency in the silhouette pop out
+// immediately. The user picks one of these while tweaking the
+// threshold / erode sliders, then switches to Transparent (or
+// whichever real bg) before clicking Apply.
+const FILL_PRESETS: Array<{
+  id: string;
+  label: string;
+  color: string | undefined;
+  checker?: boolean;
+  group?: 'output' | 'test';
+}> = [
+  { id: 'transparent', label: 'Transparent', color: undefined, checker: true, group: 'output' },
+  { id: 'white',       label: 'White',       color: '#ffffff',                group: 'output' },
+  { id: 'grey',        label: 'Grey',        color: '#7f7f7f',                group: 'output' },
+  { id: 'black',       label: 'Black',       color: '#000000',                group: 'output' },
+  // Chroma-key colours — strong visual contrast vs typical subjects, so
+  // any sub-pixel hole in the silhouette is unmissable. Hollywood
+  // green-screen green (~#00b140), cinema cyan, and magenta cover the
+  // common bases.
+  { id: 'chroma-green', label: 'Chroma green', color: '#00b140',              group: 'test' },
+  { id: 'cyan',         label: 'Cyan',          color: '#00ffff',             group: 'test' },
+  { id: 'magenta',      label: 'Magenta',       color: '#ff00ff',             group: 'test' },
 ];
 
+// Hex → [r, g, b]. Used both for the preview request and the apply
+// request so the server gets the same fill colour the user is seeing.
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return [0, 0, 0];
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+}
+
 export const BgRemovalDialog: React.FC<Props> = ({
-  open, imageUrl, hasEdit, busy, onApply, onRevert, onClose,
+  open, imageUrl, assetId, email, hasEdit, busy, onApply, onRevert, onClose,
 }) => {
   const [threshold, setThreshold] = useState(200);
   const [erode, setErode] = useState(1);
   const [fillId, setFillId] = useState<string>('transparent');
 
-  // Reset to defaults each time the dialog opens fresh.
+  // Live-preview state. previewUrl is a blob: URL the <img> renders
+  // when present; falls back to the original imageUrl. previewLoading
+  // is shown as a faint overlay while a request is in flight.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Reset to defaults each time the dialog opens fresh, and clear any
+  // stale preview from a previous opening (different asset).
   useEffect(() => {
     if (open) {
       setThreshold(200);
       setErode(1);
       setFillId('transparent');
+      setPreviewUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setPreviewError(null);
     }
   }, [open]);
 
@@ -373,6 +489,67 @@ export const BgRemovalDialog: React.FC<Props> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Live preview — debounce slider changes by 280ms, then fetch the
+  // server-rendered cutout for the current params. The first call
+  // takes ~2-3s (rembg cold). Subsequent calls (slider tweaks) are
+  // ~50-150ms because the server caches the rembg result per asset.
+  useEffect(() => {
+    if (!open || !assetId || !email) return;
+    let cancelled = false;
+    let abort: AbortController | null = null;
+    const handle = window.setTimeout(async () => {
+      if (cancelled) return;
+      const fill = FILL_PRESETS.find(p => p.id === fillId);
+      const fillRgb = fill?.color ? hexToRgb(fill.color) : undefined;
+      abort = new AbortController();
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const r = await fetch(`/api/text2image/assets/${assetId}/preview-bg`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            alphaThreshold: threshold,
+            erodePx: erode,
+            fillRgb,
+          }),
+          signal: abort.signal,
+        });
+        if (cancelled) return;
+        if (!r.ok) {
+          setPreviewError(`Preview failed (${r.status})`);
+          return;
+        }
+        const blob = await r.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setPreviewUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
+        if (!cancelled) setPreviewError(e?.message || 'Preview failed');
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+      abort?.abort();
+    };
+  }, [open, assetId, email, threshold, erode, fillId]);
+
+  // Free the last preview blob URL on unmount.
+  useEffect(() => () => {
+    setPreviewUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, []);
 
   const onBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && !busy) onClose();
@@ -403,11 +580,24 @@ export const BgRemovalDialog: React.FC<Props> = ({
         </Head>
 
         <Body>
-          <PreviewWrap aria-label="Image being edited">
-            {imageUrl ? (
+          <PreviewWrap aria-label="Live preview of the background-removal result">
+            {(previewUrl || imageUrl) ? (
               <>
-                <PreviewImg src={imageUrl} alt="" />
-                <PreviewBadge>Original</PreviewBadge>
+                <PreviewImg src={previewUrl || imageUrl} alt="" />
+                <PreviewBadge>{previewUrl ? 'Preview' : 'Original'}</PreviewBadge>
+                {(previewLoading || busy) && (
+                  <PreviewLoadingOverlay role="status" aria-live="polite">
+                    <SpinnerRing />
+                    <SpinnerLabel>
+                      {busy
+                        ? (hasEdit ? 'Applying…' : 'Saving…')
+                        : 'Computing preview…'}
+                    </SpinnerLabel>
+                  </PreviewLoadingOverlay>
+                )}
+                {!previewLoading && !busy && previewError && (
+                  <PreviewErrorTag>{previewError}</PreviewErrorTag>
+                )}
               </>
             ) : (
               <PreviewEmpty>No preview available</PreviewEmpty>
@@ -457,7 +647,7 @@ export const BgRemovalDialog: React.FC<Props> = ({
             <Field>
               <FieldLabel>Background</FieldLabel>
               <Swatches>
-                {FILL_PRESETS.map(p => (
+                {FILL_PRESETS.filter(p => p.group !== 'test').map(p => (
                   <Swatch
                     key={p.id}
                     type="button"
@@ -471,6 +661,32 @@ export const BgRemovalDialog: React.FC<Props> = ({
                   </Swatch>
                 ))}
               </Swatches>
+            </Field>
+
+            <Field>
+              <FieldHeader>
+                <FieldLabel>Test colours</FieldLabel>
+                <FieldHint style={{ margin: 0 }}>preview only</FieldHint>
+              </FieldHeader>
+              <Swatches>
+                {FILL_PRESETS.filter(p => p.group === 'test').map(p => (
+                  <Swatch
+                    key={p.id}
+                    type="button"
+                    $active={fillId === p.id}
+                    $bg="transparent"
+                    disabled={busy}
+                    onClick={() => setFillId(p.id)}
+                  >
+                    <SwatchDot $color={p.color || '#000'} />
+                    {p.label}
+                  </Swatch>
+                ))}
+              </Swatches>
+              <FieldHint>
+                Bright fills make leftover holes / soft edges in the cutout
+                obvious. Switch back to a real background before applying.
+              </FieldHint>
             </Field>
           </Controls>
         </Body>

@@ -11,7 +11,7 @@ import {
   isAdminEmail, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
-import { stripBackground, warmRembg, qualityCheck } from './bgRemoval';
+import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit } from './text2imageRepo';
@@ -744,6 +744,88 @@ app.post('/api/text2image/assets/:id/edit-bg', async (req, res) => {
   } catch (e: any) {
     console.error('[edit-bg] failed:', e?.message || e);
     res.status(500).json({ error: e?.message || 'edit-bg failed' });
+  }
+});
+
+// In-memory cache of rembg "raw" outputs (RGBA PNG with soft alpha)
+// keyed by `${userEmail}:${assetId}`. The slow part of background
+// removal is the U2-Net pass (~2-3s). hardenAlpha — the threshold +
+// erosion + fill step — is ~50ms. By caching the rembg result we can
+// re-harden on every slider tweak in the BgRemovalDialog without
+// running rembg again, giving the user live feedback.
+//
+// Capacity: keep at most 32 entries (each ~1MB). LRU-ish eviction by
+// re-insertion order. 30-minute TTL ensures stale entries don't pile up.
+const REMBG_CACHE = new Map<string, { png: Buffer; ts: number }>();
+const REMBG_CACHE_MAX = 32;
+const REMBG_CACHE_TTL_MS = 30 * 60 * 1000;
+function rembgCacheGet(key: string): Buffer | null {
+  const e = REMBG_CACHE.get(key);
+  if (!e) return null;
+  if (Date.now() - e.ts > REMBG_CACHE_TTL_MS) {
+    REMBG_CACHE.delete(key);
+    return null;
+  }
+  // Bump to "most recent" by re-inserting.
+  REMBG_CACHE.delete(key);
+  REMBG_CACHE.set(key, e);
+  return e.png;
+}
+function rembgCachePut(key: string, png: Buffer): void {
+  REMBG_CACHE.set(key, { png, ts: Date.now() });
+  while (REMBG_CACHE.size > REMBG_CACHE_MAX) {
+    const oldest = REMBG_CACHE.keys().next().value;
+    if (!oldest) break;
+    REMBG_CACHE.delete(oldest);
+  }
+}
+
+// Live preview endpoint for the BgRemovalDialog — returns the bytes
+// for the current slider settings WITHOUT persisting the edit. First
+// call warms the rembg cache; subsequent calls (different slider
+// positions) re-harden the cached buffer in ~50ms.
+//
+// Returns image/png bytes directly so the client can drop them into an
+// <img src="data:..."> or an object URL.
+app.post('/api/text2image/assets/:id/preview-bg', async (req, res) => {
+  const email = String(req.body?.email || req.query?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const opts = {
+    alphaThreshold: typeof req.body?.alphaThreshold === 'number' ? req.body.alphaThreshold : undefined,
+    erodePx:        typeof req.body?.erodePx        === 'number' ? req.body.erodePx        : undefined,
+    fillRgb:        Array.isArray(req.body?.fillRgb) && req.body.fillRgb.length === 3
+      ? [Number(req.body.fillRgb[0]), Number(req.body.fillRgb[1]), Number(req.body.fillRgb[2])] as [number, number, number]
+      : undefined,
+  };
+
+  try {
+    const asset = await getAssetById(req.params.id, email);
+    if (!asset) return res.status(404).json({ error: 'asset not found' });
+
+    // Always preview from the ORIGINAL — same source as edit-bg uses.
+    const sourceKey = asset.originalImageKey || asset.imageKey;
+    const cacheKey = `${email}:${asset.id}`;
+
+    let rawRembg = rembgCacheGet(cacheKey);
+    if (!rawRembg) {
+      const r2Result = await getR2Stream(sourceKey);
+      const chunks: Buffer[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for await (const chunk of r2Result.Body as any) chunks.push(Buffer.from(chunk));
+      const sourceBytes = Buffer.concat(chunks);
+      const sourceMime  = r2Result.ContentType || 'image/jpeg';
+      rawRembg = await runRembgOnly(sourceBytes, sourceMime);
+      rembgCachePut(cacheKey, rawRembg);
+    }
+
+    const { buffer } = await hardenWithOptions(rawRembg, opts);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (e: any) {
+    console.error('[preview-bg] failed:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'preview-bg failed' });
   }
 });
 

@@ -134,6 +134,29 @@ export interface HardenOptions {
 //
 // All in one buffer pass, fast (<60ms on 1024²) and no extra allocations
 // beyond a Uint8Array the size of the pixel grid.
+// Run rembg ONLY — returns the raw RGBA PNG (with soft alpha) without
+// any post-processing. Splitting this out lets the live-preview path
+// cache the slow rembg step and re-run hardenAlpha alone on slider
+// changes (~50ms per tweak instead of 2-3s).
+export async function runRembgOnly(
+  buf: Buffer,
+  mimeIn = 'image/jpeg',
+): Promise<Buffer> {
+  const blob = await removeBackground(toBlob(buf, mimeIn), REMBG_CONFIG);
+  warmed = true;
+  return Buffer.from(await blob.arrayBuffer());
+}
+
+// Public re-export of the post-processing pass — exposed so the preview
+// endpoint can re-run JUST hardenAlpha on a cached rembg result. Returns
+// the same shape as the internal version (buffer + stats).
+export async function hardenWithOptions(
+  rgbaPng: Buffer,
+  opts: HardenOptions = {},
+): Promise<{ buffer: Buffer; stats: SubjectStats }> {
+  return hardenAlpha(rgbaPng, opts);
+}
+
 async function hardenAlpha(
   rgbaPng: Buffer,
   opts: HardenOptions = {},

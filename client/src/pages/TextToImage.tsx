@@ -1818,12 +1818,15 @@ const TextToImage: React.FC = () => {
 
           <BgRemovalDialog
             open={bgEditOpen}
-            // Show the ORIGINAL image as the preview — that's the input
-            // the server will re-edit each time. If never edited, the
-            // current imageKey IS the original.
+            // Fallback image (shown until the first preview arrives or
+            // if the user has no asset id yet). Always the ORIGINAL.
             imageUrl={selected
               ? `/api/image?key=${encodeURIComponent(selected.originalImageKey || selected.imageKey)}`
               : undefined}
+            // assetId + email enable the live-preview endpoint as the
+            // user moves sliders.
+            assetId={selected?.id}
+            email={user?.email || undefined}
             hasEdit={!!selected?.originalImageKey}
             busy={bgEditBusy}
             onApply={onEditBackground}
@@ -1896,7 +1899,7 @@ const TextToImage: React.FC = () => {
                     $active={selectedId === img.id}
                     onClick={() => setSelectedId(img.id)}
                   >
-                    <AssetThumb src={img.url} alt="" />
+                    <AssetThumb src={img.url} alt="" loading="lazy" decoding="async" />
                     {hasViews && <ViewsBadge>+{altViews.length} views</ViewsBadge>}
                     <DeleteBtn
                       type="button"
