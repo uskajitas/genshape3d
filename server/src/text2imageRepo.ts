@@ -76,6 +76,17 @@ export async function createAsset(data: CreateAssetInput): Promise<T2IAsset> {
   return rowToAsset(r.rows[0]);
 }
 
+/** Replace the asset's image_key with a new one (no original-preserve
+ *  semantics). Used when regenerating an alt view: the OLD bytes are
+ *  thrown away, the NEW ones take their place. The R2 key for the old
+ *  bytes is left orphaned in storage.  */
+export async function replaceAssetImageKey(id: string, newImageKey: string): Promise<void> {
+  await getDb().query(
+    `UPDATE genshape3d_text2image_assets SET image_key = $1 WHERE id = $2`,
+    [newImageKey, id],
+  );
+}
+
 /** Toggle the readyFor3D flag on a single asset. */
 export async function setAssetReadyFor3D(id: string, ready: boolean): Promise<void> {
   await getDb().query(

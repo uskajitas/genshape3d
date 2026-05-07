@@ -14,7 +14,8 @@ import { uploadToR2, getR2Stream } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
 import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
-import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit } from './text2imageRepo';
+import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
+import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 
 const app = express();
 const port = process.env.PORT || 8110;
@@ -324,17 +325,15 @@ const callFalEndpoint = async (
 const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
 const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
 
-// ── Alt-view (image-to-image) caller ────────────────────────────────────────
+// ── Flux image-to-image caller (DEAD — kept for reference) ─────────────────
 //
-// Takes a publicly-fetchable URL of an existing image + a prompt describing
-// the new angle, and returns the image-to-image result as a Buffer. We use
-// fal-ai/flux/dev/image-to-image because it's the cheapest hosted Flux
-// variant that accepts an image conditioner.
-//
-// Strength is the key knob: higher = more deviation from source. For
-// "rotate to a new angle" we want noticeable change but with the source
-// still influencing identity / colour / lighting. 0.85 is a reasonable
-// starting point — we'll tune after seeing real outputs.
+// Was used by the previous alt-views implementation. We replaced it with
+// a real multi-view diffusion model (Zero123++) because Flux i2i can
+// only re-paint an image, not rotate it. Kept here as a known-good
+// reference shape if we ever wire up Flux Kontext or a similar
+// instruction-following edit endpoint. Safe to delete when no longer
+// useful.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function callFalImageToImage(args: {
   imageUrl: string;
   prompt: string;
@@ -545,131 +544,123 @@ app.get('/api/text2image/assets', async (req, res) => {
   }
 });
 
-// Per-view angle hints. The phrasing is deliberately blunt + repetitive —
-// Flux i2i is strongly biased toward the input image's composition, so
-// the prompt has to hammer the rotation directive hard to actually get a
-// different angle out. We repeat the rotation cue multiple times and
-// include explicit "NOT a front view" negatives because Flux respects
-// those.
-const VIEW_ANGLE_HINTS: Record<string, string> = {
-  front:
-    'front view, head-on, camera facing the subject directly, no rotation, frontal angle',
-  three_q:
-    'three-quarter angle view, 3/4 view, ROTATED 45 DEGREES clockwise, ' +
-    'diagonal perspective, the subject is angled showing both front AND ' +
-    'one side simultaneously, partial profile, NOT a straight-on front view',
-  side:
-    'side profile view, side view, ROTATED 90 DEGREES, full lateral profile, ' +
-    'camera at 90 degrees to the subject, ONLY the side visible, ' +
-    'side silhouette, profile picture, NOT a front view',
-  back:
-    'back view, rear view, ROTATED 180 DEGREES, viewed from directly BEHIND, ' +
-    'back of subject visible, posterior side, looking at the rear, ' +
-    'NOT a front view',
-  top:
-    'top-down view, overhead view, camera looking straight DOWN from above, ' +
-    "bird's-eye view, plan view, NOT a front view",
-  bottom:
-    'bottom-up view, view from below, camera looking straight UP from underneath, ' +
-    "worm's-eye view, NOT a front view",
-};
-
-// Strength controls how far the i2i sampler drifts from the source image.
-// Lower = closer to source (good for identity, bad for rotation). Higher =
-// stronger re-composition (good for rotation, risk of identity drift).
+// Generate alt views via a TRUE multi-view diffusion model (Zero123++ on
+// Replicate by default). One model call returns up to 6 consistent views
+// of the same subject — we map them onto our internal view labels and
+// persist them as alt-view asset rows linked to the parent.
 //
-// We've capped these at 0.85 because Flux i2i above that point starts to
-// re-imagine the subject's *shape*, not just its angle, so a Logitech
-// keyboard ends up as a vaguely keyboard-shaped melted blob. Below 0.7
-// the rotation barely happens at all. There is NO sweet spot for this
-// model — the proper fix is to swap in a multi-view diffusion model
-// (Zero123++ / Era3D / Hunyuan-MV) that actually understands viewpoints.
-const VIEW_STRENGTH: Record<string, number> = {
-  front:   0.55,
-  three_q: 0.78,
-  side:    0.82,
-  back:    0.85,
-  top:     0.82,
-  bottom:  0.82,
-};
-
-// Generate ONE alt view of a primary image at the requested angle.
-// Body: { email, parentAssetId, viewLabel }. Persists ONE new asset row
-// linked to the parent. Returns that single asset.
+// Behaviours, depending on body shape:
+//   { email, parentAssetId }                 → BATCH: fill all missing
+//                                              alt views (skip ones that
+//                                              already exist). Returns
+//                                              { views: [...] }
+//   { email, parentAssetId, viewLabel }      → SINGLE: regenerate that
+//                                              one view (replace its
+//                                              image_key in place if it
+//                                              already exists; create if
+//                                              not). Returns { asset }.
 //
-// Caveat: Flux image-to-image is NOT a true 3D rotator — it's a noise-
-// conditioned re-paint. Identity preservation is good (~80%) but each
-// alt view may have small colour / detail drift. Cheap first cut; better
-// quality comes from fal-ai/hunyuan3d-mv-paint or Zero123-style models.
+// The previous Flux-i2i implementation is gone — it could never reliably
+// rotate a subject. See server/src/multiViewProvider.ts for the model
+// integration.
 app.post('/api/text2image/alt-views', async (req, res) => {
   const { email, parentAssetId, viewLabel } = req.body as {
     email?: string; parentAssetId?: string; viewLabel?: string;
   };
   if (!email)         return res.status(400).json({ error: 'email required' });
   if (!parentAssetId) return res.status(400).json({ error: 'parentAssetId required' });
-  if (!viewLabel)     return res.status(400).json({ error: 'viewLabel required' });
-  const angleHint = VIEW_ANGLE_HINTS[viewLabel];
-  if (!angleHint)     return res.status(400).json({ error: `unknown viewLabel: ${viewLabel}` });
+
+  const ALL_LABELS: MultiViewLabel[] = ['three_q', 'side', 'back', 'top', 'bottom'];
+  if (viewLabel && !ALL_LABELS.includes(viewLabel as MultiViewLabel) && viewLabel !== 'front') {
+    return res.status(400).json({ error: `unknown viewLabel: ${viewLabel}` });
+  }
 
   try {
     const parent = await getAssetById(parentAssetId, email);
     if (!parent) return res.status(404).json({ error: 'parent asset not found' });
-    if (parent.viewLabel === viewLabel) {
+    if (viewLabel && parent.viewLabel === viewLabel) {
       return res.status(409).json({ error: `parent is already a ${viewLabel} view` });
     }
 
-    // Pull the parent image bytes from R2 and pass them to fal as a
-    // data URL. Going URL-via-public-bucket fails when R2 is configured
-    // for private access (fal can't reach r2.cloudflarestorage.com),
-    // and we don't want to depend on R2_PUBLIC_URL being set + the
-    // bucket being publicly browsable.
+    // Existing alt views for this parent — used by BATCH mode to skip
+    // already-filled slots, and by SINGLE mode to know whether we're
+    // creating a new row or replacing an existing one's image_key.
+    const allAssets = await listAssetsByUser(email);
+    const siblings = allAssets.filter(a => a.parentAssetId === parent.id);
+
+    // Pull the parent image bytes from R2.
     const r2Result = await getR2Stream(parent.imageKey);
     const chunks: Buffer[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for await (const chunk of r2Result.Body as any) chunks.push(Buffer.from(chunk));
     const sourceBytes = Buffer.concat(chunks);
-    const sourceMime = r2Result.ContentType || 'image/jpeg';
-    const sourceUrl  = `data:${sourceMime};base64,${sourceBytes.toString('base64')}`;
+    const sourceMime  = r2Result.ContentType || 'image/jpeg';
 
-    // Carry the parent's projection (perspective | isometric) into the prompt.
-    const projection: string = (parent.params?.projection as string) || 'perspective';
-    const projectionHint = projection === 'isometric'
-      ? 'isometric projection, parallel lines, no perspective distortion'
-      : 'standard perspective rendering, natural lens';
+    console.log(
+      `[alt-views] ${viewLabel ? 'single ' + viewLabel : 'batch'} for parent=${parent.id.slice(0, 8)}, calling MV provider…`,
+    );
+    const mvViews = await callMultiView(sourceBytes, sourceMime);
+    console.log(`[alt-views] MV provider returned ${mvViews.length} views: [${mvViews.map(v => v.label).join(', ')}]`);
 
-    const baseSubject = parent.prompt;
-    // Lead the prompt with the angle directive so it carries the most
-    // weight in the diffusion guidance (Flux pays the most attention to
-    // the start of the prompt). Identity-preservation cues come AFTER.
-    const prompt =
-      `${angleHint}. ${baseSubject}, ${projectionHint}, ` +
-      `same subject, same colours, same lighting, same materials, ` +
-      `${parent.params?.style || 'clean'} style, studio render, no other items in frame`;
+    // ── SINGLE-VIEW path (regen one slot) ─────────────────────────────
+    if (viewLabel) {
+      const target = mvViews.find(v => v.label === viewLabel);
+      if (!target) {
+        return res.status(501).json({
+          error: `view '${viewLabel}' is not available from the multi-view model. ` +
+            `Zero123++ does not produce top/bottom directly.`,
+        });
+      }
+      const ext = target.contentType.includes('png') ? '.png' : '.jpg';
+      const filename = `t2i-${viewLabel}-${Date.now()}${ext}`;
+      const uploaded = await uploadToR2(target.bytes, filename, target.contentType);
 
-    const strength = VIEW_STRENGTH[viewLabel] ?? 0.9;
-    const { buf, contentType } = await callFalImageToImage({
-      imageUrl: sourceUrl,
-      prompt,
-      strength,
-    });
-    const ext = contentType.includes('png') ? '.png' : '.jpg';
-    const filename = `t2i-${viewLabel}-${Date.now()}${ext}`;
-    const uploaded = await uploadToR2(buf, filename, contentType);
-    const asset = await createAsset({
-      userEmail:     email,
-      name:          `${parent.name} (${viewLabel})`,
-      prompt:        baseSubject,
-      finalPrompt:   prompt,
-      params:        parent.params,
-      provider:      'fal-flux-i2i',
-      imageKey:      uploaded.key,
-      seed:          null,
-      parentAssetId: parent.id,
-      viewLabel,
-      readyFor3D:    true,
-    });
+      const existing = siblings.find(s => s.viewLabel === viewLabel);
+      if (existing) {
+        await replaceAssetImageKey(existing.id, uploaded.key);
+        const refreshed = await getAssetById(existing.id, email);
+        return res.json({ asset: refreshed });
+      }
+      const asset = await createAsset({
+        userEmail:     email,
+        name:          `${parent.name} (${viewLabel})`,
+        prompt:        parent.prompt,
+        finalPrompt:   parent.finalPrompt,
+        params:        parent.params,
+        provider:      'replicate-zero123',
+        imageKey:      uploaded.key,
+        seed:          null,
+        parentAssetId: parent.id,
+        viewLabel,
+        readyFor3D:    true,
+      });
+      return res.json({ asset });
+    }
 
-    res.json({ asset });
+    // ── BATCH path: fill every missing slot ──────────────────────────
+    const filledLabels = new Set(siblings.map(s => s.viewLabel).concat([parent.viewLabel || '']));
+    const created: any[] = [];
+    for (const v of mvViews) {
+      if (filledLabels.has(v.label)) continue;
+      const ext = v.contentType.includes('png') ? '.png' : '.jpg';
+      const filename = `t2i-${v.label}-${Date.now()}${ext}`;
+      const uploaded = await uploadToR2(v.bytes, filename, v.contentType);
+      const asset = await createAsset({
+        userEmail:     email,
+        name:          `${parent.name} (${v.label})`,
+        prompt:        parent.prompt,
+        finalPrompt:   parent.finalPrompt,
+        params:        parent.params,
+        provider:      'replicate-zero123',
+        imageKey:      uploaded.key,
+        seed:          null,
+        parentAssetId: parent.id,
+        viewLabel:     v.label,
+        readyFor3D:    true,
+      });
+      created.push(asset);
+    }
+    res.json({ views: created });
   } catch (e: any) {
     console.error('[alt-views] fatal:', e?.message || e);
     res.status(500).json({ error: e?.message || 'alt-views failed' });

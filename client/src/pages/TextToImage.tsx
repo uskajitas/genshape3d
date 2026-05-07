@@ -1088,63 +1088,117 @@ const TextToImage: React.FC = () => {
     return m;
   }, [images]);
 
-  /** Generate ONE alt view at the given angle for the given parent image.
-   *  Skips silently if a request for this exact (parent, label) is already
-   *  in flight. Persists one new asset row server-side. */
-  const onGenerateAltView = useCallback(async (parentId: string, label: ViewLabel) => {
+  /** Server response → local GeneratedImage shape. Used by both batch
+   *  and single alt-view paths. */
+  const altAssetToImage = useCallback((a: any): GeneratedImage => ({
+    id: a.id,
+    prompt: a.prompt,
+    name: a.name || smartName(a.prompt),
+    imageKey: a.imageKey,
+    // Cache-buster — the underlying R2 key is unique already, but in
+    // single-view regen the asset id is unchanged so the browser would
+    // serve the previous image from cache. The query param forces a
+    // re-fetch.
+    url: `/api/image?key=${encodeURIComponent(a.imageKey)}&v=${Date.now()}`,
+    createdAt: new Date(a.createdAt).getTime() || Date.now(),
+    params: { ...DEFAULT_PARAMS, ...(a.params || {}), provider: a.provider || DEFAULT_PARAMS.provider },
+    finalPrompt: a.finalPrompt,
+    seed: a.seed != null ? String(a.seed) : undefined,
+    parentAssetId: a.parentAssetId ?? null,
+    viewLabel: a.viewLabel || '',
+    readyFor3D: a.readyFor3D !== false,
+    originalImageKey: a.originalImageKey ?? null,
+  }), []);
+
+  /** Generate alt views for the parent image. When `label` is omitted
+   *  this is a BATCH call — fills every empty slot in a single
+   *  multi-view diffusion run. With a `label` it's a single-slot
+   *  regenerate.
+   *
+   *  Spinner state is keyed per (parent, label). Batch mode marks every
+   *  unfilled slot as busy so the whole grid lights up, then clears
+   *  them all when the response arrives. */
+  const onGenerateAltView = useCallback(async (parentId: string, label?: ViewLabel) => {
     if (!user?.email) return;
-    const key = altViewBusyKey(parentId, label);
+    // Mark which slots will be busy.
+    const busyKeysToToggle: string[] = [];
+    if (label) {
+      busyKeysToToggle.push(altViewBusyKey(parentId, label));
+    } else {
+      // Batch mode — every label not currently filled goes busy. The
+      // primary's own label is also "filled" (it's the orig slot) so we
+      // skip it.
+      const existingLabels = new Set<string>(
+        images.filter(i => i.parentAssetId === parentId).map(i => i.viewLabel || ''),
+      );
+      const parent = images.find(i => i.id === parentId);
+      const parentLabel = parent?.viewLabel || '';
+      for (const candidate of ['three_q', 'side', 'back', 'top', 'bottom'] as ViewLabel[]) {
+        if (candidate === parentLabel || existingLabels.has(candidate)) continue;
+        busyKeysToToggle.push(altViewBusyKey(parentId, candidate));
+      }
+    }
     setBusyAltViewKeys(prev => {
-      if (prev.has(key)) return prev;
-      const n = new Set(prev); n.add(key); return n;
+      const n = new Set(prev);
+      for (const k of busyKeysToToggle) n.add(k);
+      return n;
     });
     try {
       const r = await fetch('/api/text2image/alt-views', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: user.email, parentAssetId: parentId, viewLabel: label }),
+        body: JSON.stringify({
+          email: user.email,
+          parentAssetId: parentId,
+          ...(label ? { viewLabel: label } : {}),
+        }),
       });
       if (!r.ok) {
-        console.warn('alt-views failed', await r.text());
+        const text = await r.text();
+        console.warn('alt-views failed', text);
+        // Surface server message to the user so a missing
+        // REPLICATE_API_TOKEN doesn't look like a silent UI bug.
+        try {
+          const errJson = JSON.parse(text);
+          if (errJson?.error) alert(`Alt views: ${errJson.error}`);
+        } catch { /* ignore parse errors */ }
         return;
       }
-      const data = await r.json() as { asset: any };
-      const a = data.asset;
-      if (!a) return;
-      const next: GeneratedImage = {
-        id: a.id,
-        prompt: a.prompt,
-        name: a.name || smartName(a.prompt),
-        imageKey: a.imageKey,
-        url: `/api/image?key=${encodeURIComponent(a.imageKey)}`,
-        createdAt: new Date(a.createdAt).getTime() || Date.now(),
-        params: { ...DEFAULT_PARAMS, ...(a.params || {}), provider: a.provider || DEFAULT_PARAMS.provider },
-        finalPrompt: a.finalPrompt,
-        seed: a.seed != null ? String(a.seed) : undefined,
-        parentAssetId: a.parentAssetId ?? null,
-        viewLabel: a.viewLabel || '',
-        readyFor3D: a.readyFor3D !== false,
-        originalImageKey: a.originalImageKey ?? null,
-      };
-      setImages(prev => [...prev, next]);
+      const data = await r.json() as { asset?: any; views?: any[] };
+      // Single-view response: replace OR insert.
+      if (data.asset) {
+        const next = altAssetToImage(data.asset);
+        setImages(prev => {
+          const idx = prev.findIndex(i => i.id === next.id);
+          if (idx >= 0) {
+            const copy = prev.slice();
+            copy[idx] = next;
+            return copy;
+          }
+          return [...prev, next];
+        });
+        return;
+      }
+      // Batch response: append all newly-created views.
+      if (Array.isArray(data.views) && data.views.length > 0) {
+        const restored = data.views.map(altAssetToImage);
+        setImages(prev => [...prev, ...restored]);
+      }
     } finally {
       setBusyAltViewKeys(prev => {
-        if (!prev.has(key)) return prev;
-        const n = new Set(prev); n.delete(key); return n;
+        const n = new Set(prev);
+        for (const k of busyKeysToToggle) n.delete(k);
+        return n;
       });
     }
-  }, [user?.email]);
+  }, [user?.email, images, altAssetToImage]);
 
-  /** Regenerate one alt view: delete the old one (locally + server),
-   *  then immediately request a fresh one at the same angle. The slot's
-   *  spinner stays visible across both steps because onGenerateAltView
-   *  sets the busy key right away. */
-  const onRegenerateAltView = useCallback(async (parentId: string, label: ViewLabel, currentId: string) => {
-    // Optimistic local removal so the slot empties before the new image
-    // appears (avoids a flash of "old image still here").
-    setImages(prev => prev.filter(i => i.id !== currentId));
-    setSelectedId(curr => curr === currentId ? parentId : curr);
-    fetch(`/api/text2image/assets/${currentId}`, { method: 'DELETE' }).catch(() => {});
+  /** Regenerate one alt view at a given angle. The server replaces
+   *  image_key on the existing asset row in place — same asset id, new
+   *  R2 key — so we don't need to delete + recreate locally. The
+   *  cache-buster on the URL forces the browser to fetch the new image
+   *  even though the asset id hasn't changed. */
+  const onRegenerateAltView = useCallback(async (parentId: string, label: ViewLabel, _currentId: string) => {
     await onGenerateAltView(parentId, label);
   }, [onGenerateAltView]);
 
@@ -1309,7 +1363,11 @@ const TextToImage: React.FC = () => {
   // alt-view model on the server side. Non-admins never see this.
   // (When user-facing billing lands later, swap this for a credit cost
   //  instead of a $ figure.)
-  const ALT_VIEW_COST_PER_CALL = '≈$0.025';
+  //
+  // Zero123++ on Replicate is one call → up to 6 views, ≈$0.05 total.
+  // The + button fires that one call (batch). The ↻ button on a single
+  // slot makes a fresh call to update just that view (still one charge).
+  const ALT_VIEW_COST_PER_CALL = '≈$0.05 / 6 views';
   const adminCostPerView = isAdmin ? ALT_VIEW_COST_PER_CALL : undefined;
   // Background removal is local CPU work — effectively free, but a tiny
   // fixed cost for the rembg model load on cold starts.
@@ -1852,9 +1910,14 @@ const TextToImage: React.FC = () => {
             onChangeName={onChangeSelectedName}
             onDownload={onDownload}
             onToggleReadyFor3D={onToggleReadyFor3D}
-            onGenerateView={(label) => {
+            onGenerateView={(_label) => {
+              // Clicking + on ANY empty slot triggers BATCH mode — one
+              // multi-view diffusion call fills every empty slot at
+              // once. The Zero123++ model produces a consistent set of
+              // angles, so generating them together gives a coherent
+              // group rather than per-slot independent shots.
               if (!primaryImage) return;
-              onGenerateAltView(primaryImage.id, label);
+              onGenerateAltView(primaryImage.id);
             }}
             onSelectView={(id) => setSelectedId(id)}
             onDeleteView={onDeleteAltView}
