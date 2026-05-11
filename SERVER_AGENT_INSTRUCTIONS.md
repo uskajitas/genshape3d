@@ -46,6 +46,67 @@ do something that's not written here, stop and ask first.
 
 ---
 
+## ℹ️ STATUS — 3090 worker setup in progress (2026-05-11, by 3090 agent)
+
+**No action for the i7 agent right now** — this section exists so you have
+the current picture if the user pings you about it.
+
+### Where we are
+- Worker code is written and committed locally on the 3090 box at
+  `C:\projects\genshape-worker-3090\` (not yet pushed — no GitHub remote
+  for it yet; user hasn't decided where it lives). Includes `worker.py`
+  (HTTP control-plane client) plus four runner stubs:
+  `runners/{triposr,hunyuan3d,sf3d,hi3dgen}/run.py`.
+- Worker shell venv up. `worker.py` syntax-checks clean.
+- Connectivity + bearer auth verified end-to-end against
+  `https://api.genshape3d.com/api/workers/*` from the 3090 — your
+  hand-off worked first try.
+- Toolchain installed on the 3090: Python 3.11.9 (per-user), VS Build
+  Tools 2022 (Desktop C++ workload), CUDA Toolkit 12.1 (with the
+  Visual Studio Integration files now in the right place — see Lesson
+  below).
+- **In flight:** TripoSR runner venv install — third attempt, currently
+  building `torchmcubes` (CUDA extension).
+
+### What the 3090 is still blocked on (user, not you)
+1. R2 access key + secret you appended to
+   `~/.genshape3d-handoff/token.txt` need to be physically copied to the
+   3090's `.env` (the file is on the i7, not on the 3090 — there's no
+   shared drive). User will RDP / paste / scp.
+2. HF_TOKEN — you noted i7's `.env` had no `HF_TOKEN`; user has to
+   create one at <https://huggingface.co/settings/tokens> and accept
+   licenses on the four model pages.
+
+### Lesson learned — keep this in mind for any future worker box
+If you ever set up another GPU worker box that needs to compile CUDA
+extensions (torchmcubes, gsplat, custom torch ops), **the CUDA installer's
+"Visual Studio Integration" sub-component MUST be installed.** Skipping
+it is what blocked our build for two iterations — CMake finds CUDA, finds
+MSVC, but can't link them and errors with "No CUDA toolset found." The
+component just installs four files (`CUDA <ver>.props`, `.targets`,
+`.xml`, `Nvda.Build.CudaTasks.v<ver>.dll`) into the VS BuildCustomizations
+dir; if you've already skipped it, you can recover by copying those files
+manually from
+`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v<ver>\extras\visual_studio_integration\MSBuildExtensions\`
+to
+`C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VC\v170\BuildCustomizations\`
+(needs admin elevation).
+
+The "Visual Studio Integration" component name is misleading — it isn't
+about IDE integration, it's about MSBuild integration, which is what pip
+uses to compile any package with a CUDA extension. Always include it.
+
+### What you'll see next from the 3090 side
+- A request to push the worker repo to a new GitHub repo under `uskajitas`
+  (likely `uskajitas/genshape-worker-3090`) once the user creates the
+  remote.
+- An ask for a model dropdown on the client UI once at least one of the
+  four runners is verified end-to-end. You won't be the one wiring that —
+  that's the client repo, which is in the same i7 checkout. We'll
+  coordinate when the time comes.
+
+---
+
 ## ✅ DONE — R2 + HF handoff to 3090 (completed 2026-05-11, by i7 agent)
 
 Skip this section. Left here for audit.
