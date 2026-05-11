@@ -7,10 +7,16 @@ section first** (top of the file) — older sections may already be partly done.
 
 ## 📋 How to use this document (read this first if you're a new agent)
 
-You are an agent running on the **i7 home server** (the box that hosts the
-genshape3d API + Postgres + Cloudflare tunnel). You have terminal access to
-`/f/cloudflare/genshape3d`. The user pointed you here so you can finish a
-deployment task end-to-end without further instruction.
+You are an agent running on one of the machines in the GenShape3D setup —
+most often the **i7 home server** (the box that hosts the genshape3d API +
+Postgres + Cloudflare tunnel), but occasionally a worker box (e.g. the
+3090 GPU box being added 2026-05-11). The first line of each task section
+below tells you which machine that task is for — if you're on the wrong
+one, skip that section and look for the next match.
+
+The user pointed you here so you can finish a deployment task end-to-end
+without further instruction. You have terminal access to a checkout of
+the repo (path varies by machine).
 
 Workflow:
 
@@ -40,7 +46,203 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: Multi-worker control plane (added 2026-05-11)
+## 🚨 LATEST: 3090 worker setup (added 2026-05-11)
+
+**You are an agent running on the new 3090 box** (NOT the i7 home server).
+The i7 side is already done — the control plane is live at
+`https://api.genshape3d.com/api/workers/*` and the `WORKER_AUTH_TOKEN` is
+issued. Your job is to bring this 3090 box up as a worker that registers,
+long-polls for jobs, runs them, and reports completion.
+
+If you're actually on the i7 box, this section is not for you. Scroll down
+to the "✅ DONE — i7 control-plane setup" section to confirm what's already
+done there, and stop. Don't re-run those steps.
+
+### What's already true
+- Server endpoints under `/api/workers/*` are live and authenticated. Auth
+  is `Authorization: Bearer <token>`; the token (`WORKER_AUTH_TOKEN`) is on
+  the i7's `.env` and was handed off to the user via password-manager entry
+  `genshape3d WORKER_AUTH_TOKEN` (or written to
+  `~/.genshape3d-handoff/token.txt` on the i7 — ask the user which channel
+  they used).
+- `genshape3d_jobs` table has the new `model` and `assignedWorkerId`
+  columns (defaults `'hunyuan3d'` and `''`). All historical jobs are
+  backfilled.
+- The legacy 1080 worker still polls Postgres directly and is unchanged.
+  Both old and new can co-exist; the 1080 takes jobs row-by-row, the 3090
+  takes jobs via the new claim endpoint.
+
+### What you must do
+
+#### 1. Get the token (do NOT generate a new one)
+Ask the user for the value of `WORKER_AUTH_TOKEN`. They will paste it once
+into a channel they specify (password manager, secure file, etc.). Do NOT
+paste it into chat, email, or git. If they say "it's in my password
+manager," wait for them to bring it to you — don't proceed without it.
+
+Once you have it, store it in the worker's `.env` on THIS machine:
+```
+WORKER_AUTH_TOKEN=<paste-here>
+GENSHAPE3D_API=https://api.genshape3d.com
+WORKER_ID=worker-3090-home              # any unique stable string
+WORKER_MODELS=hunyuan3d                  # comma-separated list of model ids this box can run
+WORKER_CAPACITY=1                        # how many concurrent jobs (almost always 1 for a single-GPU box)
+```
+
+Add `.env` to your worker repo's `.gitignore` before doing anything else.
+
+#### 2. Sanity-check connectivity + auth
+Before writing any worker code:
+
+```bash
+# No auth → expect 401
+curl -i -X POST https://api.genshape3d.com/api/workers/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"sanity-check","models":["hunyuan3d"],"capacity":1}'
+
+# With auth → expect 200 with {"ok":true,"worker":{...}}
+curl -i -X POST https://api.genshape3d.com/api/workers/register \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $WORKER_AUTH_TOKEN" \
+  -d '{"id":"sanity-check","models":["hunyuan3d"],"capacity":1}'
+```
+
+If both behave as expected, the network path and auth are good. The
+`sanity-check` worker entry is in-memory only and falls out when the i7
+server next restarts — harmless, ignore it.
+
+#### 3. Worker control-plane reference (the loop you'll implement)
+All endpoints require `Authorization: Bearer $WORKER_AUTH_TOKEN`. Source
+of truth: `server/src/workersApi.ts` on the i7 repo.
+
+| # | Method + path | Purpose | Body | Response |
+|---|---|---|---|---|
+| 1 | `POST /api/workers/register` | Announce yourself | `{ id, models: string[], capacity: number }` | `{ ok, worker }` |
+| 2 | `POST /api/workers/:id/claim` | Long-poll for next pending job (~25s hold) | (empty) | `{ job }` (200) or `204` if no job |
+| 3 | `POST /api/workers/:id/progress` | Optional progress ping mid-job | `{ jobId, pct?, phase?, step?, total? }` | `{ ok: true }` |
+| 4 | `POST /api/workers/:id/complete` | Final status | `{ jobId, status: 'done'\|'failed'\|'cancelled', resultUrl? }` | `{ ok: true }` |
+| 5 | `POST /api/workers/:id/heartbeat` | Idle keep-alive + cancel-flag check | `{ jobIds?: string[] }` (currently-active ids) | `{ ok: true, cancelled: string[] }` |
+
+Notes:
+- The claim endpoint long-polls server-side (~25s), so call it in a loop —
+  the response is immediate when a job becomes available, otherwise it
+  returns `204` and you call again. Don't add client-side delay.
+- `:id` in path-params is your `WORKER_ID` — keep it stable across restarts
+  so the registry tracks the same worker.
+- If you get `409 worker at capacity`, you've already claimed `capacity`
+  jobs — call `complete` before claiming again.
+- Call `heartbeat` every ~30s while idle, and during long jobs every ~30s
+  (sending `jobIds: [<currently-running-job-id>]`). The response's
+  `cancelled` array tells you which of those the user has asked to cancel —
+  abort the in-flight subprocess gracefully when you see your job there.
+
+#### 4. The `Job` payload you'll receive from `/claim`
+Source: `server/src/jobsRepo.ts` → `Job` interface. The fields you'll
+actually consume in a Hunyuan3D pipeline:
+
+- `id` — pass back unchanged on `progress` / `complete`.
+- `imageUrl` — public URL of the input image (already in Cloudflare R2).
+- `prompt`, `style` — optional user text.
+- `octreeResolution`, `targetFaceCount`, `inferenceSteps`,
+  `guidanceScale`, `numChunks`, `seed`, `polygonBudget`, `textureRes`,
+  `exportFormat`, `detailLevel`, `doTexture` — Hunyuan3D knobs. Treat as
+  hints; clamp to whatever your local installation supports.
+- `model` — the worker should validate this is in its declared `models`
+  list. Server already filters by this, but defence-in-depth.
+- `requestCancel`, `progressPct`, etc. — server-managed, don't mutate.
+
+When done, upload the resulting GLB to R2 yourself (use the same bucket
+as the 1080 worker — see `genshape3d_nvidia` for the existing pattern)
+and pass the public URL as `resultUrl` on `complete`.
+
+#### 5. Reference the existing 1080 worker for the inference pipeline
+The 1080's repo (`F:\cloudflare\genshape3d_nvidia` on the home server)
+shows the actual Hunyuan3D invocation, R2 upload, and image preprocessing.
+**Do NOT modify that repo from this machine.** Read it for reference only.
+The 1080 still polls Postgres directly; you replace that section with the
+claim / progress / complete HTTP loop above.
+
+#### 6. Process supervision
+Decide upfront how the worker stays alive on this machine. Talk to the
+user before installing anything system-wide. On Linux a `systemd` unit is
+clean and well-trodden; on Windows we've had headaches with PM2's console
+popups (see `server/SERVER_LAUNCH.md` for the i7 lessons). Whatever you
+pick: log to a file, restart on crash, survive reboots.
+
+#### 7. End-to-end test
+1. Start the worker. Confirm in i7 logs (or
+   `https://api.genshape3d.com/api/workers?email=<admin-email>` — admin
+   email is whatever's in i7's `.env` `ADMIN_EMAILS`, currently
+   `uskajitas@gmail.com`) that your worker shows `busy: 0` and
+   recent `lastSeen`.
+2. Submit a job from the web UI at `https://genshape3d.com`. Watch:
+   - 1080 may grab it first if it polls faster — that's fine, submit
+     another job until the 3090 wins one (or temporarily stop the 1080
+     to force the 3090 to take it).
+3. Verify the job goes `pending → processing → done` and the result
+   appears in the user's dashboard.
+4. Run a 2-jobs-back-to-back test to confirm `markFree` works (worker
+   should claim the second one as soon as it completes the first).
+
+#### 8. Report back
+Single message including:
+1. Worker `id`, declared `models`, `capacity`.
+2. Process-supervision approach (systemd? something else?).
+3. End-to-end job id + screenshot or status text confirming `done`.
+4. Anything weird the i7 side should know about — added env vars,
+   timing concerns, network egress issues, etc.
+
+### What you do NOT do from the 3090 box
+- Don't `git push` to this repo unless you're explicitly fixing a bug
+  in the server. The 3090's worker code lives elsewhere.
+- Don't try to rotate `WORKER_AUTH_TOKEN` — that requires coordination
+  with the i7's `.env` and any other workers. Use what you're given.
+- Don't generate test jobs by INSERTing into Postgres directly. Use the
+  web UI so all the upstream validation (credits, R2 upload, etc.) runs.
+
+---
+
+## ✅ DONE — i7 control-plane setup (completed 2026-05-11)
+
+Skip everything below if you're a future agent. It's left here for
+auditability — every step was completed by an agent running on the i7
+home server on 2026-05-11.
+
+**What was done:**
+- `WORKER_AUTH_TOKEN` generated (48-char alphanumeric) and added to
+  `F:/cloudflare/genshape3d/server/.env` under the
+  `# ─── Multi-worker control plane ───` section.
+- Token saved to `C:\Users\Juan\.genshape3d-handoff\token.txt` with NTFS
+  ACL restricted to user `Juan` (`icacls /inheritance:r /grant:r Juan:F`
+  — `chmod 600` is a no-op on NTFS).
+- Server reloaded via touching `src/index.ts` (ts-node-dev doesn't
+  auto-watch `.env`).
+- All three smoke-test curls passed (`401` without auth, `200` with auth
+  registering a `smoketest` worker, `200` admin list). **Note: the doc
+  example below uses `usquiano@gmail.com` for the admin curl, but the
+  i7's actual `ADMIN_EMAILS` is `uskajitas@gmail.com`.** Either widen
+  `ADMIN_EMAILS` or update the example.
+- Schema migration verified — `\d genshape3d_jobs` shows
+  `model text NOT NULL DEFAULT 'hunyuan3d'` and
+  `assignedWorkerId text NOT NULL DEFAULT ''`, plus a new partial index
+  `idx_jobs_pending_model`.
+- Existing job rows backfilled with the defaults; legacy 1080 worker is
+  unaffected.
+
+**Known issues left for later (not blocking the 3090 setup):**
+- `start-server.ps1`'s `Start-Process -ArgumentList '/c', $cmdLine`
+  pattern intermittently fails to spawn `cmd.exe` when `$cmdLine`
+  contains `>>` redirect operators. Quoting is likely the culprit.
+  Server is currently running via Start-Process anyway because
+  ts-node-dev's `--respawn` rode through a transient WSL2 Postgres
+  `ECONNRESET` until a clean connection succeeded.
+- Sibling PM2-managed servers (`mydaystory-server`, `uskiano-server`,
+  `uskajitas-server`) were in PM2's phantom-online state during this
+  deploy — they may need `pm2 restart` separately.
+
+---
+
+## (Original i7 task spec — keep below for reference)
 
 **Context:** the server now supports multiple GPU workers (the existing 1080
 home box, the new 3090 box, and any future ones). Workers no longer poll
