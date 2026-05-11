@@ -4,6 +4,14 @@ Quick reference for every paid / external service GenShape3D talks to —
 who the account is under, what it's used for, where to check usage and
 billing, and which env var holds its credential.
 
+> **Account quick-reference (canonical: `F:/cloudflare/README.md`):**
+> - **Cloudflare** (zones, R2, Tunnel) → `uskajitas@gmail.com`
+> - **Firebase** project `uskajitas-a4844` → `uskajitas@gmail.com`
+> - **GitHub** (repo owner `uskajitas`) → `uskajitas@gmail.com`
+> - **Other paid APIs** (Replicate, fal.ai, OpenAI, HF, Stripe) → `usquiano@gmail.com`
+>
+> When in doubt: project infrastructure = `uskajitas`, third-party API billing = `usquiano`.
+
 **This file does NOT contain secrets.** Tokens, keys, and passwords live
 only in `server/.env` (which is gitignored). Anything in this file is
 safe to commit.
@@ -36,7 +44,7 @@ Optional config knobs (no account needed, just tuning):
 
 | Service          | Account              | Env vars                                      | Used for                                                    | Cost                              | Dashboard                              |
 | ---------------- | -------------------- | --------------------------------------------- | ----------------------------------------------------------- | --------------------------------- | -------------------------------------- |
-| **Cloudflare R2**| `usquiano@gmail.com` | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | All image / mesh files. Bucket: `genshape3d`. | $0.015/GB/month + $4.50 / million class A ops | https://dash.cloudflare.com/?to=/:account/r2 |
+| **Cloudflare R2**| `uskajitas@gmail.com` | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | All image / mesh files. Bucket: `genshape3d`. | $0.015/GB/month + $4.50 / million class A ops | https://dash.cloudflare.com/?to=/:account/r2 |
 | **Postgres**     | self-hosted (i7, WSL2 Ubuntu) | `DATABASE_URL`                       | Users, jobs, text-to-image assets, credit ledger.           | $0 (local)                        | psql                                   |
 
 ## Auth / billing / payments
@@ -44,7 +52,7 @@ Optional config knobs (no account needed, just tuning):
 | Service          | Account              | Env vars                                                  | Used for                              | Cost                       | Dashboard                                  |
 | ---------------- | -------------------- | --------------------------------------------------------- | ------------------------------------- | -------------------------- | ------------------------------------------ |
 | **Stripe**       | `usquiano@gmail.com` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_CREATOR` | Credit-pack purchases (one-time products). | 2.9% + $0.30 per charge | https://dashboard.stripe.com/account/billing |
-| **Firebase**     | `usquiano@gmail.com` | (client-side `firebaseConfig`)                            | Google OAuth sign-in.                 | Free tier (Spark plan)     | https://console.firebase.google.com/       |
+| **Firebase**     | `uskajitas@gmail.com` | (client-side `firebaseConfig`) — project `uskajitas-a4844` | Google OAuth sign-in.                 | Free tier (Spark plan)     | https://console.firebase.google.com/       |
 
 ## Hosting
 
@@ -52,9 +60,9 @@ Optional config knobs (no account needed, just tuning):
 | ------------------------ | ---------------------------- | ------------------------------------------------------------------- | ----------------------------------- |
 | **i7 home server**       | Local hardware (Windows)     | Vite + Express dev servers. Cloudflared exposes them as `genshape3d.com` / `api.genshape3d.com`. | Hardware + electricity              |
 | **GTX 1080 worker (`genshape3d_nvidia`)** | Same machine as the i7 | Hunyuan3D-2 image-to-3D mesh generation.                  | Same                                |
-| **Cloudflare Tunnel**    | `usquiano@gmail.com`         | Public domain → home server.                                        | Free                                |
+| **Cloudflare Tunnel**    | `uskajitas@gmail.com`        | Public domain → home server.                                        | Free                                |
 | **GitHub**               | `uskajitas`                  | Repo: `uskajitas/genshape3d`.                                       | Free                                |
-| **Domain (`genshape3d.com`)** | `usquiano@gmail.com` (registrar TBD) | Root domain. Subdomains via Cloudflare DNS.               | Annual renewal (≈$10–15)            |
+| **Domain (`genshape3d.com`)** | `uskajitas@gmail.com` (Cloudflare DNS; registrar TBD) | Root domain. Subdomains via Cloudflare DNS.               | Annual renewal (≈$10–15)            |
 
 ## How to add a new service
 
