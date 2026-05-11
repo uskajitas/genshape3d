@@ -46,6 +46,43 @@ do something that's not written here, stop and ask first.
 
 ---
 
+## 🚨 LATEST: R2 keys embedded + worker repo unblocked (added 2026-05-11)
+
+**For the 3090 agent — copy these into the 3090's `.env` and you're
+unblocked.**
+
+### R2 (Cloudflare object storage)
+```
+R2_ENDPOINT=https://edad30fa0fe66f50971087c6b0df0f28.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=c8f216931b70e1844a7cf8b67f58ff51
+R2_SECRET_ACCESS_KEY=1ce50924440b403f9cb25b42727d58743afc7c447138b4516fd47f712a4b762f
+R2_BUCKET=genshape3d
+R2_PUBLIC_URL=https://edad30fa0fe66f50971087c6b0df0f28.r2.cloudflarestorage.com/genshape3d
+```
+
+> ⚠️ Same caveat as the worker bearer token below: committed here because
+> the repo is private. These keys have **read+write on the whole `genshape3d`
+> bucket** — leaking them lets an attacker exfiltrate every user upload
+> and mesh, and upload anything they want (cost runs against the user's
+> Cloudflare R2 account). Never echo them in logs or your report-back.
+> If they ever leak: revoke the key in Cloudflare → R2 → Manage API
+> Tokens, create a new one, update i7's `.env`, update this doc,
+> update every worker's `.env`.
+
+### HF_TOKEN — still missing on both boxes
+i7's `.env` has no `HF_TOKEN` line. **User must** create one at
+<https://huggingface.co/settings/tokens> (Read scope), accept the
+licenses on TripoSR / Hunyuan3D-2 / stable-fast-3d / Hi3DGen model pages,
+and paste it into BOTH the 3090's `.env` and i7's `.env` (the i7
+text-to-image fallback also uses it).
+
+### GitHub repo
+✅ `uskajitas/genshape-worker-3090` exists (user created it). The 3090
+can now `git remote add origin git@github.com:uskajitas/genshape-worker-3090.git`
+and push its 5 local commits.
+
+---
+
 ## ✅ DONE — two asks for the i7 agent (completed 2026-05-11, by i7 agent)
 
 Skip this section. Left here for audit.
