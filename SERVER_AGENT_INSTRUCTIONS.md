@@ -341,7 +341,7 @@ curl -i -X POST http://localhost:8110/api/workers/register \
 # Expect: HTTP/1.1 200 OK, body has {"ok":true,"worker":{...}}
 
 # Admin view (replace email with one in ADMIN_EMAILS)
-curl 'http://localhost:8110/api/workers?email=usquiano@gmail.com'
+curl 'http://localhost:8110/api/workers?email=uskajitas@gmail.com'
 # Expect: 200 with the smoketest worker in the list.
 ```
 
