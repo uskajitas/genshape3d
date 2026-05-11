@@ -5,6 +5,391 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 TASK — Build 3090 system tray service (added 2026-05-11)
+
+**FOR THE 3090 AGENT ONLY. Do NOT run any of this on the i7.**
+
+⚠️ **CRITICAL — READ BEFORE TOUCHING ANYTHING:**
+Do NOT copy, clone, or reuse `genshape3d_nvidia` (the i7's Electron app).
+That app polls **Postgres directly** using a Node.js driver. The 3090 worker
+is completely different — it is **Python-based** and talks to the HTTP control
+plane at `https://api.genshape3d.com/api/workers/*`. Copying `genshape3d_nvidia`
+will break things silently (wrong database path, wrong polling architecture,
+wrong models). Start fresh as described below.
+
+---
+
+### What you are building
+
+A **Python system tray app** (`tray.py`) that:
+- Sits in the Windows system tray.
+- Spawns your existing `worker.py` as a subprocess when started.
+- Shows current status (idle / working / error) in the tray tooltip.
+- Has a right-click menu: **Show Log**, **Stop Worker**, **Quit**.
+- Writes worker stdout+stderr to a rotating log file so you can diagnose problems.
+- Launches automatically at Windows login via the Startup folder.
+
+The 3090 worker code already lives at `C:\projects\genshape-worker-3090\`.
+This tray app lives in the same repo, alongside `worker.py`.
+
+---
+
+### Step 1 — Install Python tray dependencies
+
+Open a **normal** PowerShell (not admin, just your user account):
+
+```powershell
+cd C:\projects\genshape-worker-3090
+
+# Activate the worker venv (adjust path if yours is different)
+.\venv\Scripts\Activate.ps1
+
+pip install pystray Pillow
+```
+
+Verify:
+```powershell
+python -c "import pystray, PIL; print('ok')"
+```
+Expected output: `ok`
+
+If your `worker.py` uses its own venv, install into that same venv.
+Do not create a second venv just for pystray.
+
+---
+
+### Step 2 — Create `tray.py`
+
+In `C:\projects\genshape-worker-3090\`, create a new file called `tray.py`
+with exactly this content:
+
+```python
+"""
+GenShape3D — 3090 Worker Tray
+Wraps worker.py in a Windows system-tray icon so the worker
+keeps running without an open terminal window.
+
+Usage (normal):  python tray.py
+Usage (startup): the Startup folder shortcut points here.
+"""
+
+import os
+import sys
+import subprocess
+import threading
+import time
+import queue
+import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+import pystray
+from PIL import Image, ImageDraw
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+HERE = Path(__file__).parent
+WORKER_SCRIPT = HERE / "worker.py"
+LOG_FILE = HERE / "tray-worker.log"
+VENV_PYTHON = HERE / "venv" / "Scripts" / "python.exe"
+
+# Use the venv python if it exists, otherwise fall back to sys.executable
+PYTHON = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+handler = RotatingFileHandler(LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+log = logging.getLogger("tray")
+log.setLevel(logging.DEBUG)
+log.addHandler(handler)
+
+# ── State ────────────────────────────────────────────────────────────────────
+proc = None          # worker subprocess
+status = "starting"  # shown in tooltip
+proc_lock = threading.Lock()
+
+# ── Tray icon ─────────────────────────────────────────────────────────────────
+def make_icon(color=(0, 200, 120)):
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse((4, 4, 60, 60), fill=color + (255,))
+    return img
+
+STATUS_COLORS = {
+    "starting": (220, 160, 0),
+    "idle":     (0, 200, 120),
+    "working":  (0, 120, 255),
+    "error":    (220, 50, 50),
+    "stopped":  (140, 140, 140),
+}
+
+# ── Worker process management ─────────────────────────────────────────────────
+def start_worker():
+    global proc, status
+    with proc_lock:
+        if proc and proc.poll() is None:
+            log.info("start_worker called but worker already running")
+            return
+        log.info("Launching worker.py")
+        try:
+            proc = subprocess.Popen(
+                [PYTHON, str(WORKER_SCRIPT)],
+                cwd=str(HERE),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            status = "idle"
+            log.info("Worker PID %d started", proc.pid)
+        except Exception as e:
+            status = "error"
+            log.error("Failed to start worker: %s", e)
+
+def stop_worker():
+    global proc, status
+    with proc_lock:
+        if proc and proc.poll() is None:
+            log.info("Stopping worker PID %d", proc.pid)
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            status = "stopped"
+            log.info("Worker stopped")
+
+def pipe_reader():
+    """Read worker stdout/stderr and forward to log. Also detect 'processing' keyword."""
+    global status
+    while True:
+        with proc_lock:
+            p = proc
+        if p is None:
+            time.sleep(1)
+            continue
+        line = p.stdout.readline()
+        if line:
+            line = line.rstrip()
+            log.info("[worker] %s", line)
+            low = line.lower()
+            if any(k in low for k in ("claiming", "processing", "running", "progress")):
+                status = "working"
+            elif any(k in low for k in ("complete", "done", "idle", "waiting", "no job")):
+                status = "idle"
+            elif "error" in low or "exception" in low or "traceback" in low:
+                status = "error"
+        else:
+            # EOF — process ended
+            with proc_lock:
+                if p.poll() is not None:
+                    log.warning("Worker process exited with code %s — restarting in 5s", p.returncode)
+                    status = "error"
+                    time.sleep(5)
+                    start_worker()
+            time.sleep(0.2)
+
+def watchdog():
+    """Restart worker if it dies unexpectedly."""
+    while True:
+        time.sleep(10)
+        with proc_lock:
+            p = proc
+            if p is not None and p.poll() is not None:
+                log.warning("Watchdog: worker dead (code %s), restarting", p.returncode)
+                start_worker()
+
+# ── Tray menu actions ─────────────────────────────────────────────────────────
+def on_show_log(icon, item):
+    os.startfile(str(LOG_FILE))
+
+def on_stop(icon, item):
+    stop_worker()
+    icon.icon = make_icon(STATUS_COLORS["stopped"])
+    icon.title = "GenShape3D 3090 — stopped"
+
+def on_quit(icon, item):
+    stop_worker()
+    icon.stop()
+
+def update_icon(icon):
+    """Periodically refresh the tray tooltip and colour."""
+    while True:
+        time.sleep(3)
+        color = STATUS_COLORS.get(status, (140, 140, 140))
+        icon.icon = make_icon(color)
+        icon.title = f"GenShape3D 3090 — {status}"
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+def main():
+    log.info("Tray starting")
+    start_worker()
+
+    threading.Thread(target=pipe_reader, daemon=True).start()
+    threading.Thread(target=watchdog, daemon=True).start()
+
+    menu = pystray.Menu(
+        pystray.MenuItem("GenShape3D 3090 Worker", None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Show Log", on_show_log),
+        pystray.MenuItem("Stop Worker", on_stop),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Quit", on_quit),
+    )
+
+    icon = pystray.Icon(
+        "genshape3d-3090",
+        make_icon(STATUS_COLORS["starting"]),
+        "GenShape3D 3090 — starting",
+        menu,
+    )
+
+    threading.Thread(target=update_icon, args=(icon,), daemon=True).start()
+    icon.run()
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+### Step 3 — Test it manually
+
+```powershell
+cd C:\projects\genshape-worker-3090
+.\venv\Scripts\Activate.ps1
+python tray.py
+```
+
+You should see:
+- A green circle icon appear in the system tray (bottom-right).
+- Right-clicking shows the menu.
+- `tray-worker.log` in the project folder starts filling with worker output.
+- After a few seconds the icon turns blue when a job is claimed.
+
+**While it's running**, check the log:
+```powershell
+Get-Content .\tray-worker.log -Wait -Tail 30
+```
+
+Press Ctrl-C to stop only if you're running from a terminal; otherwise
+use the tray menu → **Quit**.
+
+---
+
+### Step 4 — Hide the terminal window on launch
+
+The tray app itself shows a terminal window if launched with `python tray.py`.
+Fix this by launching with `pythonw.exe` instead (it suppresses the console):
+
+```powershell
+# Quick test — no console window:
+.\venv\Scripts\pythonw.exe tray.py
+```
+
+The icon should still appear in the tray. All output goes to `tray-worker.log`.
+
+---
+
+### Step 5 — Add to Windows Startup folder (auto-start at login)
+
+Create a VBScript launcher so Windows launches it silently at login:
+
+1. Create `C:\projects\genshape-worker-3090\start-tray.vbs`:
+
+```vbscript
+Dim shell
+Set shell = CreateObject("WScript.Shell")
+shell.Run "cmd.exe /c ""C:\projects\genshape-worker-3090\venv\Scripts\pythonw.exe"" ""C:\projects\genshape-worker-3090\tray.py""", 0, False
+Set shell = Nothing
+```
+
+2. Put a shortcut to that VBScript in the Startup folder:
+
+```powershell
+$startup = [Environment]::GetFolderPath("Startup")
+$WshShell = New-Object -ComObject WScript.Shell
+$shortcut = $WshShell.CreateShortcut("$startup\genshape3d-3090-worker.lnk")
+$shortcut.TargetPath = "C:\projects\genshape-worker-3090\start-tray.vbs"
+$shortcut.WorkingDirectory = "C:\projects\genshape-worker-3090"
+$shortcut.WindowStyle = 7   # minimized/hidden
+$shortcut.Save()
+
+Write-Host "Shortcut created at: $startup\genshape3d-3090-worker.lnk"
+```
+
+3. Verify it's there:
+```powershell
+ls ([Environment]::GetFolderPath("Startup"))
+```
+
+Expect to see `genshape3d-3090-worker.lnk` in the list.
+
+4. Test it — double-click the `.lnk` file from Explorer. The tray icon should
+   appear within a few seconds without any console window.
+
+---
+
+### Step 6 — Commit the new files
+
+```powershell
+cd C:\projects\genshape-worker-3090
+git add tray.py start-tray.vbs
+git commit -m "Add system tray launcher (tray.py + start-tray.vbs)"
+git push
+```
+
+Do NOT commit `tray-worker.log` (it's already in .gitignore from the
+worker setup — if it isn't, add it now: `echo tray-worker.log >> .gitignore`).
+
+---
+
+### Step 7 — Smoke test end-to-end
+
+1. Reboot (or log off + log on) to verify auto-start works.
+2. After login, confirm the tray icon appears within ~10 seconds.
+3. Submit a job from `https://genshape3d.com` with model = **TripoSR**
+   (so the 1080 can't steal it — the 1080 only takes Hunyuan3D).
+4. Watch the tray icon turn blue (working).
+5. Watch it turn green again (idle) when done.
+6. Open the dashboard and verify the result GLB is visible.
+
+If step 3–6 pass, mark this section ✅ DONE and update the status.
+
+---
+
+### What you do NOT do
+
+- Do NOT install NSSM, PM2, or any other service manager — the VBScript +
+  Startup folder is sufficient and matches the pattern the i7 uses.
+- Do NOT run `genshape3d_nvidia` on this machine. That repo is for the i7
+  only. It polls Postgres directly; it does not know about TripoSR / SF3D /
+  Hi3DGen; it will not work here.
+- Do NOT open a persistent PowerShell terminal to keep the worker alive —
+  that is exactly what this tray app replaces.
+- Do NOT touch the i7's `.env`, Postgres, or any shared infra. All the
+  database interaction happens via `https://api.genshape3d.com/api/workers/*`.
+
+---
+
+### Reference
+
+| File | Purpose |
+|------|---------|
+| `worker.py` | HTTP control-plane client (already written) |
+| `tray.py` | System tray wrapper (built in this task) |
+| `start-tray.vbs` | Silent launcher (built in this task) |
+| `tray-worker.log` | Rotating log file (auto-created, gitignored) |
+| `venv/` | Python environment (already exists from setup) |
+
+WORKER_AUTH_TOKEN and other secrets live in `.env` (gitignored).
+The tray app inherits them automatically because it launches `worker.py`
+from the same directory where `.env` lives.
+
+---
+
+---
+
 ## 📋 How to use this document (read this first if you're a new agent)
 
 You are an agent running on one of the machines in the GenShape3D setup —
