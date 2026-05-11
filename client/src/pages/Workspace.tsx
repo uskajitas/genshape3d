@@ -56,9 +56,12 @@ const fetchJobs = async (email: string): Promise<Job[]> => {
   return Array.isArray(data) ? data : (data.jobs || []);
 };
 
+type ModelId = 'hunyuan3d' | 'triposr' | 'sf3d' | 'hi3dgen';
+
 interface SubmitOpts {
   quality: 'standard' | 'high';
   doTexture: boolean;
+  model: ModelId;
 }
 
 const renameJob = async (id: string, name: string): Promise<void> => {
@@ -78,6 +81,10 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<J
   const stem = file.name.replace(/\.[^.]+$/, '');
   form.append('name', stem);
   form.append('exportFormat', 'GLB');
+  // Which model runner should process this job. Server defaults to
+  // 'hunyuan3d' if the param is missing; we always send it explicitly so
+  // the per-model assignment is unambiguous in the jobs table.
+  form.append('model', opts.model);
   // Map quality → Hunyuan params (matches worker.py's build_params).
   if (opts.quality === 'high') {
     form.append('inferenceSteps', '15');
@@ -663,6 +670,41 @@ const ComingSoonTag = styled.span`
   letter-spacing: 0.05em;
 `;
 
+// Native <select> styled to match the panel's other form controls.
+// Used for the model dropdown (Hunyuan3D / TripoSR / Stable Fast 3D / Hi3DGen).
+const ModelSelect = styled.select`
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  padding-right: 1.85rem;
+  border-radius: 8px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, ${p => p.theme.colors.textMuted} 50%),
+                    linear-gradient(135deg, ${p => p.theme.colors.textMuted} 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  &:hover  { border-color: ${p => p.theme.colors.borderHigh}; }
+  &:focus  {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+`;
+
+const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
+  { value: 'hunyuan3d', label: 'Hunyuan3D-2 (default)' },
+  { value: 'triposr',   label: 'TripoSR' },
+  { value: 'sf3d',      label: 'Stable Fast 3D' },
+  { value: 'hi3dgen',   label: 'Hi3DGen' },
+];
+
 const PromptArea = styled.textarea`
   width: 100%;
   min-height: 72px;
@@ -1198,6 +1240,7 @@ const Workspace: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
+  const [model, setModel] = useState<ModelId>('hunyuan3d');
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
   const [assetTab, setAssetTab] = useState<'all' | 'pending' | 'done' | 'cancelled'>('all');
@@ -1343,6 +1386,7 @@ const Workspace: React.FC = () => {
     const job = await submitJob(email, file, {
       quality: effectiveQuality,
       doTexture: effectiveTexture,
+      model,
     });
     setSubmitting(false);
     if (job) {
@@ -1634,6 +1678,17 @@ const Workspace: React.FC = () => {
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
               />
+            </Field>
+
+            <Field>
+              <FieldLabel>
+                Model <FieldHint>which runner generates the mesh</FieldHint>
+              </FieldLabel>
+              <ModelSelect value={model} onChange={e => setModel(e.target.value as ModelId)}>
+                {MODEL_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </ModelSelect>
             </Field>
 
             <Field>

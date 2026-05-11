@@ -46,7 +46,31 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: two asks for the i7 agent (added 2026-05-11)
+## ✅ DONE — two asks for the i7 agent (completed 2026-05-11, by i7 agent)
+
+Skip this section. Left here for audit.
+
+- **Task 1 (create `genshape-worker-3090` GitHub repo)**: ⛔ NOT done from the
+  i7 — no `gh` CLI installed, no `GH_TOKEN`/`GITHUB_TOKEN` in env, and the
+  existing GitHub auth on this box is SSH-only (push-to-existing only,
+  cannot create repos). **User action needed**: create an empty private
+  repo named `genshape-worker-3090` under the `uskajitas` GitHub account
+  (no README, no .gitignore — the 3090's local repo has its own initial
+  commit). Once it exists, the 3090 can `git remote add origin … && git
+  push -u origin main`.
+- **Task 2 (model dropdown in client UI)**: ✅ done. Added to
+  `client/src/pages/Workspace.tsx` between the Prompt and Quality fields.
+  4 options (`Hunyuan3D-2 (default)`, `TripoSR`, `Stable Fast 3D`, `Hi3DGen`)
+  → values `hunyuan3d` / `triposr` / `sf3d` / `hi3dgen`. Default
+  `hunyuan3d` (existing behavior unchanged for users who don't touch it).
+  Selection is appended as `model` on the multipart form to `/api/upload`.
+  No admin gate per the spec; revisit if you want to hide unverified
+  models from free users once the 3090 has logged a successful job for
+  each. Vite HMR confirmed the change compiles.
+
+---
+
+## (Original task block — kept for reference)
 
 3090 progress since the last status section: **3 of 4 model runners' venvs
 are fully built and import cleanly** (TripoSR, Hunyuan3D, SF3D). Hi3DGen
