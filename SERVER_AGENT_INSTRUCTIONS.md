@@ -46,7 +46,72 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: R2 keys embedded + worker repo unblocked (added 2026-05-11)
+## 🚨 LATEST: 1080 worker must filter pending by model (added 2026-05-11)
+
+Both 1080 and 3090 now run an Electron app that polls the same
+genshape3d_jobs queue on i7's Postgres. They race for pending jobs.
+Whichever wins claims and runs it.
+
+**Problem:** the 1080 can only run Hunyuan3D (only `generate.py`). If
+it grabs a TripoSR / SF3D / Hi3DGen job, it'll try to run Hunyuan3D
+on it and produce wrong output.
+
+**Fix on the 1080 (your task):** apply the same model filter the 3090
+already has. The 3090's version of this code lives at
+`C:\projects\genshape-worker-3090\app\src\worker.js` on the 3090 box
+(also pushed to `uskajitas/genshape-worker-3090` on GitHub — look at
+the `poll()` method and the atomic claim UPDATE around line 258).
+
+### Edits to `/f/cloudflare/genshape3d_nvidia/src/worker.js`
+
+#### 1. In `poll()`, filter pending by model
+Find:
+```js
+const { rows: pending } = await this.pool.query(
+  `SELECT * FROM genshape3d_jobs WHERE status = 'pending' ORDER BY "createdAt" ASC`
+);
+```
+Replace with:
+```js
+const models = (process.env.WORKER_MODELS || 'hunyuan3d')
+  .split(',').map(s => s.trim()).filter(Boolean);
+const { rows: pending } = await this.pool.query(
+  `SELECT * FROM genshape3d_jobs
+   WHERE status = 'pending'
+     AND (model = ANY($1::text[]) OR (model IS NULL AND 'hunyuan3d' = ANY($1::text[])))
+   ORDER BY "createdAt" ASC`,
+  [models]
+);
+```
+
+#### 2. In `processJob()`, stamp `assignedWorkerId` on claim
+Find the UPDATE that flips status to 'processing'. Add
+`"assignedWorkerId" = $N` to the SET clause and pass
+`process.env.WORKER_ID || 'i7-1080'` as the value. Also wrap in an
+atomic guard `AND status = 'pending'` so the 1080 doesn't double-claim
+something the 3090 already took. (See 3090's worker.js lines ~258-275
+for the exact pattern.)
+
+### Add to `/f/cloudflare/genshape3d_nvidia/.env`
+```
+WORKER_ID=i7-1080
+WORKER_MODELS=hunyuan3d
+```
+
+### Restart the 1080's Electron app
+However you normally do it (tray → Quit → re-launch).
+
+### Result after this
+- Hunyuan3D jobs: both 1080 and 3090 race — either wins, both work.
+- TripoSR / SF3D / Hi3DGen jobs: only the 3090 sees them as eligible.
+  Always go to the 3090.
+- Each machine's tray app shows only ITS OWN jobs (assignedWorkerId
+  filter — already applied on the 3090; this PR brings the 1080
+  symmetric).
+
+---
+
+## ✅ DONE — R2 keys embedded + worker repo unblocked (completed 2026-05-11)
 
 **For the 3090 agent — copy these into the 3090's `.env` and you're
 unblocked.**
