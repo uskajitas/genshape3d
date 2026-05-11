@@ -46,60 +46,35 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: 1080 worker must filter pending by model (added 2026-05-11)
+## 🚨 LATEST: pull genshape3d_nvidia + set 2 env vars + restart (added 2026-05-11)
 
-Both 1080 and 3090 now run an Electron app that polls the same
-genshape3d_jobs queue on i7's Postgres. They race for pending jobs.
-Whichever wins claims and runs it.
+Both 1080 and 3090 now run the SAME `worker.js` and `index.html`. The
+code already includes the model filter + assignedWorkerId stamping +
+model tags on every job. Differences between the two machines are
+config-only via `.env`.
 
-**Problem:** the 1080 can only run Hunyuan3D (only `generate.py`). If
-it grabs a TripoSR / SF3D / Hi3DGen job, it'll try to run Hunyuan3D
-on it and produce wrong output.
+**Already pushed to `uskajitas/genshape3d_nvidia`:** the updated
+`worker.js` (model filter + dispatch + atomic claim) and `index.html`
+(model tag on every job).
 
-**Fix on the 1080 (your task):** apply the same model filter the 3090
-already has. The 3090's version of this code lives at
-`C:\projects\genshape-worker-3090\app\src\worker.js` on the 3090 box
-(also pushed to `uskajitas/genshape-worker-3090` on GitHub — look at
-the `poll()` method and the atomic claim UPDATE around line 258).
-
-### Edits to `/f/cloudflare/genshape3d_nvidia/src/worker.js`
-
-#### 1. In `poll()`, filter pending by model
-Find:
-```js
-const { rows: pending } = await this.pool.query(
-  `SELECT * FROM genshape3d_jobs WHERE status = 'pending' ORDER BY "createdAt" ASC`
-);
-```
-Replace with:
-```js
-const models = (process.env.WORKER_MODELS || 'hunyuan3d')
-  .split(',').map(s => s.trim()).filter(Boolean);
-const { rows: pending } = await this.pool.query(
-  `SELECT * FROM genshape3d_jobs
-   WHERE status = 'pending'
-     AND (model = ANY($1::text[]) OR (model IS NULL AND 'hunyuan3d' = ANY($1::text[])))
-   ORDER BY "createdAt" ASC`,
-  [models]
-);
+### 1. Pull latest
+```bash
+cd /f/cloudflare/genshape3d_nvidia
+git pull origin main
 ```
 
-#### 2. In `processJob()`, stamp `assignedWorkerId` on claim
-Find the UPDATE that flips status to 'processing'. Add
-`"assignedWorkerId" = $N` to the SET clause and pass
-`process.env.WORKER_ID || 'i7-1080'` as the value. Also wrap in an
-atomic guard `AND status = 'pending'` so the 1080 doesn't double-claim
-something the 3090 already took. (See 3090's worker.js lines ~258-275
-for the exact pattern.)
-
-### Add to `/f/cloudflare/genshape3d_nvidia/.env`
+### 2. Append two lines to `.env`
 ```
 WORKER_ID=i7-1080
 WORKER_MODELS=hunyuan3d
 ```
 
-### Restart the 1080's Electron app
-However you normally do it (tray → Quit → re-launch).
+(The 1080 only has `generate.py` → only Hunyuan3D. The 3090 has all
+four runner venvs and runs the other models.)
+
+### 3. Restart the Electron app
+However you normally do (tray → Quit → relaunch via `npm start` or
+whatever auto-start mechanism you use).
 
 ### Result after this
 - Hunyuan3D jobs: both 1080 and 3090 race — either wins, both work.
