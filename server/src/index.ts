@@ -16,6 +16,7 @@ import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJo
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
+import { mountWorkersApi } from './workersApi';
 
 const app = express();
 const port = process.env.PORT || 8110;
@@ -942,6 +943,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       guidanceScale:    parseFloat(req.body.guidanceScale)  || 0,
       numChunks:        parseInt(req.body.numChunks)        || 0,
       seed:             parseInt(req.body.seed)             || 0,
+      model:            (req.body.model as string)          || 'hunyuan3d',
     });
     res.json({ job, warnings: qcWarnings });
   } catch (err: any) {
@@ -995,6 +997,7 @@ app.post('/api/jobs/from-key', async (req, res) => {
       guidanceScale:    parseFloat(req.body.guidanceScale)  || 5,
       numChunks:        parseInt(req.body.numChunks)        || 0,
       seed:             parseInt(req.body.seed)             || 0,
+      model:            (req.body.model as string)          || 'hunyuan3d',
     });
     res.json({ job });
   } catch (e: any) {
@@ -1252,6 +1255,11 @@ app.get('/api/admin/stats', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── Workers (multi-machine control plane) ────────────────────────────────────
+// Registers /api/workers/register, /:id/claim, /:id/progress, /:id/complete,
+// /:id/heartbeat (worker→server, bearer-auth) and GET /api/workers (admin).
+mountWorkersApi(app);
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,124 @@
 # Server-side follow-up instructions
 
-This commit ships the **frontend redesign + Stripe scaffolding** for GenShape3D.
-The server-side wiring (Stripe products, env vars, webhook URL, infra) still
-needs to be set up. Below is everything the next agent needs to finish it.
+Multiple commits' worth of follow-ups stacked here. **Do the most recent
+section first** (top of the file) — older sections may already be partly done.
+
+---
+
+## 🚨 LATEST: Multi-worker control plane (added 2026-05-11)
+
+**Context:** the server now supports multiple GPU workers (the existing 1080
+home box, the new 3090 box, and any future ones). Workers no longer poll
+Postgres directly — they call new HTTP endpoints. There's one new env var
+you MUST set or every `/api/workers/*` call returns 401 and no worker can
+claim jobs.
+
+### What changed in code
+- New columns on `genshape3d_jobs`: `model` (default `'hunyuan3d'`),
+  `assignedWorkerId`. Migration is idempotent and runs automatically on
+  server boot — nothing manual.
+- New endpoints under `/api/workers/*` (see `server/src/workersApi.ts`).
+- Two new files: `server/src/workerRegistry.ts`, `server/src/workersApi.ts`.
+
+### What you must do
+
+#### 1. Generate the worker auth token
+This is a shared secret — a long random string. The server checks it on
+every `/api/workers/*` request; workers send it as `Authorization: Bearer <token>`.
+Anyone with this token can register a worker and start receiving (and
+billing for) jobs, so treat it like any other API key: never commit, never
+log, paste once and forget.
+
+In PowerShell on the i7:
+```powershell
+-join ((48..57)+(65..90)+(97..122) | Get-Random -Count 48 | % {[char]$_})
+```
+
+That prints a 48-char alphanumeric token. Copy the output.
+
+#### 2. Add it to the live server's `.env`
+The server `.env` lives at `/f/cloudflare/genshape3d/server/.env` (NOT the
+`.env.example` in the repo — that's the template). Append:
+
+```
+WORKER_AUTH_TOKEN=<paste-the-token-from-step-1>
+```
+
+Do not quote it. Do not add spaces around the `=`.
+
+#### 3. Save the token somewhere you can retrieve it
+You'll need to paste the same value into each worker box's `.env` (the 3090
+box first, then later when we migrate the 1080 worker). A password manager
+entry titled "genshape3d WORKER_AUTH_TOKEN" is the right home for it. Do
+not paste it into Slack / email / git.
+
+#### 4. Restart / reload the server
+`ts-node-dev` should auto-reload when `.env` changes, but to be safe:
+```bash
+cd /f/cloudflare/genshape3d/server
+# kill the running dev server (whatever your usual stop signal is) and
+npm run dev
+```
+
+On boot you should see `PostgreSQL tables ready` followed by
+`GenShape3D API listening on http://localhost:8110`. The schema
+migration ran automatically — the new columns are now on the table.
+
+#### 5. Smoke test (verifies the endpoints + auth wiring)
+From the i7 (replace `<TOKEN>` with what you generated):
+
+```bash
+# Without auth → 401
+curl -i -X POST http://localhost:8110/api/workers/register \
+  -H 'Content-Type: application/json' \
+  -d '{"id":"smoketest","models":["hunyuan3d"],"capacity":1}'
+# Expect: HTTP/1.1 401 Unauthorized, body {"error":"invalid worker token"}
+
+# With auth → 200 and worker registered
+curl -i -X POST http://localhost:8110/api/workers/register \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <TOKEN>' \
+  -d '{"id":"smoketest","models":["hunyuan3d"],"capacity":1}'
+# Expect: HTTP/1.1 200 OK, body has {"ok":true,"worker":{...}}
+
+# Admin view (replace email with one in ADMIN_EMAILS)
+curl 'http://localhost:8110/api/workers?email=usquiano@gmail.com'
+# Expect: 200 with the smoketest worker in the list.
+```
+
+If all three behave as expected, the control plane is live. The smoketest
+worker entry is harmless and will fall out of the in-memory registry on
+the next server restart (no persistence).
+
+#### 6. Verify the migration
+One quick Postgres check that the new columns exist:
+```bash
+psql -U genshape3d -d genshape3d -c "\d genshape3d_jobs" | grep -E 'model|assignedWorker'
+```
+Expect to see two rows: `model` (text, NOT NULL, default `'hunyuan3d'`) and
+`assignedWorkerId` (text, NOT NULL, default `''`).
+
+#### 7. Confirm nothing existing broke
+The old 1080 worker still uses its old direct-Postgres polling — it has
+no idea any of this happened. Submit a normal job through the web UI and
+verify it still gets picked up and processed end-to-end. If yes, the
+backwards-compat story holds and you're done with this section.
+
+### What you do NOT do
+- Don't touch `genshape3d_nvidia` or `genshape-worker` repos. They're
+  unchanged for now. The 1080 keeps polling; we'll migrate it in a later
+  phase.
+- Don't add a `model` selector to the client UI yet. That's part of the
+  same later phase, after the new 3090 worker is verified.
+- Don't manually create a worker registry table. The registry is
+  in-memory by design.
+
+### Reference
+- Endpoints + auth shape: `server/src/workersApi.ts`
+- In-memory registry: `server/src/workerRegistry.ts`
+- Atomic job claim (FOR UPDATE SKIP LOCKED): `server/src/jobsRepo.ts`
+  → `claimNextPendingJob`
+- All five new env-var entries documented in `server/.env.example`.
 
 ---
 

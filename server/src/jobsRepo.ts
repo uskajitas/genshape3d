@@ -30,6 +30,8 @@ export interface Job {
   guidanceScale: number;
   numChunks: number;
   seed: number;
+  model: string;
+  assignedWorkerId: string;
 }
 
 // Count how many jobs a user has submitted in the last `hours`. Used by
@@ -93,14 +95,16 @@ export async function createJob(data: {
   guidanceScale?: number;
   numChunks?: number;
   seed?: number;
+  model?: string;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
     `INSERT INTO genshape3d_jobs
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
-       "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed)
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+       "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
+       model)
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -116,6 +120,7 @@ export async function createJob(data: {
       data.guidanceScale    ?? 0,
       data.numChunks        ?? 0,
       data.seed             ?? 0,
+      data.model            || 'hunyuan3d',
     ]
   );
   return rows[0];
@@ -161,4 +166,97 @@ export async function updateJobStatus(id: string, status: Job['status'], resultU
     `UPDATE genshape3d_jobs SET status=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
     [status, resultUrl, new Date().toISOString(), id]
   );
+}
+
+// ── Worker-facing helpers ────────────────────────────────────────────────────
+// These power /api/workers/* — the new HTTP control plane. Workers no longer
+// poll Postgres directly; they call /claim and the server makes the routing
+// decision based on which models the worker declared at registration.
+
+// Atomically claim the oldest pending job whose model is in `models`. Uses
+// FOR UPDATE SKIP LOCKED so concurrent workers never race on the same row.
+// Returns null if no eligible job is currently pending.
+export async function claimNextPendingJob(workerId: string, models: string[]): Promise<Job | null> {
+  if (models.length === 0) return null;
+  const now = new Date().toISOString();
+  const { rows } = await getDb().query(
+    `UPDATE genshape3d_jobs SET
+       status = 'processing',
+       "assignedWorkerId" = $1,
+       "startedAt" = NOW(),
+       "updatedAt" = $2
+     WHERE id = (
+       SELECT id FROM genshape3d_jobs
+       WHERE status = 'pending'
+         AND deleted = false
+         AND model = ANY($3::text[])
+       ORDER BY "createdAt" ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING *`,
+    [workerId, now, models],
+  );
+  return rows[0] ?? null;
+}
+
+// Mark a job done/failed/cancelled — but ONLY if the calling worker owns it.
+// Returns false (and changes nothing) if the worker doesn't match — protects
+// against a buggy or malicious worker mutating a job assigned elsewhere.
+export async function completeJobByWorker(
+  id: string,
+  workerId: string,
+  status: 'done' | 'failed' | 'cancelled',
+  resultUrl = '',
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const r = await getDb().query(
+    `UPDATE genshape3d_jobs
+     SET status = $1,
+         "resultUrl" = $2,
+         "completedAt" = NOW(),
+         "updatedAt" = $3
+     WHERE id = $4 AND "assignedWorkerId" = $5`,
+    [status, resultUrl, now, id, workerId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+// Push progress from a worker. Same ownership guard as complete.
+export async function updateJobProgressByWorker(
+  id: string,
+  workerId: string,
+  progress: { pct?: number; phase?: string; step?: number; total?: number },
+): Promise<boolean> {
+  const r = await getDb().query(
+    `UPDATE genshape3d_jobs
+     SET "progressPct"   = COALESCE($1, "progressPct"),
+         "progressPhase" = COALESCE($2, "progressPhase"),
+         "progressStep"  = COALESCE($3, "progressStep"),
+         "progressTotal" = COALESCE($4, "progressTotal"),
+         "updatedAt"     = $5
+     WHERE id = $6 AND "assignedWorkerId" = $7`,
+    [
+      progress.pct   ?? null,
+      progress.phase ?? null,
+      progress.step  ?? null,
+      progress.total ?? null,
+      new Date().toISOString(),
+      id,
+      workerId,
+    ],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+// Look up which of the given jobIds have been flagged for cancellation.
+// Workers call this on heartbeat so they can stop the in-flight subprocess
+// without each one needing direct DB access.
+export async function getCancelRequests(jobIds: string[]): Promise<string[]> {
+  if (jobIds.length === 0) return [];
+  const { rows } = await getDb().query(
+    `SELECT id FROM genshape3d_jobs WHERE id = ANY($1::text[]) AND "requestCancel" = true`,
+    [jobIds],
+  );
+  return rows.map(r => r.id);
 }
