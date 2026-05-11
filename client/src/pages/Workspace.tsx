@@ -72,7 +72,9 @@ const renameJob = async (id: string, name: string): Promise<void> => {
   });
 };
 
-const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<Job | null> => {
+type SubmitResult = { job: Job | null; error: string | null; warnings?: string[] };
+
+const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<SubmitResult> => {
   const form = new FormData();
   form.append('image', file);
   form.append('email', email);
@@ -99,9 +101,15 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<J
   }
   form.append('doTexture', String(opts.doTexture));
   const r = await fetch('/api/upload', { method: 'POST', body: form });
-  if (!r.ok) return null;
-  const data: any = await r.json();
-  return data.job ?? data;
+  // Read the response body either way so we can surface server-side errors
+  // (rate limit, bad image, etc.) instead of silently dropping the click.
+  let data: any = null;
+  try { data = await r.json(); } catch { /* non-JSON 5xx — fall through */ }
+  if (!r.ok) {
+    const msg = (data && (data.detail || data.error)) || `Upload failed (HTTP ${r.status})`;
+    return { job: null, error: msg };
+  }
+  return { job: (data?.job ?? data) as Job, error: null, warnings: data?.warnings };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1248,6 +1256,7 @@ const Workspace: React.FC = () => {
   // viewport DetailOverlay — when null, the overlay isn't shown.
   const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
@@ -1354,6 +1363,7 @@ const Workspace: React.FC = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setFile(f);
     setPreviewUrl(URL.createObjectURL(f));
+    setSubmitError(null);
   }, [previewUrl]);
 
   const onClearFile = useCallback((e: React.MouseEvent) => {
@@ -1383,7 +1393,8 @@ const Workspace: React.FC = () => {
     }
     if (!file || !email || submitting) return;
     setSubmitting(true);
-    const job = await submitJob(email, file, {
+    setSubmitError(null);
+    const { job, error } = await submitJob(email, file, {
       quality: effectiveQuality,
       doTexture: effectiveTexture,
       model,
@@ -1395,8 +1406,16 @@ const Workspace: React.FC = () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setFile(null);
       setPreviewUrl(null);
+    } else if (error) {
+      setSubmitError(error);
+      // Server's view of limits may have moved (e.g. just hit the cap on this
+      // call). Refresh so the button label reflects reality.
+      fetch(`/api/limits?email=${encodeURIComponent(email)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setLimits({ used24h: d.used24h, limit24h: d.limit24h }); })
+        .catch(() => { /* non-fatal */ });
     }
-  }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture]);
+  }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture, model]);
 
 
   const onCancelJob = useCallback(async (id: string, name: string, e: React.MouseEvent) => {
@@ -1776,6 +1795,23 @@ const Workspace: React.FC = () => {
                       ? 'Daily limit reached — try again later'
                       : '✦ Generate (free)'}
             </GenerateBtn>
+            {submitError && (
+              <div
+                role="alert"
+                style={{
+                  marginTop: 8,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'rgba(220, 60, 60, 0.12)',
+                  border: '1px solid rgba(220, 60, 60, 0.35)',
+                  color: '#ffb4b4',
+                  fontSize: '0.78rem',
+                  lineHeight: 1.4,
+                }}
+              >
+                {submitError}
+              </div>
+            )}
           </PanelFooter>
         </Panel>
 
