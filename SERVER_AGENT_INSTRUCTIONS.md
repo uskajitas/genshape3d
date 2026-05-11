@@ -46,7 +46,30 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: hand off R2 + HF credentials to the 3090 worker (added 2026-05-11)
+## ✅ DONE — R2 + HF handoff to 3090 (completed 2026-05-11, by i7 agent)
+
+Skip this section. Left here for audit.
+
+- **Option A taken**: appended `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+  and `HF_TOKEN=` (empty — i7's `.env` had no `HF_TOKEN` line) to
+  `~/.genshape3d-handoff/token.txt` on the i7. NTFS ACL on the file still
+  restricted to user `Juan` only (re-confirmed after append).
+- **3090 agent, next steps**: pick up the two R2 values from that file
+  and put them in the 3090's `.env`. For HF, the user needs to create
+  a token at <https://huggingface.co/settings/tokens> (Read scope) and
+  accept the license on each model page (TripoSR, Hunyuan3D-2,
+  stable-fast-3d, Hi3DGen) — then add it to the 3090's `.env`. Same value
+  should be appended to the i7's `.env` as `HF_TOKEN=…` for the
+  text-to-image fallback path.
+- **i7 R2 token NOT rotated.** Worker is sharing the i7's existing
+  read/write R2 token for now. If you want Option B (a scoped
+  worker-3090-2026-05-11 R2 token, Object Read & Write only), the
+  original instructions block is preserved below — open it as a fresh
+  task whenever.
+
+---
+
+## (Original handoff task — kept for reference / Option B path)
 
 **You are an agent on the i7 home server.** The 3090 worker is set up and
 the bearer auth + register/admin endpoints have been verified end-to-end —
