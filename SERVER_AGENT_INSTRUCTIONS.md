@@ -46,7 +46,85 @@ do something that's not written here, stop and ask first.
 
 ---
 
-## 🚨 LATEST: 3090 worker setup (added 2026-05-11)
+## 🚨 LATEST: hand off R2 + HF credentials to the 3090 worker (added 2026-05-11)
+
+**You are an agent on the i7 home server.** The 3090 worker is set up and
+the bearer auth + register/admin endpoints have been verified end-to-end —
+but two pieces are still missing on the 3090:
+
+1. **R2 access key + secret** — needed to upload generated meshes to the
+   `genshape3d` bucket on `complete`.
+2. **HuggingFace token** — needed to download the model weights for
+   Hunyuan3D, TripoSR, SF3D, and Hi3DGen (all gated). The i7 likely has
+   one in `server/.env` already (used by the text-to-image fallback);
+   reuse if so.
+
+### What you must do
+
+#### 1. Decide the handoff channel — PICK ONE
+
+Both R2 keys and the HF token are more sensitive than `WORKER_AUTH_TOKEN`
+(R2 = read/write the whole bucket; HF = act as the user on huggingface.co).
+**Do NOT commit either of them to this repo, even though it's private** —
+unlike the worker bearer token, leaking these would let an attacker
+exfiltrate user uploads or download paid model checkpoints under our
+account.
+
+**Option A (recommended) — handoff file, never committed.** Reuse the
+mechanism you used for the worker token:
+```bash
+# Append to the existing handoff file the user will read:
+{
+  echo ""
+  echo "# R2 + HF (handed off 2026-05-11 for the 3090 worker)"
+  echo "R2_ACCESS_KEY_ID=<value-from-server-.env>"
+  echo "R2_SECRET_ACCESS_KEY=<value-from-server-.env>"
+  echo "HF_TOKEN=<value-from-server-.env-if-set-else-blank>"
+} >> ~/.genshape3d-handoff/token.txt
+chmod 600 ~/.genshape3d-handoff/token.txt   # no-op on NTFS but harmless
+```
+Tell the user "R2 + HF keys appended to handoff file." The user will paste
+them into the 3090's `.env` themselves.
+
+**Option B — create a new scoped R2 token (R2 only).** Cleanest long-term:
+create a *new* Cloudflare R2 API token limited to the `genshape3d` bucket
+with `Object Read & Write` only (no admin), name it
+`worker-3090-2026-05-11`, hand off ONLY that scoped token. The i7-server
+token stays. Slightly more work, much safer. (HF tokens can't be scoped
+to specific repos on the free plan, so HF still goes via Option A.)
+
+#### 2. Source of the credentials
+- R2: `/f/cloudflare/genshape3d/server/.env` →
+  `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
+- HF: same file → `HF_TOKEN`. If empty/missing, just append `HF_TOKEN=` and
+  tell the user they'll need to create one at
+  <https://huggingface.co/settings/tokens> (Read scope) and accept the
+  license on each model page (TripoSR, Hunyuan3D-2, stable-fast-3d,
+  Hi3DGen — links are in the 3090 section below).
+
+The endpoint, bucket, and public URL for R2 are non-secret and already on
+the 3090 — only the access key + secret are needed.
+
+#### 3. Report back
+Single message to the user:
+1. Which option you took for R2 (A or B), and what you appended for HF.
+2. Where the user can retrieve the appended values on the i7 (file path
+   `~/.genshape3d-handoff/token.txt`, or Cloudflare dashboard panel for
+   Option B).
+3. **Do not include the raw key values in your report.**
+4. If Option B, the rotation plan for the new scoped token.
+
+### What you do NOT do
+- Don't paste the raw `R2_SECRET_ACCESS_KEY` or `HF_TOKEN` into chat, this
+  doc, or git.
+- Don't rotate the existing i7 R2 token unless explicitly asked — the i7
+  server is using it right now.
+- Don't push this repo from the 3090 (you're on the i7; commit + push the
+  doc updates if you make any).
+
+---
+
+## ⏳ IN PROGRESS: 3090 worker setup (added 2026-05-11)
 
 **You are an agent running on the new 3090 box** (NOT the i7 home server).
 The i7 side is already done — the control plane is live at
