@@ -75,14 +75,24 @@ done there, and stop. Don't re-run those steps.
 ### What you must do
 
 #### 1. Get the token (do NOT generate a new one)
-Ask the user for the value of `WORKER_AUTH_TOKEN`. They will paste it once
-into a channel they specify (password manager, secure file, etc.). Do NOT
-paste it into chat, email, or git. If they say "it's in my password
-manager," wait for them to bring it to you — don't proceed without it.
+The current `WORKER_AUTH_TOKEN` (issued by the i7 on 2026-05-11) is:
 
-Once you have it, store it in the worker's `.env` on THIS machine:
 ```
-WORKER_AUTH_TOKEN=<paste-here>
+8MbIftAv4oWlpYSwaKEzXFUs31DyOe2H5BkVGqcP7nCLxTZN
+```
+
+> ⚠️ This token is committed here for convenience because the repo is
+> private. Treat it like any API key: never echo it into logs, never
+> include it in screenshots or pasted output, never include it in your
+> "report back" message at the end. If it ever leaks, rotate it by
+> rerunning the PowerShell generator on the i7 and updating both i7's
+> `.env` and every worker's `.env`. The token also lives in
+> `~/.genshape3d-handoff/token.txt` on the i7 and (if the user used the
+> password manager channel) under entry `genshape3d WORKER_AUTH_TOKEN`.
+
+Store it in the worker's `.env` on THIS (3090) machine:
+```
+WORKER_AUTH_TOKEN=8MbIftAv4oWlpYSwaKEzXFUs31DyOe2H5BkVGqcP7nCLxTZN
 GENSHAPE3D_API=https://api.genshape3d.com
 WORKER_ID=worker-3090-home              # any unique stable string
 WORKER_MODELS=hunyuan3d                  # comma-separated list of model ids this box can run
