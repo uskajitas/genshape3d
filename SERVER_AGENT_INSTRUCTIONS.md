@@ -5,6 +5,41 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 📋 How to use this document (read this first if you're a new agent)
+
+You are an agent running on the **i7 home server** (the box that hosts the
+genshape3d API + Postgres + Cloudflare tunnel). You have terminal access to
+`/f/cloudflare/genshape3d`. The user pointed you here so you can finish a
+deployment task end-to-end without further instruction.
+
+Workflow:
+
+1. **Pull latest:**
+   ```bash
+   cd /f/cloudflare/genshape3d
+   git pull origin main
+   ```
+2. **Find your task.** Read this file top to bottom. The **most recent**
+   pending task is the topmost section under the first `---`. That is the
+   one to do *now*. Older sections below it may already be done — verify
+   the env vars / state before re-running them.
+3. **Do every numbered step in order.** Don't skip steps. Don't substitute
+   shortcuts. If a smoke test fails, stop and report — do not "fix" by
+   editing code in another repo unless that section explicitly authorizes it.
+4. **Report back to the user when done.** Specifically:
+   - Confirm each numbered step completed (e.g., "step 1 generated token,
+     step 2 added to .env, step 3 stored in password manager, …").
+   - Paste any tokens / secrets the user needs to copy elsewhere into a
+     channel they specified (password manager entry name, secure note,
+     whatever). **Never** paste secrets into chat / email / git.
+   - Surface any smoke-test failures with exact output.
+
+Think of this file as the single source of truth for "what the i7 box
+needs done that the user doesn't want to type out." If you're tempted to
+do something that's not written here, stop and ask first.
+
+---
+
 ## 🚨 LATEST: Multi-worker control plane (added 2026-05-11)
 
 **Context:** the server now supports multiple GPU workers (the existing 1080
@@ -46,11 +81,23 @@ WORKER_AUTH_TOKEN=<paste-the-token-from-step-1>
 
 Do not quote it. Do not add spaces around the `=`.
 
-#### 3. Save the token somewhere you can retrieve it
-You'll need to paste the same value into each worker box's `.env` (the 3090
-box first, then later when we migrate the 1080 worker). A password manager
-entry titled "genshape3d WORKER_AUTH_TOKEN" is the right home for it. Do
-not paste it into Slack / email / git.
+#### 3. Hand the token off to the user
+The user needs the same token to set up the 3090 worker on a different
+machine. **Save it to the user's password manager** under the entry name:
+
+> **genshape3d WORKER_AUTH_TOKEN**
+
+If you don't have password-manager access from this machine, write the
+token to a file the user has agreed in advance to read — for example:
+
+```bash
+mkdir -p ~/.genshape3d-handoff
+echo "WORKER_AUTH_TOKEN=<paste-here>" > ~/.genshape3d-handoff/token.txt
+chmod 600 ~/.genshape3d-handoff/token.txt
+```
+
+Then in your final report (step 8) tell the user the file path. Do **not**
+paste the raw token into chat, Slack, email, or any git-tracked file.
 
 #### 4. Restart / reload the server
 `ts-node-dev` should auto-reload when `.env` changes, but to be safe:
@@ -102,7 +149,22 @@ Expect to see two rows: `model` (text, NOT NULL, default `'hunyuan3d'`) and
 The old 1080 worker still uses its old direct-Postgres polling — it has
 no idea any of this happened. Submit a normal job through the web UI and
 verify it still gets picked up and processed end-to-end. If yes, the
-backwards-compat story holds and you're done with this section.
+backwards-compat story holds and continue to step 8.
+
+#### 8. Report back to the user
+Post a single message that includes, in this order:
+
+1. ✅ / ❌ for each of steps 1–7 (one line each).
+2. The exact location of the token handoff (password-manager entry name,
+   or `~/.genshape3d-handoff/token.txt` path — whichever you used in
+   step 3). Do not include the token value itself in this message.
+3. The output of step 5's three smoke-test curls if any of them deviated
+   from "Expect:".
+4. The output of step 6's `\d` query (the two new column rows).
+5. Whether the step 7 end-to-end job succeeded.
+
+If any step failed, stop there, report what you tried, and wait for the
+user to direct you. Do not improvise fixes outside this document.
 
 ### What you do NOT do
 - Don't touch `genshape3d_nvidia` or `genshape-worker` repos. They're
