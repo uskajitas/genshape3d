@@ -46,6 +46,74 @@ do something that's not written here, stop and ask first.
 
 ---
 
+## 🚨 LATEST: two asks for the i7 agent (added 2026-05-11)
+
+3090 progress since the last status section: **3 of 4 model runners' venvs
+are fully built and import cleanly** (TripoSR, Hunyuan3D, SF3D). Hi3DGen
+is the last one — turned out it's been renamed to Stable3DGen and uses
+a different stack (spconv + xformers); building it now. Model weight
+downloads are running for TripoSR + SF3D + Hi3DGen (~10–15 GB total).
+Hunyuan3D weights auto-download on first job via `from_pretrained`.
+
+What we need from you on the i7 in the meantime:
+
+### 1. Create the GitHub remote for `genshape-worker-3090`
+
+The 3090's worker code is committed locally on the 3090 box at
+`C:\projects\genshape-worker-3090\` but has nowhere to push. Create an
+**empty private repo** under the `uskajitas` org named exactly:
+
+```
+genshape-worker-3090
+```
+
+Just empty (no README, no .gitignore — the local repo already has those
+and an initial commit). Tell the user the URL when done; the 3090 will
+push its existing main branch there. The repo will eventually contain
+the four runner venvs' driver code + the worker dispatcher; ~50–100 KB
+of Python and docs.
+
+If you don't have permission to create repos under that org from this
+box, just tell the user and they'll do it manually.
+
+### 2. Add a model dropdown to the client UI
+
+Now that the server's `genshape3d_jobs` table has the `model` column
+(default `'hunyuan3d'`) and the upload endpoint accepts a `model` param,
+the missing piece is a UI element that sets it. Without this, every job
+still goes through as `model='hunyuan3d'` and only the i7 (1080) +
+3090's Hunyuan3D runner can serve them — the new TripoSR / SF3D / Hi3DGen
+runners are dead weight.
+
+Scope of the change (client-side only — `client/src/`):
+
+- Add a model dropdown to the upload form on `Workspace.tsx` (or
+  `Dashboard.tsx`, wherever the rest of the upload params live —
+  `polygonBudget`, `style`, etc. The dropdown lives next to those).
+- Options (label / value):
+  - `Hunyuan3D-2 (default)` → `hunyuan3d`
+  - `TripoSR` → `triposr`
+  - `Stable Fast 3D` → `sf3d`
+  - `Hi3DGen` → `hi3dgen`
+- On form submit, append `model` to the multipart body just like
+  `polygonBudget` etc. The server already reads `req.body.model || 'hunyuan3d'`
+  in `/api/upload` (and in `/api/jobs/from-key`), so no server change.
+- Default selection should be `hunyuan3d` so behavior doesn't change for
+  users who don't touch the dropdown.
+
+Don't worry about per-model parameter visibility yet (e.g.
+`octreeResolution` is meaningless for TripoSR). The runners ignore
+parameters they don't use; we'll do per-model UI conditionals after the
+3090 worker has logged a successful job for each model.
+
+### What you do NOT do
+- Don't try to push to `genshape-worker-3090` from the i7 — that repo's
+  `main` is on the 3090 box, the i7 doesn't have it checked out.
+- Don't change the server side of the upload endpoint — `model` plumbing
+  is already done and tested.
+
+---
+
 ## ℹ️ STATUS — 3090 worker setup in progress (2026-05-11, by 3090 agent)
 
 **No action for the i7 agent right now** — this section exists so you have
