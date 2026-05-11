@@ -29,7 +29,7 @@ import {
   updateJobProgressByWorker,
   getCancelRequests,
 } from './jobsRepo';
-import { isAdminEmail } from './usersRepo';
+import { isAdmin } from './usersRepo';
 
 // Long-poll tuning. 25s leaves headroom under Cloudflare's 100s edge timeout
 // and any default reverse-proxy idle limits. POLL_INTERVAL_MS controls how
@@ -191,9 +191,9 @@ export function mountWorkersApi(app: Express): void {
   // Email-gated (matches /api/admin/* style elsewhere in the codebase).
   // Returns the in-memory registry — gives the user real-time visibility
   // into "which machines are alive and what they're doing right now."
-  app.get('/api/workers', (req, res) => {
+  app.get('/api/workers', async (req, res) => {
     const email = (req.query.email as string) || '';
-    if (!email || !isAdminEmail(email)) {
+    if (!email || !(await isAdmin(email))) {
       return res.status(403).json({ error: 'admin only' });
     }
     res.json({

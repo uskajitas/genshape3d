@@ -30,6 +30,28 @@ export function isAdminEmail(email: string): boolean {
   return getAdminEmails().includes(email);
 }
 
+/**
+ * Admin check that honors BOTH the ADMIN_EMAILS env list and the per-user
+ * `role='admin'` value stored in genshape3d_users. Use this anywhere a feature
+ * gate cares about admin status (rate limits, mgmt routes). The env list
+ * remains for bootstrap (first deploy, before any DB row exists for the user).
+ *
+ * Returns false on any DB error rather than throwing — admin gates are
+ * advisory: a transient DB blip should not flip an admin into a guest.
+ */
+export async function isAdmin(email: string): Promise<boolean> {
+  if (isAdminEmail(email)) return true;
+  try {
+    const { rows } = await getDb().query(
+      'SELECT role FROM genshape3d_users WHERE email = $1',
+      [email],
+    );
+    return rows[0]?.role === 'admin';
+  } catch {
+    return false;
+  }
+}
+
 export async function upsertOnLogin(email: string, name: string, picture: string): Promise<AppUser> {
   const db = getDb();
   const now = new Date().toISOString();

@@ -8,7 +8,7 @@ import { initDb } from './db';
 import {
   upsertOnLogin, recordLoginEvent, getAppUser,
   listAppUsers, setUserRole, deductCredit,
-  isAdminEmail, UserRole,
+  isAdminEmail, isAdmin, UserRole,
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
@@ -124,7 +124,7 @@ app.get('/api/auth/me', async (req, res) => {
 const FREE_LIMIT_PER_24H = parseInt(process.env.FREE_LIMIT_PER_24H || '3', 10);
 
 const checkRateLimit = async (email: string): Promise<{ ok: boolean; used: number; limit: number }> => {
-  if (isAdminEmail(email)) return { ok: true, used: 0, limit: Infinity as any };
+  if (await isAdmin(email)) return { ok: true, used: 0, limit: Infinity as any };
   const used = await countUserJobsSince(email, 24);
   return { ok: used < FREE_LIMIT_PER_24H, used, limit: FREE_LIMIT_PER_24H };
 };
@@ -865,7 +865,7 @@ app.get('/api/limits', async (req, res) => {
   res.json({
     used24h: lim.used,
     limit24h: lim.limit === Infinity ? null : lim.limit,
-    isAdmin: isAdminEmail(email),
+    isAdmin: await isAdmin(email),
   });
 });
 
@@ -1109,13 +1109,13 @@ app.post('/api/generate', async (req, res) => {
 
 app.get('/api/mgmt/users', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
-  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
   res.json({ users: await listAppUsers() });
 });
 
 app.patch('/api/mgmt/users/:id/role', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
-  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
   const { role } = req.body as { role: UserRole };
   const validRoles: UserRole[] = ['free', 'pro', 'admin'];
   if (!validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
@@ -1125,7 +1125,7 @@ app.patch('/api/mgmt/users/:id/role', async (req, res) => {
 
 app.get('/api/admin/jobs', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
-  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
   const filter = req.query.filter as string;
   const jobs = filter === 'pending' ? await listPendingJobs()
     : filter === 'cancelled' ? await listCancelledJobs()
@@ -1135,7 +1135,7 @@ app.get('/api/admin/jobs', async (req, res) => {
 
 app.patch('/api/admin/jobs/:id/status', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
-  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
   const { status, resultUrl } = req.body as { status: string; resultUrl?: string };
   await updateJobStatus(req.params.id as any, status as any, resultUrl);
   res.json({ ok: true });
@@ -1146,7 +1146,7 @@ app.patch('/api/admin/jobs/:id/status', async (req, res) => {
 
 app.get('/api/admin/stats', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
-  if (!caller || !isAdminEmail(caller)) return res.status(403).json({ error: 'Forbidden' });
+  if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const { getDb } = require('./db');
