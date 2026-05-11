@@ -138,6 +138,76 @@ parameters they don't use; we'll do per-model UI conditionals after the
 
 ---
 
+## ℹ️ STATUS — 3090 worker setup, end-of-day update (2026-05-11, by 3090 agent)
+
+No new asks for the i7 agent. Section here so you have current state if
+the user pings.
+
+### Where we are
+- **Toolchain on 3090:** Python 3.11.9, VS Build Tools 2022 + MSVC v14.39
+  toolset (v14.44 was rejected by CUDA 12.1), CUDA Toolkit 12.1 with the
+  Visual Studio Integration files copied into VS BuildCustomizations.
+- **Three of four runner venvs fully built and import-tested:**
+  - TripoSR — torch 2.5.1+cu121, torchmcubes (CUDA ext) compiled.
+  - Hunyuan3D — torch 2.5.1+cu121, hy3dgen.shapegen imports.
+  - SF3D — torch 2.5.1+cu121, in-tree texture_baker (CUDA ext) +
+    uv_unwrapper (C++ ext) both compiled.
+- **Hi3DGen runner venv:** in flight. Requires a different stack
+  (torch 2.4.0+cu121, spconv-cu121, xformers, NVTX patch v2 because
+  torch 2.4's cuda.cmake has a stricter FATAL_ERROR check than 2.5).
+  Documented in worker repo's SETUP.md.
+- **Model weights pre-downloaded** to `C:\projects\ai\<model>\` for
+  TripoSR (1.75 GB), SF3D (4.18 GB), Hi3DGen (5.28 GB across two HF
+  repos). Hunyuan3D weights auto-download on first job via
+  `from_pretrained` (legacy 1080 worker shares the same HF cache).
+- **HF token verified.** SF3D license accepted. Hi3DGen renamed to
+  Stable3DGen — its weights live at `Stable-X/trellis-normal-v0-1` +
+  `Stable-X/yoso-normal-v1-8-1` (both public, no gate).
+- **Network/auth path verified end-to-end** against
+  `https://api.genshape3d.com/api/workers/*` from the 3090. Bearer auth
+  works, register+admin-list both 200.
+
+### What the 3090 is still blocked on (user, not you)
+1. **R2 access key + secret** still need to make it from i7's
+   `~/.genshape3d-handoff/token.txt` to the 3090's `.env`. User will paste
+   them directly.
+2. **GitHub repo `uskajitas/genshape-worker-3090`** still needs to be
+   created (you flagged you couldn't from the i7). Once it exists the
+   3090 will push its 5 local commits.
+
+### What's queued for the 3090 once those clear
+- Push the worker repo to GitHub.
+- End-to-end smoke: claim a real Hunyuan3D job submitted via the web UI
+  (now using the `model` dropdown you added), run it on the 3090, upload
+  the GLB to R2, verify the dashboard shows it. Then repeat for TripoSR /
+  SF3D / Hi3DGen one at a time.
+- Stand the worker up as a real always-on service (NSSM or Task
+  Scheduler) so it survives reboots and crashes. Currently runs only
+  while a PowerShell terminal is open.
+
+### Reference — major lessons learned this session
+Captured in detail in `genshape-worker-3090/SETUP.md` so the next worker
+box (cloud or otherwise) doesn't repeat them:
+- CUDA 12.1 rejects MSVC v14.40+. Side-by-side install of v14.39 toolset
+  is required.
+- CUDA's "Visual Studio Integration" component must be installed (or its
+  4 files manually copied to VS BuildCustomizations) — without them
+  CMake errors with "No CUDA toolset found."
+- PyTorch 2.5+ uses NVTX3 (header-only) — patch `cuda.cmake` to point
+  at the `nvidia-nvtx-cu12` wheel headers.
+- PyTorch 2.4 has a stricter NVTX FATAL_ERROR; needs a different patch
+  (create a stub `CUDA::nvToolsExt` INTERFACE target).
+- `--no-build-isolation` is required for any CUDA extension whose
+  `setup.py` imports torch.
+- `TORCH_CUDA_ARCH_LIST` + `DISTUTILS_USE_SDK` must be set in the
+  PowerShell scope (NOT inside the `cmd /c` chain — `set` doesn't
+  reliably propagate to pip's build subprocess).
+- Pip is atomic per `pip install` invocation — install one CUDA
+  extension at a time when debugging, otherwise a partial-success build
+  is rolled back.
+
+---
+
 ## ℹ️ STATUS — 3090 worker setup in progress (2026-05-11, by 3090 agent)
 
 **No action for the i7 agent right now** — this section exists so you have
