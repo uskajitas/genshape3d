@@ -48,6 +48,10 @@ interface Job {
   doTexture?: boolean;
   progressPct?: number;
   progressPhase?: string;
+  model?: string;
+  assignedWorkerId?: string;
+  preferredWorkerId?: string;
+  errorMessage?: string;
 }
 
 const fetchJobs = async (email: string): Promise<Job[]> => {
@@ -2042,6 +2046,79 @@ const Workspace: React.FC = () => {
                       </AssetTag>
                       {timeStr && <AssetTime>{timeStr}</AssetTime>}
                     </AssetOverlay>
+
+                    {/* Live status line: worker + model + phase (always visible while in-flight) */}
+                    {(job.status === 'processing' || job.status === 'running' || job.status === 'pending') && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 6, right: 6, bottom: 6,
+                          background: 'rgba(10,12,18,0.85)',
+                          borderRadius: 6,
+                          padding: '4px 6px',
+                          fontSize: '0.62rem',
+                          color: '#E4E4E7',
+                          lineHeight: 1.25,
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 4,
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: job.assignedWorkerId ? '#10B981' : '#F59E0B',
+                          }} />
+                          <strong style={{ fontSize: '0.62rem' }}>
+                            {job.assignedWorkerId || (job.preferredWorkerId ? `→ ${job.preferredWorkerId}` : 'queued')}
+                          </strong>
+                          {job.model && <span style={{ color: '#A4A4AC' }}>· {job.model}</span>}
+                        </div>
+                        {(job.status === 'processing' || job.status === 'running') && (
+                          <>
+                            <div style={{
+                              color: '#A4A4AC', marginTop: 2,
+                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            }}>
+                              {job.progressPhase || 'in progress…'}
+                            </div>
+                            <div style={{
+                              height: 3, background: '#22232A', borderRadius: 2,
+                              marginTop: 3, overflow: 'hidden',
+                            }}>
+                              <div style={{
+                                width: `${Math.min(100, job.progressPct ?? 0)}%`,
+                                height: '100%',
+                                background: '#A855F7',
+                                transition: 'width 0.4s',
+                              }} />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Failure reason — visible without clicking */}
+                    {(job.status === 'failed' || job.status === 'error') && job.errorMessage && (
+                      <div
+                        title={job.errorMessage}
+                        style={{
+                          position: 'absolute',
+                          left: 6, right: 6, bottom: 6,
+                          background: 'rgba(127,29,29,0.92)',
+                          color: '#FECACA',
+                          borderRadius: 6,
+                          padding: '4px 6px',
+                          fontSize: '0.62rem',
+                          lineHeight: 1.25,
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        ⚠ {job.errorMessage}
+                      </div>
+                    )}
                     </AssetCard>
                   {editingNameId === job.id ? (
                     <AssetNameInput
