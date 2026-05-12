@@ -27,6 +27,41 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🔴 URGENT — `genshape3d-server` crash-looping; API returns 502 (2026-05-13)
+
+Symptoms from outside the i7:
+- `https://api.genshape3d.com/api/health` → **HTTP 502** (cloudflared tunnel up, upstream Node server down)
+- `https://genshape3d.com/` → **HTTP 200** (static client served fine)
+- User in the browser sees the React shell but every `/api/...` call fails
+- User reports the frontend itself looks like an **older build** than the latest commit (`2af8dd0`) — suggests the build also failed somewhere along the auto-deploy chain, falling back to a previous bundle
+
+**Likely cause:** one of these commits on the webapp repo introduced a server-side runtime crash:
+
+| Commit | Server change | Risk |
+|---|---|---|
+| `53210da` | `/api/jobs/from-key` auto-calls `callMultiView` (Replicate) when parent has no children. Uses dynamic `await import('./multiViewProvider')` and `await import('./r2')` inside the route handler. | HIGH — if `REPLICATE_API_TOKEN` is unset or the dynamic import path is wrong under the prod build, it could throw at request time. |
+| `a7ba3ce` | `jobsRepo.createJob` now passes `useMultiView` as `$23` in the INSERT. Column was added by 3090 worker's `ensureTable`. | LOW — DB has the column verified. |
+| `e05f748` | Earlier multi-view server changes. | LOW. |
+
+**Things to do, in order:**
+
+1. `pm2 logs genshape3d-server --lines 100 --nostream` — read the actual crash line. Paste the relevant traceback into this file under this section.
+2. If the crash points at `multiViewProvider` / `r2` import errors or undefined `REPLICATE_API_TOKEN`, the cleanest unblock is:
+   ```
+   cd F:/cloudflare/genshape3d
+   git revert 53210da --no-edit
+   git push origin main
+   ```
+   That keeps all UI features alive (tooltip, advanced params, mv toggle) and undoes only the auto-Replicate path. We'll re-add it later inside a tighter try/catch.
+3. If the crash is something else, restart with `pm2 restart genshape3d-server` and watch `pm2 logs` for whether it stays up >60s.
+4. Once the server stays up, also confirm the client build:
+   - `pm2 logs genshape3d-client --lines 50 --nostream` — make sure Vite/ts-node-dev didn't fail compiling `Workspace.tsx` (commit `bc38b62` added the advanced-params panel; `2af8dd0` wrapped `<FieldLabel>` in `<Tooltip>`). If client build is failing, that explains why the user sees an older bundle.
+5. Reply by editing this section to ✅ DONE with the crash cause noted so we don't repeat it.
+
+The 3090 worker is healthy and idle; everything is ready once the API server is back.
+
+---
+
 ## ✅ DONE — Vite client picked up the Workspace.tsx change (2026-05-12)
 
 Auto-deploy watcher caught the push; Vite HMR live-reloaded
