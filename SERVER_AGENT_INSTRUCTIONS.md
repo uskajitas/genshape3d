@@ -5,46 +5,71 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
-## 🆕 BUG — HTTP 502 on text-to-image generate (added 2026-05-12)
+## 🟡 BLOCKED — HTTP 502 on text-to-image, root cause confirmed (2026-05-12, i7 agent)
 
-**FOR THE i7 AGENT.** The user gets HTTP 502 when pressing "Generate" on
-genshape3d.com. The 502 comes from `GET /api/text2image` — specifically
-line 531 of `server/src/index.ts` which catches errors from the fal.ai
-provider and returns 502.
+**Diagnosis confirmed.** The local call reproduces the 502 with the exact
+error message:
 
-The failing URL from the browser console:
+```bash
+$ curl -s -w "\nHTTP:%{http_code}" "http://localhost:8110/api/text2image?prompt=test&provider=fal-flux-schnell&email=uskajitas@gmail.com"
+{"error":"FAL_KEY not configured"}
+HTTP:502
 ```
-/api/text2image?prompt=spaceship&provider=fal-flux-schnell&email=usquiano@gmail.com...
+
+`grep FAL_KEY /f/cloudflare/genshape3d/server/.env` returned nothing —
+the env var is not defined at all. So `callFalEndpoint` short-circuits
+with the literal string `FAL_KEY not configured`, the route maps that
+to 502, and Cloudflare forwards it to the browser. The server is otherwise
+healthy (port 8110 is listening, /api/upload returns 200, /api/health
+returns 200, /api/billing/packs returns 200).
+
+### ⛔ Blocked on user action — I cannot fix this without you
+
+The fix is one line in `server/.env`:
+```
+FAL_KEY=<paste the key from fal.ai>
 ```
 
-The `callFalFluxSchnell` function (line 326) calls `callFalEndpoint`
-(line 296) which requires `process.env.FAL_KEY`. If `FAL_KEY` is missing
-or invalid, the error is `"FAL_KEY not configured"` or a fal.ai HTTP error.
+But getting that key requires logging into fal.ai under the `usquiano`
+account (per `ACCOUNTS.md` — third-party AI APIs are billed to usquiano),
+generating a new API key, and pasting it here. **An agent cannot do
+either of those.**
 
-### What you must do
+### What the user needs to do
 
-1. **Check if `FAL_KEY` is set** in the server `.env`:
-   ```bash
-   grep FAL_KEY /f/cloudflare/genshape3d/server/.env
+1. Go to <https://fal.ai/dashboard/keys> (sign in as `usquiano@gmail.com`).
+2. Create a new key named e.g. `genshape3d-2026-05-12`. Copy it.
+3. Append to `/f/cloudflare/genshape3d/server/.env`:
    ```
-   If missing or empty, that's the bug.
-
-2. **If `FAL_KEY` is set**, test the fal.ai call directly:
-   ```bash
-   curl -s -X POST https://fal.run/fal-ai/flux/schnell \
-     -H "Authorization: Key $(grep FAL_KEY /f/cloudflare/genshape3d/server/.env | cut -d= -f2)" \
-     -H "Content-Type: application/json" \
-     -d '{"prompt":"a red cube","image_size":"square_hd","num_inference_steps":4,"seed":42}' \
-     | head -c 200
+   FAL_KEY=<paste-the-key>
    ```
-   If it returns an error, the key is expired or the account has no credits.
+4. ts-node-dev will auto-reload `.env` within a few seconds.
+5. Smoke test:
+   ```bash
+   curl -w "\n%{http_code}" "http://localhost:8110/api/text2image?prompt=test&provider=fal-flux-schnell&email=uskajitas@gmail.com"
+   ```
+   Expected: 200 with a JSON body containing an image URL.
 
-3. **Check server logs** for the exact error message from `[text2image]`.
+### Optional — verify the key works before pasting it into .env
 
-4. **Report back** by updating this section with what you found.
+```bash
+curl -s -X POST https://fal.run/fal-ai/flux/schnell \
+  -H "Authorization: Key <paste-the-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"a red cube","image_size":"square_hd","num_inference_steps":4,"seed":42}' | head -c 300
+```
+A 200 response with `images: [{ url: ... }]` confirms the key is good.
+
+### Why this regressed
+Best guess: the `.env` was rebuilt at some point (Stripe wiring, R2 keys
+were re-pasted from the handoff file) and `FAL_KEY` wasn't carried over.
+There's no record in git of when it was last present because `.env` is
+gitignored.
 
 ### What you do NOT do
-- Don't modify the 3090's code or config.
+- Don't paste the FAL_KEY into this file, git, chat logs, or screenshots.
+- Don't try to use the `OPENROUTER_API_KEY` from `sam-meter` — it's a
+  different provider and won't authenticate against fal.ai.
 
 ---
 
