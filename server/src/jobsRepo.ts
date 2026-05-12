@@ -123,10 +123,29 @@ export async function createJob(data: {
       data.numChunks        ?? 0,
       data.seed             ?? 0,
       data.model            || 'hunyuan3d',
-      data.preferredWorkerId || '',
+      data.preferredWorkerId || routeWorker(data.model || 'hunyuan3d'),
     ]
   );
   return rows[0];
+}
+
+/**
+ * SERVER decides which worker runs which job. No racing. No mixing.
+ *
+ *   hunyuan3d                  -> i7-1080  (dedicated; 8GB GTX 1080)
+ *   triposr / sf3d / hi3dgen   -> win-3090 (24GB RTX 3090, only one with those runners)
+ *
+ * Admin can override per-job via the worker-picker dropdown in the UI
+ * (sets `preferredWorkerId` explicitly).
+ */
+function routeWorker(model: string): string {
+  switch (model.toLowerCase()) {
+    case 'hunyuan3d': return 'i7-1080';
+    case 'triposr':
+    case 'sf3d':
+    case 'hi3dgen':   return 'win-3090';
+    default:          return 'i7-1080';
+  }
 }
 
 export async function getJobsByUser(userEmail: string): Promise<Job[]> {
