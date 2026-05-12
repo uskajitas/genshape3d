@@ -68,6 +68,16 @@ interface SubmitOpts {
   useMultiView: boolean;
   model: ModelId;
   preferredWorkerId?: string;
+  /** Admin-only Hunyuan3D overrides. Any field set to 0/empty falls back
+   *  to the quality preset's default. */
+  advanced?: {
+    octreeResolution?: number;
+    inferenceSteps?: number;
+    guidanceScale?: number;
+    targetFaceCount?: number;
+    numChunks?: number;
+    seed?: number;
+  };
 }
 
 const renameJob = async (id: string, name: string): Promise<void> => {
@@ -109,6 +119,14 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
   form.append('useMultiView', String(opts.useMultiView));
   if (opts.preferredWorkerId) {
     form.append('preferredWorkerId', opts.preferredWorkerId);
+  }
+  // Admin overrides — when present, they win over the quality preset
+  // because /api/upload reads these last (and worker's buildGenParams
+  // gives numeric columns priority over label-based detailLevel).
+  if (opts.advanced) {
+    for (const [k, v] of Object.entries(opts.advanced)) {
+      if (typeof v === 'number' && v > 0) form.set(k, String(v));
+    }
   }
   const r = await fetch('/api/upload', { method: 'POST', body: form });
   // Read the response body either way so we can surface server-side errors
@@ -1262,6 +1280,13 @@ const Workspace: React.FC = () => {
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
   const [useMultiView, setUseMultiView] = useState(false);
+  // Admin-only Hunyuan3D overrides. 0 means "use the quality preset value".
+  const [advOctree, setAdvOctree] = useState(0);
+  const [advSteps, setAdvSteps] = useState(0);
+  const [advGuidance, setAdvGuidance] = useState(0);
+  const [advFaces, setAdvFaces] = useState(0);
+  const [advChunks, setAdvChunks] = useState(0);
+  const [advSeed, setAdvSeed] = useState(0);
   const [model, setModel] = useState<ModelId>('hunyuan3d');
   const [preferredWorkerId, setPreferredWorkerId] = useState('');
   const [workers, setWorkers] = useState<{ id: string; models: string[]; busy: number; capacity: number; online: boolean; lastActivity: string | null }[]>([]);
@@ -1434,6 +1459,14 @@ const Workspace: React.FC = () => {
       useMultiView: isAdmin ? useMultiView : false,
       model,
       preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
+      advanced: isAdmin ? {
+        octreeResolution: advOctree,
+        inferenceSteps:   advSteps,
+        guidanceScale:    advGuidance,
+        targetFaceCount:  advFaces,
+        numChunks:        advChunks,
+        seed:             advSeed,
+      } : undefined,
     });
     setSubmitting(false);
     if (job) {
@@ -1800,6 +1833,70 @@ const Workspace: React.FC = () => {
                   <SegmentedBtn $active={!useMultiView} onClick={() => setUseMultiView(false)}>Off</SegmentedBtn>
                   <SegmentedBtn $active={useMultiView} onClick={() => setUseMultiView(true)}>On</SegmentedBtn>
                 </Segmented>
+              </Field>
+            )}
+
+            {isAdmin && (
+              <Field>
+                <FieldLabel>
+                  Advanced Hunyuan params <FieldHint>0 = use quality preset</FieldHint>
+                </FieldLabel>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.6rem', fontSize: '0.75rem' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>octree (256/384/512)</span>
+                    <input
+                      type="number" min={0} max={512} step={128}
+                      value={advOctree}
+                      onChange={e => setAdvOctree(parseInt(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>inference steps (5–50)</span>
+                    <input
+                      type="number" min={0} max={50}
+                      value={advSteps}
+                      onChange={e => setAdvSteps(parseInt(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>guidance scale (3–10)</span>
+                    <input
+                      type="number" min={0} max={20} step={0.5}
+                      value={advGuidance}
+                      onChange={e => setAdvGuidance(parseFloat(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>target faces (30k–1M)</span>
+                    <input
+                      type="number" min={0} max={1000000} step={10000}
+                      value={advFaces}
+                      onChange={e => setAdvFaces(parseInt(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>num chunks (1k–200k)</span>
+                    <input
+                      type="number" min={0} max={200000} step={1000}
+                      value={advChunks}
+                      onChange={e => setAdvChunks(parseInt(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ opacity: 0.6 }}>seed (0 = random)</span>
+                    <input
+                      type="number" min={0}
+                      value={advSeed}
+                      onChange={e => setAdvSeed(parseInt(e.target.value) || 0)}
+                      style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
+                    />
+                  </label>
+                </div>
               </Field>
             )}
 
