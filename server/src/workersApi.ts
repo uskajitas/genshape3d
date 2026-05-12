@@ -194,7 +194,7 @@ export function mountWorkersApi(app: Express): void {
       { id: 'win-3090', models: ['hunyuan3d', 'triposr', 'sf3d', 'hi3dgen'],  capacity: 1 },
     ];
 
-    // Live busy counts from Postgres — single query, grouped per worker.
+    // Live busy counts + last activity from Postgres.
     const { rows: busyRows } = await getDb().query<{
       assignedWorkerId: string; n: string;
     }>(
@@ -206,17 +206,33 @@ export function mountWorkersApi(app: Express): void {
     const busyMap: Record<string, number> = {};
     for (const r of busyRows) busyMap[r.assignedWorkerId] = parseInt(r.n, 10) || 0;
 
-    // Last-seen hint from the in-memory registry if present.
-    const liveById: Record<string, ReturnType<typeof workerToJson>> = {};
-    for (const w of listWorkers().map(workerToJson)) liveById[w.id] = w;
+    // Last time each worker claimed or completed a job — best proxy for "online".
+    const { rows: activityRows } = await getDb().query<{
+      assignedWorkerId: string; lastActivity: string;
+    }>(
+      `SELECT "assignedWorkerId", MAX("updatedAt")::text AS "lastActivity"
+         FROM genshape3d_jobs
+        WHERE "assignedWorkerId" != '' AND "assignedWorkerId" IS NOT NULL
+        GROUP BY "assignedWorkerId"`,
+    );
+    const activityMap: Record<string, string> = {};
+    for (const r of activityRows) activityMap[r.assignedWorkerId] = r.lastActivity;
 
-    const workers = KNOWN.map(k => ({
-      id:       k.id,
-      models:   k.models,
-      capacity: k.capacity,
-      busy:     busyMap[k.id] || 0,
-      lastSeen: liveById[k.id]?.lastSeen || null,
-    }));
+    const now = Date.now();
+    const workers = KNOWN.map(k => {
+      const lastActivity = activityMap[k.id] || null;
+      // Online = had activity in the last 5 minutes OR currently busy
+      const online = (busyMap[k.id] || 0) > 0 ||
+        (lastActivity ? (now - new Date(lastActivity).getTime()) < 5 * 60 * 1000 : false);
+      return {
+        id:           k.id,
+        models:       k.models,
+        capacity:     k.capacity,
+        busy:         busyMap[k.id] || 0,
+        lastActivity,
+        online,
+      };
+    });
 
     res.json({ generatedAt: new Date().toISOString(), workers });
   });

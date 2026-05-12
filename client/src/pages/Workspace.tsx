@@ -1254,7 +1254,7 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [model, setModel] = useState<ModelId>('hunyuan3d');
   const [preferredWorkerId, setPreferredWorkerId] = useState('');
-  const [workers, setWorkers] = useState<{ id: string; models: string[]; busy: number; capacity: number }[]>([]);
+  const [workers, setWorkers] = useState<{ id: string; models: string[]; busy: number; capacity: number; online: boolean; lastActivity: string | null }[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
   const [assetTab, setAssetTab] = useState<'all' | 'pending' | 'done' | 'cancelled'>('all');
@@ -1744,7 +1744,7 @@ const Workspace: React.FC = () => {
                   <option value="">Any available</option>
                   {workers.map(w => (
                     <option key={w.id} value={w.id}>
-                      {w.id} ({w.models.join(', ')}) — {w.busy}/{w.capacity} busy
+                      {w.online ? '🟢' : '🔴'} {w.id} — {w.busy > 0 ? `working` : w.online ? 'idle' : 'offline'}
                     </option>
                   ))}
                 </ModelSelect>
