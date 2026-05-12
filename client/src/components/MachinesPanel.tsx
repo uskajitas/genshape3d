@@ -71,7 +71,7 @@ export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
   const [recent, setRecent]   = useState<RecentRow[]>([]);
 
   useEffect(() => {
-    if (!email || !isAdmin) return;
+    if (!email) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -102,17 +102,40 @@ export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
     return out;
   }, [recent]);
 
-  if (!isAdmin || workers.length === 0) return null;
+  if (!email) return null;
 
   return (
     <div
       style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 280 : 320}px, 1fr))`,
-        gap: '0.65rem',
         margin: compact ? '0.5rem 1rem' : '0 0 1.25rem 0',
       }}
     >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: '0.68rem',
+          fontWeight: 700,
+          letterSpacing: '0.08em',
+          color: '#A4A4AC',
+          textTransform: 'uppercase',
+          marginBottom: 6,
+        }}
+      >
+        <span>Machines</span>
+        <span style={{ flex: 1, height: 1, background: '#22232A' }} />
+        <span style={{ color: '#6B7280', fontWeight: 500 }}>
+          {workers.length === 0 ? 'loading…' : `${workers.length} known`}
+        </span>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 280 : 320}px, 1fr))`,
+          gap: '0.65rem',
+        }}
+      >
       {workers.map(w => {
         const active = activeByWorker[w.id];
         const startedMs = active ? new Date(active.submitted_at).getTime() : 0;
@@ -215,6 +238,23 @@ export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
           </div>
         );
       })}
+        {workers.length === 0 && (
+          <div
+            style={{
+              gridColumn: '1 / -1',
+              padding: '0.8rem 1rem',
+              background: '#1A1B22',
+              border: '1px dashed #22232A',
+              borderRadius: 10,
+              fontSize: '0.78rem',
+              color: '#6B7280',
+              textAlign: 'center',
+            }}
+          >
+            No worker data yet — fetching… (admin sign-in required to load /api/workers).
+          </div>
+        )}
+      </div>
     </div>
   );
 };
