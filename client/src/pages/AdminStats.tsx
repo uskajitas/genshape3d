@@ -558,16 +558,22 @@ const AdminStats: React.FC = () => {
             return (
               <tr key={r.id}>
                 <Td>
-                  {r.image_url ? (
-                    <a href={r.image_url} target="_blank" rel="noreferrer">
-                      <img
-                        src={r.image_url}
-                        alt=""
-                        style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, background: '#222' }}
-                        loading="lazy"
-                      />
-                    </a>
-                  ) : '—'}
+                  {(() => {
+                    if (!r.image_url) return '—';
+                    const proxied = r.image_url.includes('/uploads/')
+                      ? `/api/image?key=${encodeURIComponent('uploads/' + r.image_url.split('/uploads/')[1])}`
+                      : r.image_url;
+                    return (
+                      <a href={proxied} target="_blank" rel="noreferrer">
+                        <img
+                          src={proxied}
+                          alt=""
+                          style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, background: '#222' }}
+                          loading="lazy"
+                        />
+                      </a>
+                    );
+                  })()}
                 </Td>
                 <Td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {r.name || <span style={{ color: '#6B7280' }}>—</span>}

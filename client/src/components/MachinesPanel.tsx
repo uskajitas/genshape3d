@@ -43,6 +43,20 @@ interface Props {
   compact?: boolean;
 }
 
+// R2 URLs like `https://<r2>/genshape3d/uploads/xxx.png` are NOT publicly
+// fetchable from a browser — the bucket isn't public. The server exposes
+// `/api/image?key=uploads/xxx.png` which proxies the bytes. Convert before
+// using as an <img src>.
+const toProxyUrl = (raw?: string): string | null => {
+  if (!raw) return null;
+  if (raw.startsWith('/api/image')) return raw;
+  if (raw.includes('/uploads/')) {
+    const key = `uploads/${raw.split('/uploads/')[1]}`;
+    return `/api/image?key=${encodeURIComponent(key)}`;
+  }
+  return raw;
+};
+
 const lastSeenLabel = (iso: string | null): string => {
   if (!iso) return 'never';
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
@@ -118,9 +132,9 @@ export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
             }}
           >
             {active && active.image_url ? (
-              <a href={active.image_url} target="_blank" rel="noreferrer">
+              <a href={toProxyUrl(active.image_url) || '#'} target="_blank" rel="noreferrer">
                 <img
-                  src={active.image_url}
+                  src={toProxyUrl(active.image_url) || ''}
                   alt=""
                   style={{
                     width: 56, height: 56, objectFit: 'cover',
