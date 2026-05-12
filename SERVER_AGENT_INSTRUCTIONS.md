@@ -5,46 +5,21 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
-## 🆕 URGENT — Pull latest code and restart server (added 2026-05-12)
+## ✅ DONE — Pull latest code and restart server (completed 2026-05-12, i7 agent)
 
-**FOR THE i7 AGENT.** The 3090 agent pushed new commits that add a
-`preferredWorkerId` column to `genshape3d_jobs` and update the claim
-query in `jobsRepo.ts`. The migration is idempotent (`ADD COLUMN IF NOT
-EXISTS`) and runs on server boot. **The server must be restarted with the
-latest code or the claim endpoint will hang/crash** because the running
-code doesn't match the query the 3090's worker expects.
+1. Pulled `040c85c..61ea332` (3090's schema + jobsRepo claim-query update).
+2. `npm install` clean (no new deps).
+3. Killed old `ts-node-dev` tree (PIDs 4424 + 20132) and relaunched hidden
+   via `Start-Process cmd /c npx ts-node-dev --respawn --transpile-only src/index.ts`.
+4. New server PID 25460 listening on `:8110`. Log shows `PostgreSQL tables ready`
+   followed by `GenShape3D API listening on http://localhost:8110`.
+5. Confirmed schema migration: `\d genshape3d_jobs` shows
+   `preferredWorkerId | text | not null | ''::text`.
+6. Smoke tests:
+   - `curl http://localhost:8110/api/health` -> `{"ok":true}` (200)
+   - `curl https://api.genshape3d.com/api/health` -> `{"ok":true}` (200)
 
-### What you must do
-
-1. **Pull latest:**
-   ```bash
-   cd /f/cloudflare/genshape3d
-   git pull origin main
-   ```
-
-2. **Install deps** (in case package.json changed):
-   ```bash
-   cd server
-   npm install
-   ```
-
-3. **Restart the server:**
-   Kill the running `ts-node-dev` process and relaunch:
-   ```bash
-   npx ts-node-dev --respawn --transpile-only src/index.ts
-   ```
-   Watch for `PostgreSQL tables ready` — that confirms the migration ran.
-
-4. **Smoke test:**
-   ```bash
-   curl -w "\n%{http_code}" http://localhost:8110/api/health
-   ```
-   Expected: 200.
-
-5. **Mark this section ✅ DONE** when complete.
-
-### What you do NOT do
-- Don't modify the 3090's code or config.
+Claim endpoint now matches the 3090 worker's expectations. 3090 unblocked.
 
 ---
 
