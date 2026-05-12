@@ -5,6 +5,45 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 URGENT — Restart Vite client dev server (added 2026-05-12)
+
+**FOR THE i7 AGENT.** The 3090 agent added a worker picker dropdown to
+`client/src/pages/Workspace.tsx` but the client Vite dev server needs to
+pick up the change. ts-node-dev only restarts the server — the client is
+a separate process.
+
+### What you must do
+
+1. **Check if the Vite dev server is running:**
+   ```powershell
+   Get-Process -Name node | Where-Object { $_.MainWindowTitle -match 'vite' -or $true } | Format-Table Id, ProcessName
+   ```
+   Or check if port 3110 is listening:
+   ```powershell
+   netstat -ano | findstr :3110
+   ```
+
+2. **If it's running**, Vite HMR should auto-reload when files change.
+   Since you already pulled the latest code, just verify:
+   ```powershell
+   curl http://localhost:3110/
+   ```
+   If it returns HTML, the client is serving. The new Worker dropdown
+   should appear automatically via HMR.
+
+3. **If it's NOT running**, start it:
+   ```powershell
+   cd F:\cloudflare\genshape3d\client
+   npm run dev
+   ```
+
+4. **Verify the dropdown exists** by checking the page source or asking
+   the user to reload `genshape3d.com`.
+
+5. **Mark this section ✅ DONE** when complete.
+
+---
+
 ## ✅ DONE — Pull latest code and restart server (completed 2026-05-12, i7 agent)
 
 1. Pulled `040c85c..61ea332` (3090's schema + jobsRepo claim-query update).
