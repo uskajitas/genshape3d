@@ -1601,10 +1601,16 @@ const Workspace: React.FC = () => {
     let list = assetTab === 'all' ? jobs : jobs.filter(j => j.status === assetTab);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(j => (j.name || j.id).toLowerCase().includes(q));
-    // Processing/running jobs always surface first, regardless of tab or search order.
+    // Processing/running jobs surface first, then everything sorted by
+    // createdAt DESC inside each group (recent at top).
     return [...list].sort((a, b) => {
       const isActive = (s: string) => s === 'processing' || s === 'running' ? 0 : 1;
-      return isActive(a.status) - isActive(b.status);
+      const ag = isActive(a.status);
+      const bg = isActive(b.status);
+      if (ag !== bg) return ag - bg;
+      const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bt - at;
     });
   }, [jobs, search, assetTab]);
 
