@@ -30,6 +30,7 @@ import {
   getCancelRequests,
 } from './jobsRepo';
 import { isAdmin } from './usersRepo';
+import { getDb } from './db';
 
 // Short-poll: check the DB once and return immediately. Cloudflare tunnels
 // drop idle POST connections well before even a 10s hold, so long-polling
@@ -176,16 +177,47 @@ export function mountWorkersApi(app: Express): void {
 
   // ── Admin: list workers ──────────────────────────────────────────────────
   // Email-gated (matches /api/admin/* style elsewhere in the codebase).
-  // Returns the in-memory registry — gives the user real-time visibility
-  // into "which machines are alive and what they're doing right now."
+  // Returns the known workers in this setup with live busy counts from
+  // Postgres. The in-memory registry is used as a hint; static workers
+  // are listed even if they haven't called the HTTP control plane.
   app.get('/api/workers', async (req, res) => {
     const email = (req.query.email as string) || '';
     if (!email || !(await isAdmin(email))) {
       return res.status(403).json({ error: 'admin only' });
     }
-    res.json({
-      generatedAt: new Date().toISOString(),
-      workers: listWorkers().map(workerToJson),
-    });
+
+    // Static config of workers in this setup. Keep in sync with the
+    // routing in jobsRepo.ts -> routeWorker(). Adding a new physical
+    // worker box? Add it here AND wire it into routeWorker().
+    const KNOWN: Array<{ id: string; models: string[]; capacity: number }> = [
+      { id: 'i7-1080', models: ['hunyuan3d'],                                 capacity: 1 },
+      { id: 'win-3090', models: ['hunyuan3d', 'triposr', 'sf3d', 'hi3dgen'],  capacity: 1 },
+    ];
+
+    // Live busy counts from Postgres — single query, grouped per worker.
+    const { rows: busyRows } = await getDb().query<{
+      assignedWorkerId: string; n: string;
+    }>(
+      `SELECT "assignedWorkerId", COUNT(*)::text AS n
+         FROM genshape3d_jobs
+        WHERE status = 'processing'
+        GROUP BY "assignedWorkerId"`,
+    );
+    const busyMap: Record<string, number> = {};
+    for (const r of busyRows) busyMap[r.assignedWorkerId] = parseInt(r.n, 10) || 0;
+
+    // Last-seen hint from the in-memory registry if present.
+    const liveById: Record<string, ReturnType<typeof workerToJson>> = {};
+    for (const w of listWorkers().map(workerToJson)) liveById[w.id] = w;
+
+    const workers = KNOWN.map(k => ({
+      id:       k.id,
+      models:   k.models,
+      capacity: k.capacity,
+      busy:     busyMap[k.id] || 0,
+      lastSeen: liveById[k.id]?.lastSeen || null,
+    }));
+
+    res.json({ generatedAt: new Date().toISOString(), workers });
   });
 }
