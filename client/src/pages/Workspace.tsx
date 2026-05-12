@@ -1838,9 +1838,24 @@ const Workspace: React.FC = () => {
 
             {isAdmin && (
               <Field>
-                <FieldLabel>
-                  Advanced Hunyuan params <FieldHint>0 = use quality preset</FieldHint>
-                </FieldLabel>
+                <Tooltip
+                  multiline
+                  maxWidth={360}
+                  placement="top"
+                  text={
+                    'octree (256/384/512) — higher = sharper edges, more VRAM. Try 512.\n' +
+                    'inference steps (5–50) — higher = sharper, slower. Try 30.\n' +
+                    'guidance scale (3–10) — higher = more faithful to input, edge-preserving. Try 8.\n' +
+                    'target faces (30k–1M) — higher = less smoothing in simplification. Try 300k.\n' +
+                    'num chunks (1k–200k) — lower = less smoothing in volume decoder. Try 4000.\n' +
+                    'seed — 0 = random, any positive int = reproducible runs.\n' +
+                    'Any field at 0 falls back to the Quality preset value.'
+                  }
+                >
+                  <FieldLabel style={{ cursor: 'help' }}>
+                    Advanced Hunyuan params <FieldHint>hover for guide · 0 = use preset</FieldHint>
+                  </FieldLabel>
+                </Tooltip>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.6rem', fontSize: '0.75rem' }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ opacity: 0.6 }}>octree (256/384/512)</span>
