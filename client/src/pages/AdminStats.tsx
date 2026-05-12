@@ -43,6 +43,20 @@ interface StatsResp {
   recent: RecentRow[];
 }
 
+interface WorkerInfo {
+  id: string;
+  models: string[];
+  capacity: number;
+  busy: number;
+  lastActivity: string | null;
+  online: boolean;
+}
+
+interface WorkersResp {
+  generatedAt: string;
+  workers: WorkerInfo[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Styled
 // ─────────────────────────────────────────────────────────────────────────────
@@ -248,6 +262,7 @@ const AdminStats: React.FC = () => {
   const navigate = useNavigate();
 
   const [stats, setStats] = useState<StatsResp | null>(null);
+  const [workers, setWorkers] = useState<WorkersResp | null>(null);
   const [error, setError] = useState<string>('');
 
   // Filters
@@ -262,17 +277,24 @@ const AdminStats: React.FC = () => {
     if (appUser.loaded && appUser.role !== 'admin') { navigate('/dashboard'); return; }
   }, [isAuthenticated, appUser, navigate]);
 
-  // Fetch every 3s (live view of running jobs)
+  // Fetch every 3s (live view of running jobs + worker state)
   useEffect(() => {
     const email = user?.email;
     if (!email || appUser.role !== 'admin') return;
     let cancelled = false;
     const tick = async () => {
       try {
-        const r = await fetch('/api/admin/stats', { headers: { 'x-user-email': email } });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data: StatsResp = await r.json();
-        if (!cancelled) { setStats(data); setError(''); }
+        const [s, w] = await Promise.all([
+          fetch('/api/admin/stats',                        { headers: { 'x-user-email': email } }),
+          fetch(`/api/workers?email=${encodeURIComponent(email)}`),
+        ]);
+        if (!s.ok) throw new Error(`stats HTTP ${s.status}`);
+        const sd: StatsResp = await s.json();
+        if (!cancelled) { setStats(sd); setError(''); }
+        if (w.ok) {
+          const wd: WorkersResp = await w.json();
+          if (!cancelled) setWorkers(wd);
+        }
       } catch (e: any) {
         if (!cancelled) setError(e.message);
       }
@@ -281,6 +303,27 @@ const AdminStats: React.FC = () => {
     const t = setInterval(tick, 3000);
     return () => { cancelled = true; clearInterval(t); };
   }, [user?.email, appUser.role]);
+
+  // For each worker, find the row it's currently processing (if any)
+  const activeByWorker = useMemo<Record<string, RecentRow | undefined>>(() => {
+    const out: Record<string, RecentRow | undefined> = {};
+    if (!stats?.recent) return out;
+    for (const r of stats.recent) {
+      if (r.status === 'processing' && r.worker && !out[r.worker]) {
+        out[r.worker] = r;
+      }
+    }
+    return out;
+  }, [stats]);
+
+  const lastSeenLabel = (iso: string | null): string => {
+    if (!iso) return 'never';
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60)    return `${s}s ago`;
+    if (s < 3600)  return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    return `${Math.round(s / 86400)}d ago`;
+  };
 
   const filtered = useMemo<RecentRow[]>(() => {
     if (!stats?.recent) return [];
@@ -315,6 +358,123 @@ const AdminStats: React.FC = () => {
         <Title>Stats</Title>
         <Updated>updated {new Date(stats.generatedAt).toLocaleTimeString()}</Updated>
       </TopBar>
+
+      {/* ── Machines panel ───────────────────────────────────────────────── */}
+      {workers && workers.workers.length > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: '0.75rem',
+            marginBottom: '1.5rem',
+          }}
+        >
+          {workers.workers.map(w => {
+            const active = activeByWorker[w.id];
+            const staleSec = active
+              ? Math.round((Date.now() - new Date(active.submitted_at).getTime()) / 1000)
+              : 0;
+            return (
+              <div
+                key={w.id}
+                style={{
+                  background: 'linear-gradient(180deg, #1A1B22, #14151B)',
+                  border: `1px solid ${w.online ? '#10B98155' : '#EF444455'}`,
+                  borderRadius: 10,
+                  padding: '0.9rem 1rem',
+                  display: 'flex',
+                  gap: '0.85rem',
+                  alignItems: 'flex-start',
+                }}
+              >
+                {active && active.image_url ? (
+                  <a href={active.image_url} target="_blank" rel="noreferrer">
+                    <img
+                      src={active.image_url}
+                      alt=""
+                      style={{
+                        width: 64, height: 64, objectFit: 'cover',
+                        borderRadius: 8, background: '#222', flexShrink: 0,
+                      }}
+                      loading="lazy"
+                    />
+                  </a>
+                ) : (
+                  <div
+                    style={{
+                      width: 64, height: 64, borderRadius: 8,
+                      background: '#222',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#6B7280', fontSize: '0.7rem', flexShrink: 0,
+                    }}
+                  >
+                    idle
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: w.online ? '#10B981' : '#EF4444',
+                        boxShadow: w.online ? '0 0 8px #10B981' : 'none',
+                      }}
+                    />
+                    <strong style={{ fontSize: '0.95rem' }}>{w.id}</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#A4A4AC' }}>
+                      {w.online ? 'online' : 'offline'} · last activity {lastSeenLabel(w.lastActivity)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#A4A4AC', marginBottom: 6 }}>
+                    runs: {w.models.join(', ')}
+                  </div>
+                  {active ? (
+                    <>
+                      <div
+                        style={{
+                          fontSize: '0.85rem', fontWeight: 600,
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {active.name || active.id.slice(0, 8)}
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#A4A4AC', marginBottom: 6 }}>
+                        {active.model} · {active.progress_pct || 0}% ·{' '}
+                        {active.progress_phase || '…'}
+                      </div>
+                      <div
+                        style={{
+                          height: 6, background: '#22232A', borderRadius: 3,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${Math.min(100, active.progress_pct || 0)}%`,
+                            height: '100%',
+                            background: staleSec > 1800 ? '#F59E0B' : '#A855F7',
+                            transition: 'width 0.4s',
+                          }}
+                        />
+                      </div>
+                      {staleSec > 1800 && (
+                        <div style={{ marginTop: 4, fontSize: '0.7rem', color: '#F59E0B' }}>
+                          ⚠ in progress for {Math.round(staleSec / 60)}m — may be
+                          downloading model weights on cold start
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ fontSize: '0.82rem', color: '#6B7280' }}>
+                      {w.busy > 0 ? `${w.busy} active jobs` : 'idle, waiting for work'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Right-now headline cards */}
       <Cards>
