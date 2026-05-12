@@ -5,6 +5,49 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 URGENT — Pull latest code and restart server (added 2026-05-12)
+
+**FOR THE i7 AGENT.** The 3090 agent pushed new commits that add a
+`preferredWorkerId` column to `genshape3d_jobs` and update the claim
+query in `jobsRepo.ts`. The migration is idempotent (`ADD COLUMN IF NOT
+EXISTS`) and runs on server boot. **The server must be restarted with the
+latest code or the claim endpoint will hang/crash** because the running
+code doesn't match the query the 3090's worker expects.
+
+### What you must do
+
+1. **Pull latest:**
+   ```bash
+   cd /f/cloudflare/genshape3d
+   git pull origin main
+   ```
+
+2. **Install deps** (in case package.json changed):
+   ```bash
+   cd server
+   npm install
+   ```
+
+3. **Restart the server:**
+   Kill the running `ts-node-dev` process and relaunch:
+   ```bash
+   npx ts-node-dev --respawn --transpile-only src/index.ts
+   ```
+   Watch for `PostgreSQL tables ready` — that confirms the migration ran.
+
+4. **Smoke test:**
+   ```bash
+   curl -w "\n%{http_code}" http://localhost:8110/api/health
+   ```
+   Expected: 200.
+
+5. **Mark this section ✅ DONE** when complete.
+
+### What you do NOT do
+- Don't modify the 3090's code or config.
+
+---
+
 ## ✅ DONE — Server / Cloudflare tunnel down (resolved 2026-05-12, i7 agent)
 
 **Root cause:** the **Cloudflare Windows service was STOPPED**. The
