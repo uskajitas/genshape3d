@@ -35,6 +35,9 @@ interface RecentRow {
   progress_pct: number;
   progress_phase: string;
   submitted_at: string;
+  steps: number;
+  octree: number;
+  tex: boolean;
 }
 
 interface Props {
@@ -205,8 +208,40 @@ export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
                   >
                     {active.name || active.id.slice(0, 8)}
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: '#A4A4AC', marginBottom: 4 }}>
-                    {active.model} · {active.progress_pct || 0}% · {active.progress_phase || '…'}
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', margin: '3px 0' }}>
+                    <span
+                      style={{
+                        padding: '1px 6px', borderRadius: 4, fontSize: '0.6rem',
+                        fontWeight: 700, letterSpacing: '0.04em',
+                        background: active.tex ? '#EC4899' : '#374151',
+                        color: active.tex ? '#fff' : '#9CA3AF',
+                      }}
+                    >
+                      {active.tex ? 'TEXTURED' : 'NO TEX'}
+                    </span>
+                    <span
+                      style={{
+                        padding: '1px 6px', borderRadius: 4, fontSize: '0.6rem',
+                        fontWeight: 700, letterSpacing: '0.04em',
+                        background: (active.steps || 0) > 10 ? '#C084FC' : '#374151',
+                        color: (active.steps || 0) > 10 ? '#fff' : '#9CA3AF',
+                      }}
+                    >
+                      {(active.steps || 0) > 10 ? 'HIGH' : 'STD'}
+                    </span>
+                    <span
+                      style={{
+                        padding: '1px 6px', borderRadius: 4, fontSize: '0.6rem',
+                        fontWeight: 700, background: '#1F2937', color: '#9CA3AF',
+                      }}
+                    >
+                      {active.model}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.66rem', color: '#A4A4AC', marginBottom: 4 }}>
+                    {active.progress_pct || 0}% · {active.progress_phase || '…'}
+                    {active.octree ? ` · octree ${active.octree}` : ''}
+                    {active.steps ? ` · ${active.steps} steps` : ''}
                   </div>
                   <div
                     style={{
