@@ -31,14 +31,9 @@ import {
 } from './jobsRepo';
 import { isAdmin } from './usersRepo';
 
-// Long-poll tuning. 10s keeps responses well inside the Cloudflare tunnel's
-// effective idle timeout (empirically <25s despite the documented 100s edge
-// limit). Workers call /claim in a tight loop anyway, so shorter hold just
-// means slightly more round-trips — no impact on latency when a job arrives.
-const LONG_POLL_MS = parseInt(process.env.WORKER_CLAIM_LONG_POLL_MS || '10000', 10);
-const POLL_INTERVAL_MS = parseInt(process.env.WORKER_CLAIM_POLL_INTERVAL_MS || '1000', 10);
-
-const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+// Short-poll: check the DB once and return immediately. Cloudflare tunnels
+// drop idle POST connections well before even a 10s hold, so long-polling
+// is not viable. Workers sleep client-side between calls instead.
 
 // Bearer-token middleware. Returns 401 if WORKER_AUTH_TOKEN is unset on the
 // server (fail closed) or if the header doesn't match.
@@ -79,7 +74,8 @@ export function mountWorkersApi(app: Express): void {
     res.json({ ok: true, worker: workerToJson(state) });
   });
 
-  // ── Long-poll claim ──────────────────────────────────────────────────────
+  // ── Short-poll claim ─────────────────────────────────────────────────────
+  // Single DB check, immediate response. Worker sleeps client-side.
   app.post('/api/workers/:id/claim', workerAuth, async (req, res) => {
     const id = req.params.id;
     const w = getWorker(id);
@@ -90,26 +86,16 @@ export function mountWorkersApi(app: Express): void {
 
     touchWorker(id);
 
-    // If the worker hangs up mid-poll (network blip, restart) we stop looping
-    // and skip the response — Express will already be done with the socket.
-    let aborted = false;
-    req.on('close', () => { aborted = true; });
-
-    const deadline = Date.now() + LONG_POLL_MS;
-    while (Date.now() < deadline && !aborted) {
-      try {
-        const job = await claimNextPendingJob(id, w.models);
-        if (job) {
-          markBusy(id, job.id);
-          return res.json({ job });
-        }
-      } catch (e: any) {
-        console.error('[workers] claim error', id, e?.message || e);
-        return res.status(500).json({ error: 'claim failed', detail: e?.message });
+    try {
+      const job = await claimNextPendingJob(id, w.models);
+      if (job) {
+        markBusy(id, job.id);
+        return res.json({ job });
       }
-      await sleep(POLL_INTERVAL_MS);
+    } catch (e: any) {
+      console.error('[workers] claim error', id, e?.message || e);
+      return res.status(500).json({ error: 'claim failed', detail: e?.message });
     }
-    if (aborted) return;
     res.status(204).end();
   });
 
