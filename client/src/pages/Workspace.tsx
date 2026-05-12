@@ -1896,6 +1896,21 @@ const Workspace: React.FC = () => {
                   : hoveredJobOverlay.job.imageUrl;
                 return k ? `/api/image?key=${encodeURIComponent(k)}` : undefined;
               })()}
+              auxThumbUrls={isAdmin
+                ? ((hoveredJobOverlay.job as any).auxImageUrls || [])
+                    .map((url: string) => {
+                      // Route through /api/image so the R2-private URLs render.
+                      for (const prefix of ['/uploads/', '/mv-auto/', '/mvtest/', '/outputs/']) {
+                        const idx = url.indexOf(prefix);
+                        if (idx >= 0) {
+                          const key = prefix.slice(1) + url.slice(idx + prefix.length);
+                          return `/api/image?key=${encodeURIComponent(key)}`;
+                        }
+                      }
+                      return null;
+                    })
+                    .filter(Boolean) as string[]
+                : undefined}
             />
           )}
           {/*

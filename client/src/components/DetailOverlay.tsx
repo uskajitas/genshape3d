@@ -33,6 +33,11 @@ export interface DetailOverlayProps {
   fields: DetailField[];
   visible: boolean;
   thumbUrl?: string;
+  /** Optional auxiliary view thumbnails — alt views the worker generated
+   *  with Zero123++ and fed to Hunyuan3D-2-mv. Rendered as a small strip
+   *  next to the main thumb. Each thumb opens at full size in a new tab
+   *  when clicked. */
+  auxThumbUrls?: string[];
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -75,6 +80,24 @@ const Thumb = styled.img`
   object-fit: cover;
   flex-shrink: 0;
   border: 1px solid ${p => p.theme.colors.border};
+  cursor: zoom-in;
+`;
+
+const AuxStrip = styled.div`
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+`;
+
+const AuxThumb = styled.img`
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid ${p => p.theme.colors.border};
+  cursor: zoom-in;
+  transition: transform 0.1s ease;
+  &:hover { transform: scale(1.08); }
 `;
 
 const TitleCol = styled.div`
@@ -176,11 +199,25 @@ export const DetailOverlay: React.FC<DetailOverlayProps> = ({
   fields,
   visible,
   thumbUrl,
+  auxThumbUrls,
 }) => {
   return (
     <Strip $visible={visible} role="status" aria-live="polite">
       <Row>
-        {thumbUrl && <Thumb src={thumbUrl} alt="" />}
+        {thumbUrl && (
+          <a href={thumbUrl} target="_blank" rel="noopener noreferrer" title="open input image full size">
+            <Thumb src={thumbUrl} alt="" />
+          </a>
+        )}
+        {auxThumbUrls && auxThumbUrls.length > 0 && (
+          <AuxStrip>
+            {auxThumbUrls.map((u, i) => (
+              <a key={i} href={u} target="_blank" rel="noopener noreferrer" title={`open aux view ${i + 1} full size`}>
+                <AuxThumb src={u} alt={`aux view ${i + 1}`} />
+              </a>
+            ))}
+          </AuxStrip>
+        )}
         <TitleCol>
           <Title title={title}>{title}</Title>
           {(subtitle || status) && (
