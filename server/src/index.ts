@@ -1263,16 +1263,24 @@ app.get('/api/admin/stats', async (req, res) => {
     const recent = await db.query(`
       SELECT
         id,
-        "userEmail"     AS email,
+        "userEmail"        AS email,
+        name,
+        "imageUrl"         AS image_url,
+        model,
+        "assignedWorkerId" AS worker,
+        "preferredWorkerId" AS preferred_worker,
         status,
-        "createdAt"     AS submitted_at,
-        "startedAt"     AS started_at,
-        "completedAt"   AS completed_at,
-        "inferenceSteps" AS steps,
+        "progressPct"      AS progress_pct,
+        "progressPhase"    AS progress_phase,
+        "createdAt"        AS submitted_at,
+        "startedAt"        AS started_at,
+        "completedAt"      AS completed_at,
+        "inferenceSteps"   AS steps,
         "octreeResolution" AS octree,
-        "doTexture"     AS tex
+        "doTexture"        AS tex
       FROM genshape3d_jobs
       WHERE "createdAt"::timestamptz > NOW() - INTERVAL '30 days'
+        AND deleted = false
       ORDER BY "createdAt" DESC
       LIMIT 500
     `);

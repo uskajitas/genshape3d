@@ -18,7 +18,14 @@ import { useAppUser } from '../context/UserContext';
 interface RecentRow {
   id: string;
   email: string;
+  name: string;
+  image_url: string;
+  model: string;
+  worker: string;
+  preferred_worker: string;
   status: string;
+  progress_pct: number;
+  progress_phase: string;
   submitted_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -254,7 +261,7 @@ const AdminStats: React.FC = () => {
     if (appUser.loaded && appUser.role !== 'admin') { navigate('/dashboard'); return; }
   }, [isAuthenticated, appUser, navigate]);
 
-  // Fetch every 10s
+  // Fetch every 3s (live view of running jobs)
   useEffect(() => {
     const email = user?.email;
     if (!email || appUser.role !== 'admin') return;
@@ -270,7 +277,7 @@ const AdminStats: React.FC = () => {
       }
     };
     tick();
-    const t = setInterval(tick, 10000);
+    const t = setInterval(tick, 3000);
     return () => { cancelled = true; clearInterval(t); };
   }, [user?.email, appUser.role]);
 
@@ -369,34 +376,59 @@ const AdminStats: React.FC = () => {
       <Table>
         <thead>
           <tr>
+            <Th style={{ width: '56px' }}>Img</Th>
+            <Th>Name</Th>
             <Th>Submitted</Th>
             <Th>User</Th>
+            <Th>Model</Th>
+            <Th>Worker</Th>
             <Th>Status</Th>
-            <Th>Quality</Th>
-            <Th>Texture</Th>
+            <Th>Progress</Th>
             <Th>Run time</Th>
           </tr>
         </thead>
         <tbody>
           {filtered.map(r => {
-            const isHigh = (r.steps || 0) > 10;
             const ran =
               r.status === 'done' && r.started_at && r.completed_at
                 ? Math.round((new Date(r.completed_at).getTime() - new Date(r.started_at).getTime()) / 1000)
                 : null;
+            const workerLabel = r.worker || (r.preferred_worker ? `→ ${r.preferred_worker}` : '—');
             return (
               <tr key={r.id}>
+                <Td>
+                  {r.image_url ? (
+                    <a href={r.image_url} target="_blank" rel="noreferrer">
+                      <img
+                        src={r.image_url}
+                        alt=""
+                        style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, background: '#222' }}
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : '—'}
+                </Td>
+                <Td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.name || <span style={{ color: '#6B7280' }}>—</span>}
+                </Td>
                 <Td>{new Date(r.submitted_at).toLocaleString()}</Td>
                 <Td>{r.email}</Td>
+                <Td><Pill>{r.model || '—'}</Pill></Td>
+                <Td>
+                  <Pill $color={r.worker ? '#A855F7' : '#6B7280'}>{workerLabel}</Pill>
+                </Td>
                 <Td><Pill $color={statusColor(r.status)}>{r.status}</Pill></Td>
-                <Td><Pill $color={isHigh ? '#C084FC' : '#A4A4AC'}>{isHigh ? 'high' : 'standard'}</Pill></Td>
-                <Td><Pill $color={r.tex ? '#EC4899' : '#6B7280'}>{r.tex ? 'on' : 'off'}</Pill></Td>
+                <Td>
+                  {r.status === 'processing'
+                    ? `${r.progress_pct || 0}% ${r.progress_phase || ''}`
+                    : r.status === 'done' ? '100%' : '—'}
+                </Td>
                 <Td>{ran ? fmtSec(ran) : '—'}</Td>
               </tr>
             );
           })}
           {filtered.length === 0 && (
-            <tr><Td colSpan={6} style={{ textAlign: 'center', color: '#A4A4AC', padding: '1.5rem' }}>
+            <tr><Td colSpan={9} style={{ textAlign: 'center', color: '#A4A4AC', padding: '1.5rem' }}>
               No rows match the current filters.
             </Td></tr>
           )}
