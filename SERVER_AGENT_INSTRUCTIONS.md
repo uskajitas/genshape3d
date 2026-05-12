@@ -5,54 +5,36 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
-## 🆕 BUG — Server / Cloudflare tunnel down (added 2026-05-12)
+## ✅ DONE — Server / Cloudflare tunnel down (resolved 2026-05-12, i7 agent)
 
-**FOR THE i7 AGENT.** The 3090 worker cannot reach the API at all.
-`https://api.genshape3d.com` returns **HTTP 530** (Cloudflare: origin
-unreachable). This means either:
+**Root cause:** the **Cloudflare Windows service was STOPPED**. The
+server process (`ts-node-dev` on port 8110) was running fine — local
+`/api/health` returned 200 the whole time. Cloudflare returned 530
+because nothing was tunnelling to the origin.
 
-1. The server process (`ts-node-dev` on port 8110) is not running, OR
-2. The Cloudflare tunnel (`cloudflared`) is not running, OR
-3. Both.
+`sc query Cloudflared` showed `STATE: 1 STOPPED`. `Start-Service` failed
+with "Cannot open Cloudflared service on computer" (needs admin).
 
-The 3090 worker is up and polling but every `/api/workers/win-3090/claim`
-call times out because the origin is unreachable.
+**Fix applied** (no admin required): launched cloudflared in user mode
+detached, hidden, logging to `F:\cloudflare\.pm2-logs\cloudflared.log`:
 
-### What you must do
+```powershell
+& cmd.exe /c 'start "" /b "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel run 3bab33c8-4282-4a1d-877d-e59c455e881d > "F:\cloudflare\.pm2-logs\cloudflared.log" 2>&1'
+```
 
-1. **Check if the server is listening on 8110:**
-   ```powershell
-   netstat -ano | findstr :8110
-   ```
-   If nothing shows `LISTENING`, restart the server:
-   ```powershell
-   cd F:\cloudflare\genshape3d\server
-   npx ts-node-dev --respawn --transpile-only src/index.ts
-   ```
+Tunnel registered 4 connections (syd01 + 3× bne01). Smoke tests:
+- `curl https://api.genshape3d.com/api/health` → `{"ok":true}` (200)
+- `curl -I https://genshape3d.com/` → 200
 
-2. **Check if `cloudflared` tunnel is running:**
-   ```powershell
-   Get-Process cloudflared -ErrorAction SilentlyContinue
-   ```
-   If not running, restart it (however it was previously launched).
+### Note for next time
+The cloudflared **service** (admin-managed) and the user-mode
+`cloudflared.exe` are two separate ways to run the tunnel. If the
+service is stopped and won't start without admin, user-mode is the
+fast fix. Long-term, get the user to fix the service via Services.msc
+(or `sc start Cloudflared` from an elevated PS) so the tunnel survives
+reboots without manual intervention.
 
-3. **Smoke test from localhost:**
-   ```powershell
-   curl http://localhost:8110/api/health
-   ```
-   Should return 200.
-
-4. **Smoke test from the public URL:**
-   ```powershell
-   curl https://api.genshape3d.com/api/health
-   ```
-   Should return 200. If localhost works but public doesn't, the tunnel
-   is the problem.
-
-5. **Report back** by updating this section with what you found.
-
-### What you do NOT do
-- Don't modify the 3090's code or config.
+Tunnel log path: `F:\cloudflare\.pm2-logs\cloudflared.log`.
 
 ---
 
