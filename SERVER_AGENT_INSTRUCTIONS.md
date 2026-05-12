@@ -5,48 +5,29 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
-## 🆕 BUG — HTTP 502 on generate / upload (added 2026-05-12)
+## ✅ DONE — HTTP 502 on generate / upload (resolved 2026-05-12, i7 agent)
 
-**FOR THE i7 AGENT.** The user is getting HTTP 502 errors when pressing
-"Generate" on genshape3d.com. The upload endpoint (`POST /api/upload`)
-returns 400 correctly when called without a body, so the server process IS
-running — but something crashes or times out during the actual multipart
-upload.
+**Root cause:** An orphan ts-node-dev process (PID 12776) was holding port
+8110. ts-node-dev's auto-restart was silently failing with `EADDRINUSE` —
+so the server appeared to be running (process existed) but was actually dead.
+The Cloudflare tunnel was forwarding requests to a port with nothing behind it → 502.
 
-### What you must do
+**Fix applied:**
+1. Killed orphan PID 12776 (`Stop-Process -Id 12776 -Force`).
+2. Ran `npm install` in `server/` to pick up any dependency changes from the
+   pulled commits (the 3090 agent had pushed `Workspace.tsx` + `usersRepo.ts`
+   + `workersApi.ts` changes).
+3. Restarted `ts-node-dev --respawn --transpile-only src/index.ts` hidden
+   (PID 21952). Server now listening on `0.0.0.0:8110`.
+4. Smoke-tested `POST /api/upload` → **HTTP 200**, job created successfully.
+5. Cancelled the test job in Postgres.
 
-1. **Check the server logs.** Look at the ts-node-dev / PM2 output for
-   the genshape3d server process. Search for recent errors, crashes, or
-   unhandled exceptions around the `/api/upload` handler.
-
-2. **Check if the server process restarted recently.** If ts-node-dev
-   crashed and restarted, there will be a gap in logs.
-
-3. **Test the upload endpoint locally** from the i7:
-   ```bash
-   # Create a tiny test image
-   convert -size 100x100 xc:red /tmp/test.png 2>/dev/null || \
-     python3 -c "from PIL import Image; Image.new('RGB',(100,100),(255,0,0)).save('/tmp/test.png')"
-
-   # Hit the upload endpoint with a real file
-   curl -v -X POST http://localhost:8110/api/upload \
-     -F "image=@/tmp/test.png" \
-     -F "email=uskajitas@gmail.com" \
-     -F "model=hunyuan3d"
-   ```
-   If this returns 200, the server is fine and the issue is between
-   Cloudflare and the server (tunnel config). If it returns 500/502 or
-   crashes, paste the error.
-
-4. **Check the Cloudflare tunnel.** Is `cloudflared` running? Is it
-   pointing to the correct local port (8110)?
-
-5. **Report back** by updating this section with what you found. Push
-   the update so the 3090 agent can pull and see the result.
-
-### What you do NOT do
-- Don't restart the server without checking logs first.
-- Don't modify the 3090's code or config.
+**For future reference — how to detect this:**
+- `netstat -ano | grep :8110 | LISTENING` shows nothing → server is fully dead.
+- `netstat -ano | grep :8110 | LISTENING` shows a PID → check that PID with
+  `Get-Process -Id <PID>` — if it's `node` or `ts-node` but the server log
+  shows `EADDRINUSE`, there is a second ghost process on the same port.
+- Always check the error log at `F:/cloudflare/.pm2-logs/genshape3d-server.err.log`.
 
 ---
 
