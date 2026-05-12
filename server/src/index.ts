@@ -1,6 +1,41 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import fs from 'node:fs';
+import path from 'node:path';
+
+// ─── Startup env-drift guard ─────────────────────────────────────────────────
+// Parses .env.example, checks every key against process.env, and prints a
+// LOUD warning if any are missing or empty. Catches drift the moment
+// ts-node-dev reloads — instead of when a user hits a feature later.
+(function envDriftGuard() {
+  try {
+    const examplePath = path.join(__dirname, '..', '.env.example');
+    if (!fs.existsSync(examplePath)) return;
+    const lines = fs.readFileSync(examplePath, 'utf8').split(/\r?\n/);
+    const missing: string[] = [];
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue;
+      const val = process.env[key];
+      if (val === undefined || val === '') missing.push(key);
+    }
+    if (missing.length > 0) {
+      const bar = '─'.repeat(72);
+      console.warn(`\n${bar}\n⚠️  WARNING: server/.env is missing ${missing.length} key(s) declared in .env.example:`);
+      for (const k of missing) console.warn(`     ${k}`);
+      console.warn(`   Features that depend on these will return errors.`);
+      console.warn(`   Fix: append the value(s) to F:/cloudflare/genshape3d/server/.env\n${bar}\n`);
+    }
+  } catch (e: any) {
+    console.warn('[env-drift-guard] check failed:', e?.message || e);
+  }
+})();
+
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
