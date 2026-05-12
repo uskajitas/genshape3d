@@ -56,6 +56,10 @@ interface Job {
   numChunks?: number;
   seed?: number;
   auxImageUrls?: string[];
+  gpuMemPeakMB?: number;
+  gpuUtilAvg?: number;
+  gpuUtilPeak?: number;
+  gpuSamples?: number;
   progressPct?: number;
   progressPhase?: string;
   model?: string;
@@ -1587,6 +1591,12 @@ const Workspace: React.FC = () => {
       { label: 'Export format',   value: j.exportFormat || 'GLB' },
       { label: 'Style',           value: j.style || '—' },
       { label: 'Worker',          value: j.assignedWorkerId || `(pref: ${j.preferredWorkerId || 'auto'})` },
+      ...(j.gpuSamples && j.gpuSamples > 0
+        ? [
+            { label: 'GPU peak VRAM', value: `${(j.gpuMemPeakMB ?? 0).toLocaleString()} MB` } as DetailField,
+            { label: 'GPU util',      value: `avg ${(j.gpuUtilAvg ?? 0).toFixed(0)}% · peak ${(j.gpuUtilPeak ?? 0).toFixed(0)}%` } as DetailField,
+          ]
+        : []),
       { label: 'Runtime',         value: runtime },
       { label: 'Created',         value: j.createdAt ? new Date(j.createdAt).toLocaleString() : '—' },
       ...(j.errorMessage
