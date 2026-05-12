@@ -1,5 +1,27 @@
 # Server-side follow-up instructions
 
+## ⛔ STOP — read this before adding a task
+
+This file is for **genuinely stuck human-action tasks only**. Examples:
+- A token / API key only the user can fetch.
+- A Cloudflare DNS conflict needing his account.
+- A Stripe / Firebase console setting requiring his hands.
+
+**It is NOT for:**
+- "Please pull and restart the server" — auto-deploy on i7 does that
+  in ~60s. See `F:/cloudflare/.pm2-logs/auto-deploy.log`.
+- "Vite client needs to restart" — Vite HMR handles that.
+- "Migration needs to run" — `initDb()` runs on every server boot and
+  auto-deploy restarts the server on every push.
+- "Server returns 530" — first check `auto-deploy.log` and the
+  cloudflared service state. Only file a task if you've isolated it
+  to something that needs the user's hands.
+
+If you're a non-i7 agent and your "task" is really "I want my push to
+be live in production" — that already happens automatically. Just push,
+wait 70 seconds, and curl the public endpoint to confirm. Don't write
+in this file.
+
 Multiple commits' worth of follow-ups stacked here. **Do the most recent
 section first** (top of the file) — older sections may already be partly done.
 
