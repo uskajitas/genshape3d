@@ -31,10 +31,11 @@ import {
 } from './jobsRepo';
 import { isAdmin } from './usersRepo';
 
-// Long-poll tuning. 25s leaves headroom under Cloudflare's 100s edge timeout
-// and any default reverse-proxy idle limits. POLL_INTERVAL_MS controls how
-// often we re-check the queue while holding the connection open.
-const LONG_POLL_MS = parseInt(process.env.WORKER_CLAIM_LONG_POLL_MS || '25000', 10);
+// Long-poll tuning. 10s keeps responses well inside the Cloudflare tunnel's
+// effective idle timeout (empirically <25s despite the documented 100s edge
+// limit). Workers call /claim in a tight loop anyway, so shorter hold just
+// means slightly more round-trips — no impact on latency when a job arrives.
+const LONG_POLL_MS = parseInt(process.env.WORKER_CLAIM_LONG_POLL_MS || '10000', 10);
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_CLAIM_POLL_INTERVAL_MS || '1000', 10);
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
