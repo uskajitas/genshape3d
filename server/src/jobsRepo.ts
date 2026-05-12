@@ -102,6 +102,10 @@ export async function createJob(data: {
    *  Worker downloads them and feeds them to Hunyuan3D-2-mv for multi-
    *  view conditioning. Empty list = single-view path. */
   auxImageUrls?: string[];
+  /** When true, the worker generates aux views with Zero123++ locally
+   *  before the 3D step (if the subject is upright). When false, the
+   *  worker skips auto-mv even if it otherwise would. */
+  useMultiView?: boolean;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
@@ -109,8 +113,8 @@ export async function createJob(data: {
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
-       model, "preferredWorkerId", "auxImageUrls")
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb) RETURNING *`,
+       model, "preferredWorkerId", "auxImageUrls", "useMultiView")
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -129,6 +133,7 @@ export async function createJob(data: {
       data.model            || 'hunyuan3d',
       data.preferredWorkerId || routeWorker(data.model || 'hunyuan3d'),
       JSON.stringify(data.auxImageUrls || []),
+      data.useMultiView ?? false,
     ]
   );
   return rows[0];

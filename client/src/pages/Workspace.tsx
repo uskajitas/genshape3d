@@ -65,6 +65,7 @@ type ModelId = 'hunyuan3d' | 'triposr' | 'sf3d' | 'hi3dgen';
 interface SubmitOpts {
   quality: 'standard' | 'high';
   doTexture: boolean;
+  useMultiView: boolean;
   model: ModelId;
   preferredWorkerId?: string;
 }
@@ -105,6 +106,7 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
     form.append('guidanceScale', '5');
   }
   form.append('doTexture', String(opts.doTexture));
+  form.append('useMultiView', String(opts.useMultiView));
   if (opts.preferredWorkerId) {
     form.append('preferredWorkerId', opts.preferredWorkerId);
   }
@@ -1256,6 +1258,10 @@ const Workspace: React.FC = () => {
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
+  // Multi-view (Zero123++ auto-generates back/side views on the worker
+  // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
+  // worker auto-skips for horizontal subjects regardless.
+  const [useMultiView, setUseMultiView] = useState(false);
   const [model, setModel] = useState<ModelId>('hunyuan3d');
   const [preferredWorkerId, setPreferredWorkerId] = useState('');
   const [workers, setWorkers] = useState<{ id: string; models: string[]; busy: number; capacity: number; online: boolean; lastActivity: string | null }[]>([]);
@@ -1425,6 +1431,7 @@ const Workspace: React.FC = () => {
     const { job, error } = await submitJob(email, file, {
       quality: effectiveQuality,
       doTexture: effectiveTexture,
+      useMultiView: isAdmin ? useMultiView : false,
       model,
       preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
     });
@@ -1783,6 +1790,15 @@ const Workspace: React.FC = () => {
                 <Segmented>
                   <SegmentedBtn $active={!doTexture} onClick={() => setDoTexture(false)}>Off</SegmentedBtn>
                   <SegmentedBtn $active={doTexture} onClick={() => setDoTexture(true)}>On</SegmentedBtn>
+                </Segmented>
+              </Field>
+            )}
+            {isAdmin && (
+              <Field>
+                <FieldLabel>Multi-view <FieldHint>auto-generates back+side views; skipped if subject is horizontal</FieldHint></FieldLabel>
+                <Segmented>
+                  <SegmentedBtn $active={!useMultiView} onClick={() => setUseMultiView(false)}>Off</SegmentedBtn>
+                  <SegmentedBtn $active={useMultiView} onClick={() => setUseMultiView(true)}>On</SegmentedBtn>
                 </Segmented>
               </Field>
             )}
