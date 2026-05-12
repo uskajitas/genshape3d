@@ -1,0 +1,208 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// MachinesPanel — admin-only live worker status strip.
+//
+// Always-visible "what is each machine doing right now" view. Renders a card
+// per known worker (i7-1080, win-3090) showing:
+//   - 🟢/🔴 online dot + last activity time
+//   - models the worker can run
+//   - if busy: thumbnail of input image, job name, model, live % + phase,
+//     progress bar, cold-start warning after 30 min in progress
+//   - if idle: 'idle, waiting for work'
+//
+// Sources: GET /api/workers (admin gated by ?email=) + GET /api/admin/stats
+// (admin gated by x-user-email header) joined by assignedWorkerId.
+// Refreshes every 3 seconds.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import React, { useEffect, useMemo, useState } from 'react';
+
+interface WorkerInfo {
+  id: string;
+  models: string[];
+  capacity: number;
+  busy: number;
+  lastActivity: string | null;
+  online: boolean;
+}
+
+interface RecentRow {
+  id: string;
+  name: string;
+  image_url: string;
+  model: string;
+  worker: string;
+  status: string;
+  progress_pct: number;
+  progress_phase: string;
+  submitted_at: string;
+}
+
+interface Props {
+  email: string;
+  isAdmin: boolean;
+  compact?: boolean;
+}
+
+const lastSeenLabel = (iso: string | null): string => {
+  if (!iso) return 'never';
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60)    return `${s}s ago`;
+  if (s < 3600)  return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+};
+
+export const MachinesPanel: React.FC<Props> = ({ email, isAdmin, compact }) => {
+  const [workers, setWorkers] = useState<WorkerInfo[]>([]);
+  const [recent, setRecent]   = useState<RecentRow[]>([]);
+
+  useEffect(() => {
+    if (!email || !isAdmin) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const [w, s] = await Promise.all([
+          fetch(`/api/workers?email=${encodeURIComponent(email)}`),
+          fetch('/api/admin/stats', { headers: { 'x-user-email': email } }),
+        ]);
+        if (!cancelled && w.ok) {
+          const wd = await w.json();
+          setWorkers(wd.workers || []);
+        }
+        if (!cancelled && s.ok) {
+          const sd = await s.json();
+          setRecent(sd.recent || []);
+        }
+      } catch { /* swallow — next tick retries */ }
+    };
+    tick();
+    const t = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [email, isAdmin]);
+
+  const activeByWorker = useMemo<Record<string, RecentRow | undefined>>(() => {
+    const out: Record<string, RecentRow | undefined> = {};
+    for (const r of recent) {
+      if (r.status === 'processing' && r.worker && !out[r.worker]) out[r.worker] = r;
+    }
+    return out;
+  }, [recent]);
+
+  if (!isAdmin || workers.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 280 : 320}px, 1fr))`,
+        gap: '0.65rem',
+        margin: compact ? '0.5rem 1rem' : '0 0 1.25rem 0',
+      }}
+    >
+      {workers.map(w => {
+        const active = activeByWorker[w.id];
+        const startedMs = active ? new Date(active.submitted_at).getTime() : 0;
+        const inProgressSec = active ? Math.round((Date.now() - startedMs) / 1000) : 0;
+        const isStale = active && inProgressSec > 1800;
+        return (
+          <div
+            key={w.id}
+            style={{
+              background: 'linear-gradient(180deg, #1A1B22, #14151B)',
+              border: `1px solid ${w.online ? '#10B98155' : '#EF444455'}`,
+              borderRadius: 10,
+              padding: '0.75rem 0.9rem',
+              display: 'flex',
+              gap: '0.75rem',
+              alignItems: 'flex-start',
+            }}
+          >
+            {active && active.image_url ? (
+              <a href={active.image_url} target="_blank" rel="noreferrer">
+                <img
+                  src={active.image_url}
+                  alt=""
+                  style={{
+                    width: 56, height: 56, objectFit: 'cover',
+                    borderRadius: 8, background: '#222', flexShrink: 0,
+                  }}
+                  loading="lazy"
+                />
+              </a>
+            ) : (
+              <div
+                style={{
+                  width: 56, height: 56, borderRadius: 8, background: '#222',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#6B7280', fontSize: '0.68rem', flexShrink: 0,
+                }}
+              >
+                idle
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <span
+                  style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: w.online ? '#10B981' : '#EF4444',
+                    boxShadow: w.online ? '0 0 8px #10B981' : 'none',
+                  }}
+                />
+                <strong style={{ fontSize: '0.88rem' }}>{w.id}</strong>
+                <span style={{ fontSize: '0.66rem', color: '#A4A4AC', marginLeft: 'auto' }}>
+                  {w.online ? 'online' : 'offline'} · {lastSeenLabel(w.lastActivity)}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.66rem', color: '#A4A4AC', marginBottom: 4 }}>
+                runs: {w.models.join(', ')}
+              </div>
+              {active ? (
+                <>
+                  <div
+                    style={{
+                      fontSize: '0.8rem', fontWeight: 600, color: '#E4E4E7',
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}
+                    title={active.name || active.id}
+                  >
+                    {active.name || active.id.slice(0, 8)}
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#A4A4AC', marginBottom: 4 }}>
+                    {active.model} · {active.progress_pct || 0}% · {active.progress_phase || '…'}
+                  </div>
+                  <div
+                    style={{
+                      height: 5, background: '#22232A', borderRadius: 3, overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${Math.min(100, active.progress_pct || 0)}%`,
+                        height: '100%',
+                        background: isStale ? '#F59E0B' : '#A855F7',
+                        transition: 'width 0.4s',
+                      }}
+                    />
+                  </div>
+                  {isStale && (
+                    <div style={{ marginTop: 4, fontSize: '0.66rem', color: '#F59E0B' }}>
+                      ⚠ in progress {Math.round(inProgressSec / 60)}m — likely
+                      downloading model weights (cold start)
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: '0.78rem', color: '#6B7280' }}>
+                  {w.busy > 0 ? `${w.busy} active jobs` : 'idle, waiting for work'}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+export default MachinesPanel;

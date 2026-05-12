@@ -25,6 +25,7 @@ import { confirm } from '../components/ConfirmModal';
 import { IconClose, IconTrash } from '../components/Icons';
 import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
+import { MachinesPanel } from '../components/MachinesPanel';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -1602,6 +1603,8 @@ const Workspace: React.FC = () => {
           <SignInBtn onClick={() => navigate('/login')}>Sign in</SignInBtn>
         )}
       </NavBar>
+
+      <MachinesPanel email={email} isAdmin={isAdmin} compact />
 
       <Body>
         {/* ──────── Icon rail ──────── */}
