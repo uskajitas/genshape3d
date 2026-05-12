@@ -5,6 +5,49 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 BUG — HTTP 502 on text-to-image generate (added 2026-05-12)
+
+**FOR THE i7 AGENT.** The user gets HTTP 502 when pressing "Generate" on
+genshape3d.com. The 502 comes from `GET /api/text2image` — specifically
+line 531 of `server/src/index.ts` which catches errors from the fal.ai
+provider and returns 502.
+
+The failing URL from the browser console:
+```
+/api/text2image?prompt=spaceship&provider=fal-flux-schnell&email=usquiano@gmail.com...
+```
+
+The `callFalFluxSchnell` function (line 326) calls `callFalEndpoint`
+(line 296) which requires `process.env.FAL_KEY`. If `FAL_KEY` is missing
+or invalid, the error is `"FAL_KEY not configured"` or a fal.ai HTTP error.
+
+### What you must do
+
+1. **Check if `FAL_KEY` is set** in the server `.env`:
+   ```bash
+   grep FAL_KEY /f/cloudflare/genshape3d/server/.env
+   ```
+   If missing or empty, that's the bug.
+
+2. **If `FAL_KEY` is set**, test the fal.ai call directly:
+   ```bash
+   curl -s -X POST https://fal.run/fal-ai/flux/schnell \
+     -H "Authorization: Key $(grep FAL_KEY /f/cloudflare/genshape3d/server/.env | cut -d= -f2)" \
+     -H "Content-Type: application/json" \
+     -d '{"prompt":"a red cube","image_size":"square_hd","num_inference_steps":4,"seed":42}' \
+     | head -c 200
+   ```
+   If it returns an error, the key is expired or the account has no credits.
+
+3. **Check server logs** for the exact error message from `[text2image]`.
+
+4. **Report back** by updating this section with what you found.
+
+### What you do NOT do
+- Don't modify the 3090's code or config.
+
+---
+
 ## ✅ DONE — HTTP 502 on generate / upload (resolved 2026-05-12, i7 agent)
 
 **Root cause:** An orphan ts-node-dev process (PID 12776) was holding port
@@ -715,8 +758,11 @@ the current picture if the user pings you about it.
    3090's `.env` (the file is on the i7, not on the 3090 — there's no
    shared drive). User will RDP / paste / scp.
 2. HF_TOKEN — you noted i7's `.env` had no `HF_TOKEN`; user has to
-   create one at <https://huggingface.co/settings/tokens> and accept
-   licenses on the four model pages.
+   create one at <https://huggingface.co/settings/tokens> (Read scope) and
+   accept the license on each model page (TripoSR, Hunyuan3D-2,
+   stable-fast-3d, Hi3DGen) — then add it to the 3090's `.env`. Same value
+   should be appended to the i7's `.env` as `HF_TOKEN=…` for the
+   text-to-image fallback path.
 
 ### Lesson learned — keep this in mind for any future worker box
 If you ever set up another GPU worker box that needs to compile CUDA
