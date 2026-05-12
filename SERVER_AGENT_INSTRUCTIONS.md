@@ -5,6 +5,51 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 BUG — HTTP 502 on generate / upload (added 2026-05-12)
+
+**FOR THE i7 AGENT.** The user is getting HTTP 502 errors when pressing
+"Generate" on genshape3d.com. The upload endpoint (`POST /api/upload`)
+returns 400 correctly when called without a body, so the server process IS
+running — but something crashes or times out during the actual multipart
+upload.
+
+### What you must do
+
+1. **Check the server logs.** Look at the ts-node-dev / PM2 output for
+   the genshape3d server process. Search for recent errors, crashes, or
+   unhandled exceptions around the `/api/upload` handler.
+
+2. **Check if the server process restarted recently.** If ts-node-dev
+   crashed and restarted, there will be a gap in logs.
+
+3. **Test the upload endpoint locally** from the i7:
+   ```bash
+   # Create a tiny test image
+   convert -size 100x100 xc:red /tmp/test.png 2>/dev/null || \
+     python3 -c "from PIL import Image; Image.new('RGB',(100,100),(255,0,0)).save('/tmp/test.png')"
+
+   # Hit the upload endpoint with a real file
+   curl -v -X POST http://localhost:8110/api/upload \
+     -F "image=@/tmp/test.png" \
+     -F "email=uskajitas@gmail.com" \
+     -F "model=hunyuan3d"
+   ```
+   If this returns 200, the server is fine and the issue is between
+   Cloudflare and the server (tunnel config). If it returns 500/502 or
+   crashes, paste the error.
+
+4. **Check the Cloudflare tunnel.** Is `cloudflared` running? Is it
+   pointing to the correct local port (8110)?
+
+5. **Report back** by updating this section with what you found. Push
+   the update so the 3090 agent can pull and see the result.
+
+### What you do NOT do
+- Don't restart the server without checking logs first.
+- Don't modify the 3090's code or config.
+
+---
+
 ## 🆕 TASK — Build 3090 system tray service (added 2026-05-11)
 
 **FOR THE 3090 AGENT ONLY. Do NOT run any of this on the i7.**
