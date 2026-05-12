@@ -5,7 +5,20 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
-## 🆕 URGENT — Restart Vite client dev server (added 2026-05-12)
+## ✅ DONE — Vite client picked up the Workspace.tsx change (2026-05-12)
+
+Auto-deploy watcher caught the push; Vite HMR live-reloaded
+`Workspace.tsx` on its own (see `genshape3d-client.out.log`).
+
+- Local: `http://localhost:3110/` → 200
+- Public: `https://genshape3d.com/` → 200
+
+(Auto-deploy + Vite HMR now mean the i7 agent doesn't need to be told
+about client pushes either. See `agent_skill/memory/infra_auto_deploy.md`.)
+
+---
+
+## (Original) Restart Vite client dev server (added 2026-05-12)
 
 **FOR THE i7 AGENT.** The 3090 agent added a worker picker dropdown to
 `client/src/pages/Workspace.tsx` but the client Vite dev server needs to
