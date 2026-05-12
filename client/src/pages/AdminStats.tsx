@@ -26,6 +26,7 @@ interface RecentRow {
   status: string;
   progress_pct: number;
   progress_phase: string;
+  error_message: string;
   submitted_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -417,7 +418,21 @@ const AdminStats: React.FC = () => {
                 <Td>
                   <Pill $color={r.worker ? '#A855F7' : '#6B7280'}>{workerLabel}</Pill>
                 </Td>
-                <Td><Pill $color={statusColor(r.status)}>{r.status}</Pill></Td>
+                <Td>
+                  <Pill $color={statusColor(r.status)}>{r.status}</Pill>
+                  {r.status === 'failed' && r.error_message && (
+                    <div
+                      title={r.error_message}
+                      style={{
+                        marginTop: 4, maxWidth: 240, color: '#EF4444',
+                        fontSize: '0.72rem', overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {r.error_message}
+                    </div>
+                  )}
+                </Td>
                 <Td>
                   {r.status === 'processing'
                     ? `${r.progress_pct || 0}% ${r.progress_phase || ''}`

@@ -1272,6 +1272,7 @@ app.get('/api/admin/stats', async (req, res) => {
         status,
         "progressPct"      AS progress_pct,
         "progressPhase"    AS progress_phase,
+        "errorMessage"     AS error_message,
         "createdAt"        AS submitted_at,
         "startedAt"        AS started_at,
         "completedAt"      AS completed_at,

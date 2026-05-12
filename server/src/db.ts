@@ -144,6 +144,9 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "preferredWorkerId" TEXT NOT NULL DEFAULT ''`,
     // Speed up the worker claim query: WHERE status='pending' AND model = ANY($1)
     `CREATE INDEX IF NOT EXISTS idx_jobs_pending_model ON genshape3d_jobs (status, model) WHERE deleted = false`,
+    // Workers write the failure stack/message here so the admin page can show
+    // WHY a job failed without needing to SSH into the box that ran it.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "errorMessage" TEXT NOT NULL DEFAULT ''`,
   ];
   for (const sql of alterCols) await db.query(sql);
 
