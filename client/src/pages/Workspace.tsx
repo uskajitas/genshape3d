@@ -38,13 +38,24 @@ interface Job {
   status: 'pending' | 'running' | 'processing' | 'done' | 'failed' | 'error' | 'cancelled';
   imageUrl?: string;
   resultUrl?: string;
+  prompt?: string;
+  style?: string;
   createdAt?: string;
   startedAt?: string | null;
   completedAt?: string | null;
+  polygonBudget?: string;
+  textureRes?: string;
+  exportFormat?: string;
+  detailLevel?: string;
+  doTexture?: boolean;
+  useMultiView?: boolean;
   inferenceSteps?: number;
   octreeResolution?: number;
   targetFaceCount?: number;
-  doTexture?: boolean;
+  guidanceScale?: number;
+  numChunks?: number;
+  seed?: number;
+  auxImageUrls?: string[];
   progressPct?: number;
   progressPhase?: string;
   model?: string;
@@ -1558,15 +1569,29 @@ const Workspace: React.FC = () => {
     } else if (j.status === 'processing' || j.status === 'running') {
       runtime = `${j.progressPct ?? 0}% — ${j.progressPhase || 'in progress'}`;
     }
+    const auxN = Array.isArray(j.auxImageUrls) ? j.auxImageUrls.length : 0;
     const fields: DetailField[] = [
-      { label: 'Prompt', value: j.imageUrl ? '(image-driven)' : '—', wide: true },
-      { label: 'Quality',         value: (j.inferenceSteps ?? 5) > 10 ? 'High' : 'Standard' },
-      { label: 'Texture',         value: j.doTexture ? 'Yes' : 'No' },
-      { label: 'Inference steps', value: j.inferenceSteps ?? '—' },
+      { label: 'Prompt',          value: j.prompt?.trim() || '(image-driven, no prompt)', wide: true },
+      { label: 'Model',           value: j.model || 'hunyuan3d' },
+      { label: 'Quality',         value: j.detailLevel || ((j.inferenceSteps ?? 5) > 10 ? 'Fine' : 'Standard') },
+      { label: 'Texture',         value: j.doTexture ? 'On' : 'Off' },
+      { label: 'Multi-view',      value: j.useMultiView ? 'On (forced)' : (auxN > 0 ? `${auxN} aux views (heuristic)` : 'Off') },
+      { label: 'Inference steps', value: j.inferenceSteps || '—' },
       { label: 'Octree res',      value: j.octreeResolution || '—' },
+      { label: 'Guidance scale',  value: j.guidanceScale || '—' },
       { label: 'Target faces',    value: j.targetFaceCount ? j.targetFaceCount.toLocaleString() : '—' },
+      { label: 'Num chunks',      value: j.numChunks || '—' },
+      { label: 'Seed',            value: j.seed && j.seed > 0 ? j.seed : 'random' },
+      { label: 'Polygon budget',  value: j.polygonBudget || '—' },
+      { label: 'Texture res',     value: j.textureRes || '—' },
+      { label: 'Export format',   value: j.exportFormat || 'GLB' },
+      { label: 'Style',           value: j.style || '—' },
+      { label: 'Worker',          value: j.assignedWorkerId || `(pref: ${j.preferredWorkerId || 'auto'})` },
       { label: 'Runtime',         value: runtime },
       { label: 'Created',         value: j.createdAt ? new Date(j.createdAt).toLocaleString() : '—' },
+      ...(j.errorMessage
+        ? [{ label: 'Error', value: j.errorMessage.slice(0, 200), wide: true } as DetailField]
+        : []),
       { label: 'Job id',          value: j.id, mono: true, wide: true },
     ];
     return { job: j, fields, badgeColor };
