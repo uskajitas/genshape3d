@@ -98,6 +98,10 @@ export async function createJob(data: {
   seed?: number;
   model?: string;
   preferredWorkerId?: string;
+  /** Optional jsonb array of additional view URLs (side/back/three_q).
+   *  Worker downloads them and feeds them to Hunyuan3D-2-mv for multi-
+   *  view conditioning. Empty list = single-view path. */
+  auxImageUrls?: string[];
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
@@ -105,8 +109,8 @@ export async function createJob(data: {
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
-       model, "preferredWorkerId")
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+       model, "preferredWorkerId", "auxImageUrls")
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -124,6 +128,7 @@ export async function createJob(data: {
       data.seed             ?? 0,
       data.model            || 'hunyuan3d',
       data.preferredWorkerId || routeWorker(data.model || 'hunyuan3d'),
+      JSON.stringify(data.auxImageUrls || []),
     ]
   );
   return rows[0];

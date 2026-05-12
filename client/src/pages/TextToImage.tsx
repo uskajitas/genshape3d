@@ -1901,8 +1901,13 @@ const TextToImage: React.FC = () => {
             visible={!!selected && !!selectedSections}
             image={toControlled(selected)}
             primaryImage={toControlled(primaryImage)}
-            altViews={groupAltViews}
-            busyViewLabels={busyViewLabels}
+            // Alt views are an admin-only diagnostic feature. End users
+            // see a clean single-image flow; the server generates aux
+            // views in the background automatically when they're needed
+            // for 3D conditioning. Admin keeps the UI to manually
+            // inspect and regenerate.
+            altViews={isAdmin ? groupAltViews : []}
+            busyViewLabels={isAdmin ? busyViewLabels : []}
             prompt={selected?.prompt || ''}
             composedPrompt={selected?.finalPrompt}
             adminCostPerView={adminCostPerView}
@@ -1910,7 +1915,7 @@ const TextToImage: React.FC = () => {
             onChangeName={onChangeSelectedName}
             onDownload={onDownload}
             onToggleReadyFor3D={onToggleReadyFor3D}
-            onGenerateView={(_label) => {
+            onGenerateView={!isAdmin ? undefined : (_label) => {
               // Clicking + on ANY empty slot triggers BATCH mode — one
               // multi-view diffusion call fills every empty slot at
               // once. The Zero123++ model produces a consistent set of
@@ -1920,8 +1925,8 @@ const TextToImage: React.FC = () => {
               onGenerateAltView(primaryImage.id);
             }}
             onSelectView={(id) => setSelectedId(id)}
-            onDeleteView={onDeleteAltView}
-            onRegenerateView={(label, currentId) => {
+            onDeleteView={!isAdmin ? undefined : onDeleteAltView}
+            onRegenerateView={!isAdmin ? undefined : (label, currentId) => {
               if (!primaryImage) return;
               onRegenerateAltView(primaryImage.id, label, currentId);
             }}
