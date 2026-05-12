@@ -5,6 +5,57 @@ section first** (top of the file) — older sections may already be partly done.
 
 ---
 
+## 🆕 BUG — Server / Cloudflare tunnel down (added 2026-05-12)
+
+**FOR THE i7 AGENT.** The 3090 worker cannot reach the API at all.
+`https://api.genshape3d.com` returns **HTTP 530** (Cloudflare: origin
+unreachable). This means either:
+
+1. The server process (`ts-node-dev` on port 8110) is not running, OR
+2. The Cloudflare tunnel (`cloudflared`) is not running, OR
+3. Both.
+
+The 3090 worker is up and polling but every `/api/workers/win-3090/claim`
+call times out because the origin is unreachable.
+
+### What you must do
+
+1. **Check if the server is listening on 8110:**
+   ```powershell
+   netstat -ano | findstr :8110
+   ```
+   If nothing shows `LISTENING`, restart the server:
+   ```powershell
+   cd F:\cloudflare\genshape3d\server
+   npx ts-node-dev --respawn --transpile-only src/index.ts
+   ```
+
+2. **Check if `cloudflared` tunnel is running:**
+   ```powershell
+   Get-Process cloudflared -ErrorAction SilentlyContinue
+   ```
+   If not running, restart it (however it was previously launched).
+
+3. **Smoke test from localhost:**
+   ```powershell
+   curl http://localhost:8110/api/health
+   ```
+   Should return 200.
+
+4. **Smoke test from the public URL:**
+   ```powershell
+   curl https://api.genshape3d.com/api/health
+   ```
+   Should return 200. If localhost works but public doesn't, the tunnel
+   is the problem.
+
+5. **Report back** by updating this section with what you found.
+
+### What you do NOT do
+- Don't modify the 3090's code or config.
+
+---
+
 ## 🟡 BLOCKED — HTTP 502 on text-to-image, root cause confirmed (2026-05-12, i7 agent)
 
 **Diagnosis confirmed.** The local call reproduces the 502 with the exact
