@@ -62,6 +62,7 @@ interface SubmitOpts {
   quality: 'standard' | 'high';
   doTexture: boolean;
   model: ModelId;
+  preferredWorkerId?: string;
 }
 
 const renameJob = async (id: string, name: string): Promise<void> => {
@@ -100,6 +101,9 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
     form.append('guidanceScale', '5');
   }
   form.append('doTexture', String(opts.doTexture));
+  if (opts.preferredWorkerId) {
+    form.append('preferredWorkerId', opts.preferredWorkerId);
+  }
   const r = await fetch('/api/upload', { method: 'POST', body: form });
   // Read the response body either way so we can surface server-side errors
   // (rate limit, bad image, etc.) instead of silently dropping the click.
@@ -1249,6 +1253,8 @@ const Workspace: React.FC = () => {
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
   const [model, setModel] = useState<ModelId>('hunyuan3d');
+  const [preferredWorkerId, setPreferredWorkerId] = useState('');
+  const [workers, setWorkers] = useState<{ id: string; models: string[]; busy: number; capacity: number }[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState('');
   const [assetTab, setAssetTab] = useState<'all' | 'pending' | 'done' | 'cancelled'>('all');
@@ -1291,6 +1297,24 @@ const Workspace: React.FC = () => {
   // Non-admins are pinned to Standard / no-texture while we're on the GTX 1080.
   const effectiveQuality = isAdmin ? quality : 'standard';
   const effectiveTexture = isAdmin ? doTexture : false;
+
+  // Fetch available workers for the admin picker. Refresh every 30s so
+  // the busy/capacity counts stay reasonably fresh.
+  useEffect(() => {
+    if (!isAdmin || !email) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/workers?email=${encodeURIComponent(email)}`);
+        if (!r.ok || cancelled) return;
+        const data = await r.json();
+        if (!cancelled) setWorkers(data.workers || []);
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const t = setInterval(tick, 30_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [isAdmin, email]);
 
   // ── Effects
   // Initial load + steady poll every 5s. Cheap (single GET, small JSON) and
@@ -1398,6 +1422,7 @@ const Workspace: React.FC = () => {
       quality: effectiveQuality,
       doTexture: effectiveTexture,
       model,
+      preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
     });
     setSubmitting(false);
     if (job) {
@@ -1415,7 +1440,7 @@ const Workspace: React.FC = () => {
         .then(d => { if (d) setLimits({ used24h: d.used24h, limit24h: d.limit24h }); })
         .catch(() => { /* non-fatal */ });
     }
-  }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture, model]);
+  }, [isAuthenticated, navigate, file, email, submitting, previewUrl, effectiveQuality, effectiveTexture, model, isAdmin, preferredWorkerId]);
 
 
   const onCancelJob = useCallback(async (id: string, name: string, e: React.MouseEvent) => {
@@ -1709,6 +1734,22 @@ const Workspace: React.FC = () => {
                 ))}
               </ModelSelect>
             </Field>
+
+            {isAdmin && workers.length > 0 && (
+              <Field>
+                <FieldLabel>
+                  Worker <FieldHint>admin — pin to a specific server</FieldHint>
+                </FieldLabel>
+                <ModelSelect value={preferredWorkerId} onChange={e => setPreferredWorkerId(e.target.value)}>
+                  <option value="">Any available</option>
+                  {workers.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.id} ({w.models.join(', ')}) — {w.busy}/{w.capacity} busy
+                    </option>
+                  ))}
+                </ModelSelect>
+              </Field>
+            )}
 
             <Field>
               <FieldLabel>

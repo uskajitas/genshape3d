@@ -944,6 +944,8 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       numChunks:        parseInt(req.body.numChunks)        || 0,
       seed:             parseInt(req.body.seed)             || 0,
       model:            (req.body.model as string)          || 'hunyuan3d',
+      // Admin-only: pin job to a specific worker. Non-admins always get ''.
+      preferredWorkerId: (await isAdmin(email)) ? (req.body.preferredWorkerId || '') : '',
     });
     res.json({ job, warnings: qcWarnings });
   } catch (err: any) {

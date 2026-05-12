@@ -140,6 +140,8 @@ export async function initDb(): Promise<void> {
     // — empty string means unassigned.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS model              TEXT NOT NULL DEFAULT 'hunyuan3d'`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "assignedWorkerId" TEXT NOT NULL DEFAULT ''`,
+    // Admin can pin a job to a specific worker. Empty string = any worker.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "preferredWorkerId" TEXT NOT NULL DEFAULT ''`,
     // Speed up the worker claim query: WHERE status='pending' AND model = ANY($1)
     `CREATE INDEX IF NOT EXISTS idx_jobs_pending_model ON genshape3d_jobs (status, model) WHERE deleted = false`,
   ];

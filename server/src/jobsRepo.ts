@@ -32,6 +32,7 @@ export interface Job {
   seed: number;
   model: string;
   assignedWorkerId: string;
+  preferredWorkerId: string;
 }
 
 // Count how many jobs a user has submitted in the last `hours`. Used by
@@ -96,6 +97,7 @@ export async function createJob(data: {
   numChunks?: number;
   seed?: number;
   model?: string;
+  preferredWorkerId?: string;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
@@ -103,8 +105,8 @@ export async function createJob(data: {
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
-       model)
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+       model, "preferredWorkerId")
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -121,6 +123,7 @@ export async function createJob(data: {
       data.numChunks        ?? 0,
       data.seed             ?? 0,
       data.model            || 'hunyuan3d',
+      data.preferredWorkerId || '',
     ]
   );
   return rows[0];
@@ -179,6 +182,8 @@ export async function updateJobStatus(id: string, status: Job['status'], resultU
 export async function claimNextPendingJob(workerId: string, models: string[]): Promise<Job | null> {
   if (models.length === 0) return null;
   const now = new Date().toISOString();
+  // Prefer jobs pinned to this worker first, then any unpinned job.
+  // Jobs pinned to a *different* worker are never claimed here.
   const { rows } = await getDb().query(
     `UPDATE genshape3d_jobs SET
        status = 'processing',
@@ -190,7 +195,10 @@ export async function claimNextPendingJob(workerId: string, models: string[]): P
        WHERE status = 'pending'
          AND deleted = false
          AND model = ANY($3::text[])
-       ORDER BY "createdAt" ASC
+         AND ("preferredWorkerId" = '' OR "preferredWorkerId" = $1)
+       ORDER BY
+         CASE WHEN "preferredWorkerId" = $1 THEN 0 ELSE 1 END,
+         "createdAt" ASC
        LIMIT 1
        FOR UPDATE SKIP LOCKED
      )
