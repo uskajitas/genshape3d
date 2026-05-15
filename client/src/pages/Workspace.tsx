@@ -806,6 +806,17 @@ const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
   { value: 'hi3dgen',       label: 'Hi3DGen' },
 ];
 
+const MATERIAL_PRESETS = [
+  'Auto',
+  'Ceramic',
+  'Wood',
+  'Metal',
+  'Stone',
+  'Leather',
+  'Fabric',
+  'Plastic',
+];
+
 const PromptArea = styled.textarea`
   width: 100%;
   min-height: 72px;
@@ -889,6 +900,45 @@ const TextureNote = styled.div`
   font-size: 0.76rem;
   color: ${p => p.theme.colors.textMuted};
   line-height: 1.45;
+`;
+
+const PresetGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+`;
+
+const PresetBtn = styled.button<{ $active?: boolean }>`
+  padding: 0.42rem 0.5rem;
+  border-radius: 7px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$active ? `${p.theme.colors.violet}22` : p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const TextureOptionsGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+`;
+
+const ToggleRow = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 7px;
+  background: ${p => p.theme.colors.background}88;
+  color: ${p => p.theme.colors.text};
+  font-size: 0.74rem;
+  font-weight: 600;
 `;
 
 const GenerateBtn = styled.button<{ $disabled?: boolean }>`
@@ -1532,6 +1582,17 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
   const [textureRes, setTextureRes] = useState<'1K' | '2K' | '4K'>('1K');
+  const [textureMode, setTextureMode] = useState<'retexture' | 'full'>('retexture');
+  const [texturePreset, setTexturePreset] = useState('Auto');
+  const [textureReferenceName, setTextureReferenceName] = useState('');
+  const [textureStrength, setTextureStrength] = useState(65);
+  const [textureVariants, setTextureVariants] = useState(2);
+  const [textureSeed, setTextureSeed] = useState(0);
+  const [textureKeepShape, setTextureKeepShape] = useState(true);
+  const [texturePbrBase, setTexturePbrBase] = useState(true);
+  const [texturePbrRoughness, setTexturePbrRoughness] = useState(true);
+  const [texturePbrNormal, setTexturePbrNormal] = useState(false);
+  const [texturePbrMetallic, setTexturePbrMetallic] = useState(false);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -1577,6 +1638,7 @@ const Workspace: React.FC = () => {
   const [loadingFromGallery, setLoadingFromGallery] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textureRefInputRef = useRef<HTMLInputElement>(null);
   const filmstripRef = useRef<HTMLDivElement>(null);
 
   // Convert vertical wheel scroll to horizontal so the filmstrip scrolls
@@ -2029,6 +2091,8 @@ const Workspace: React.FC = () => {
         ? 'Sign in to texture'
         : submitting
           ? 'Submitting...'
+          : textureMode === 'retexture'
+            ? 'Texture worker needed'
           : !selectedJob
             ? 'Select an asset first'
             : selectedJob.status !== 'done'
@@ -2181,7 +2245,19 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Texture prompt <FieldHint>material and surface direction</FieldHint></FieldLabel>
+                  <FieldLabel>Mode <FieldHint>{textureMode === 'retexture' ? 'same mesh' : 'new mesh'}</FieldHint></FieldLabel>
+                  <Segmented>
+                    <SegmentedBtn $active={textureMode === 'retexture'} onClick={() => setTextureMode('retexture')}>
+                      Retexture
+                    </SegmentedBtn>
+                    <SegmentedBtn $active={textureMode === 'full'} onClick={() => setTextureMode('full')}>
+                      Full run
+                    </SegmentedBtn>
+                  </Segmented>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Prompt <FieldHint>surface direction</FieldHint></FieldLabel>
                   <PromptArea
                     placeholder="e.g. aged bronze, worn edges, subtle roughness"
                     value={texturePrompt}
@@ -2190,7 +2266,38 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Resolution <FieldHint>stored on the job for benchmarks</FieldHint></FieldLabel>
+                  <FieldLabel>Material preset <FieldHint>quick starting point</FieldHint></FieldLabel>
+                  <PresetGrid>
+                    {MATERIAL_PRESETS.map(preset => (
+                      <PresetBtn
+                        key={preset}
+                        $active={texturePreset === preset}
+                        onClick={() => setTexturePreset(preset)}
+                      >
+                        {preset}
+                      </PresetBtn>
+                    ))}
+                  </PresetGrid>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Reference <FieldHint>{textureReferenceName || 'optional material image'}</FieldHint></FieldLabel>
+                  <TextureSource as="button" type="button" onClick={() => textureRefInputRef.current?.click()} style={{ cursor: 'pointer', textAlign: 'left' }}>
+                    <HiddenInput
+                      ref={textureRefInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={e => setTextureReferenceName(e.target.files?.[0]?.name || '')}
+                    />
+                    <TextureSourceMeta>
+                      <TextureSourceName>{textureReferenceName || 'Add reference image'}</TextureSourceName>
+                      <TextureNote>Use a photo of marble, fabric, leather, paint, metal grain, or any target look.</TextureNote>
+                    </TextureSourceMeta>
+                  </TextureSource>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Resolution <FieldHint>texture output size</FieldHint></FieldLabel>
                   <Segmented>
                     {(['1K', '2K', '4K'] as const).map(r => (
                       <SegmentedBtn key={r} $active={textureRes === r} onClick={() => setTextureRes(r)}>
@@ -2201,11 +2308,36 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Mode <FieldHint>dedicated retexture worker later</FieldHint></FieldLabel>
-                  <Segmented>
-                    <SegmentedBtn $active>Full run</SegmentedBtn>
-                    <SegmentedBtn $disabled>Retexture <ComingSoonTag>next</ComingSoonTag></SegmentedBtn>
-                  </Segmented>
+                  <FieldLabel>PBR maps <FieldHint>export controls</FieldHint></FieldLabel>
+                  <TextureOptionsGrid>
+                    <ToggleRow><input type="checkbox" checked={texturePbrBase} onChange={e => setTexturePbrBase(e.target.checked)} /> Base color</ToggleRow>
+                    <ToggleRow><input type="checkbox" checked={texturePbrRoughness} onChange={e => setTexturePbrRoughness(e.target.checked)} /> Roughness</ToggleRow>
+                    <ToggleRow><input type="checkbox" checked={texturePbrNormal} onChange={e => setTexturePbrNormal(e.target.checked)} /> Normal</ToggleRow>
+                    <ToggleRow><input type="checkbox" checked={texturePbrMetallic} onChange={e => setTexturePbrMetallic(e.target.checked)} /> Metallic</ToggleRow>
+                  </TextureOptionsGrid>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Controls <FieldHint>iteration settings</FieldHint></FieldLabel>
+                  <TextureOptionsGrid>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
+                      Strength
+                      <input type="range" min={0} max={100} value={textureStrength} onChange={e => setTextureStrength(parseInt(e.target.value) || 0)} />
+                      <span style={{ color: 'inherit', opacity: 0.65 }}>{textureStrength}%</span>
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
+                      Variants
+                      <input type="number" min={1} max={4} value={textureVariants} onChange={e => setTextureVariants(Math.max(1, Math.min(4, parseInt(e.target.value) || 1)))} />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
+                      Seed
+                      <input type="number" min={0} value={textureSeed} onChange={e => setTextureSeed(parseInt(e.target.value) || 0)} />
+                    </label>
+                    <ToggleRow>
+                      <input type="checkbox" checked={textureKeepShape} onChange={e => setTextureKeepShape(e.target.checked)} />
+                      Keep shape
+                    </ToggleRow>
+                  </TextureOptionsGrid>
                 </Field>
               </>
             ) : (
@@ -2440,7 +2572,7 @@ const Workspace: React.FC = () => {
             <GenerateBtn
               $disabled={
                 activeTool === 'texture'
-                  ? (!isAuthenticated ? false : (!selectedJob || selectedJob.status !== 'done' || submitting ||
+                  ? (!isAuthenticated ? false : (textureMode === 'retexture' || !selectedJob || selectedJob.status !== 'done' || submitting ||
                      (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)))
                   : !isAuthenticated
                     ? false
