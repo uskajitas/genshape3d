@@ -75,7 +75,7 @@ const fetchJobs = async (email: string): Promise<Job[]> => {
   return Array.isArray(data) ? data : (data.jobs || []);
 };
 
-type ModelId = 'hunyuan3d' | 'triposr' | 'sf3d' | 'hi3dgen';
+type ModelId = 'hunyuan3d' | 'hunyuan3d-2-1' | 'triposr' | 'sf3d' | 'hi3dgen';
 
 interface SubmitOpts {
   quality: 'standard' | 'high';
@@ -750,10 +750,11 @@ const ModelSelect = styled.select`
 `;
 
 const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
-  { value: 'hunyuan3d', label: 'Hunyuan3D-2 (default)' },
-  { value: 'triposr',   label: 'TripoSR' },
-  { value: 'sf3d',      label: 'Stable Fast 3D' },
-  { value: 'hi3dgen',   label: 'Hi3DGen' },
+  { value: 'hunyuan3d',     label: 'Hunyuan3D-2 (default)' },
+  { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1 (shape only — PBR coming)' },
+  { value: 'triposr',       label: 'TripoSR' },
+  { value: 'sf3d',          label: 'Stable Fast 3D' },
+  { value: 'hi3dgen',       label: 'Hi3DGen' },
 ];
 
 const PromptArea = styled.textarea`

@@ -150,11 +150,12 @@ export async function createJob(data: {
  */
 function routeWorker(model: string): string {
   switch (model.toLowerCase()) {
-    case 'hunyuan3d': return 'i7-1080';
+    case 'hunyuan3d':       return 'i7-1080';
+    case 'hunyuan3d-2-1':   return 'win-3090';  // PBR paint pipeline only built on the 3090
     case 'triposr':
     case 'sf3d':
-    case 'hi3dgen':   return 'win-3090';
-    default:          return 'i7-1080';
+    case 'hi3dgen':         return 'win-3090';
+    default:                return 'i7-1080';
   }
 }
 
