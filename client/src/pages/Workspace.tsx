@@ -807,14 +807,24 @@ const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
 ];
 
 const MATERIAL_PRESETS = [
-  'Auto',
-  'Ceramic',
-  'Wood',
-  'Metal',
-  'Stone',
-  'Leather',
-  'Fabric',
-  'Plastic',
+  'Auto', 'Ceramic', 'Wood', 'Metal', 'Stone', 'Leather', 'Fabric', 'Plastic',
+];
+
+interface Preset {
+  id: string;
+  label: string;
+  hint: string;
+  model: ModelId;
+  quality: 'standard' | 'high';
+  doTexture: boolean;
+  useMultiView: boolean;
+}
+
+const PRESETS: Preset[] = [
+  { id: 'draft',   label: 'Quick Draft', hint: '~20s · shape only',   model: 'hunyuan3d',     quality: 'standard', doTexture: false, useMultiView: false },
+  { id: 'prop',    label: 'Prop',        hint: '~3 min · textured',   model: 'hunyuan3d',     quality: 'standard', doTexture: true,  useMultiView: false },
+  { id: 'pbr',     label: 'PBR Asset',   hint: '~5 min · PBR mats',   model: 'hunyuan3d-2-1', quality: 'standard', doTexture: true,  useMultiView: false },
+  { id: 'fast',    label: 'Fast Scan',   hint: '~5s · shape only',    model: 'triposr',       quality: 'standard', doTexture: false, useMultiView: false },
 ];
 
 const PromptArea = styled.textarea`
@@ -834,6 +844,40 @@ const PromptArea = styled.textarea`
     box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
   }
   &::placeholder { color: ${p => p.theme.colors.textMuted}; opacity: 0.6; }
+`;
+
+const PresetGrid = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+`;
+
+const PresetCard = styled.button<{ $active?: boolean }>`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}22, ${p.theme.colors.violet}22)`
+    : p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+  &:hover { border-color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.borderHigh}; }
+`;
+
+const PresetLabel = styled.span`
+  font-size: 0.78rem;
+  font-weight: 600;
+`;
+
+const PresetHint = styled.span`
+  font-size: 0.68rem;
+  color: ${p => p.theme.colors.textMuted};
 `;
 
 const PanelFooter = styled.div`
@@ -900,12 +944,6 @@ const TextureNote = styled.div`
   font-size: 0.76rem;
   color: ${p => p.theme.colors.textMuted};
   line-height: 1.45;
-`;
-
-const PresetGrid = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.35rem;
 `;
 
 const PresetBtn = styled.button<{ $active?: boolean }>`
@@ -1578,6 +1616,7 @@ const Workspace: React.FC = () => {
   const [activeTool, setActiveTool] = useState<'image' | 'texture'>('image');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
+  const [activePreset, setActivePreset] = useState<string | null>('draft');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
@@ -2387,10 +2426,33 @@ const Workspace: React.FC = () => {
             </Field>
 
             <Field>
+              <FieldLabel>Preset <FieldHint>one click sets all parameters</FieldHint></FieldLabel>
+              <PresetGrid>
+                {PRESETS.map(p => (
+                  <PresetCard
+                    key={p.id}
+                    type="button"
+                    $active={activePreset === p.id}
+                    onClick={() => {
+                      setActivePreset(p.id);
+                      setModel(p.model);
+                      if (isAdmin) setQuality(p.quality);
+                      setDoTexture(p.doTexture);
+                      setUseMultiView(p.useMultiView);
+                    }}
+                  >
+                    <PresetLabel>{p.label}</PresetLabel>
+                    <PresetHint>{p.hint}</PresetHint>
+                  </PresetCard>
+                ))}
+              </PresetGrid>
+            </Field>
+
+            <Field>
               <FieldLabel>
                 Model <FieldHint>which runner generates the mesh</FieldHint>
               </FieldLabel>
-              <ModelSelect value={model} onChange={e => setModel(e.target.value as ModelId)}>
+              <ModelSelect value={model} onChange={e => { setModel(e.target.value as ModelId); setActivePreset(null); }}>
                 {MODEL_OPTIONS.map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
@@ -2421,14 +2483,14 @@ const Workspace: React.FC = () => {
               <Segmented>
                 <SegmentedBtn
                   $active={effectiveQuality === 'standard'}
-                  onClick={() => isAdmin && setQuality('standard')}
+                  onClick={() => { if (isAdmin) { setQuality('standard'); setActivePreset(null); } }}
                 >
                   Standard
                 </SegmentedBtn>
                 <SegmentedBtn
                   $active={isAdmin && quality === 'high'}
                   $disabled={!isAdmin}
-                  onClick={() => isAdmin && setQuality('high')}
+                  onClick={() => { if (isAdmin) { setQuality('high'); setActivePreset(null); } }}
                 >
                   High {!isAdmin && <ComingSoonTag>admin</ComingSoonTag>}
                 </SegmentedBtn>
@@ -2438,8 +2500,8 @@ const Workspace: React.FC = () => {
             <Field>
               <FieldLabel>Texture <FieldHint>full textured generation</FieldHint></FieldLabel>
               <Segmented>
-                <SegmentedBtn $active={!doTexture} onClick={() => setDoTexture(false)}>Off</SegmentedBtn>
-                <SegmentedBtn $active={doTexture} onClick={() => setDoTexture(true)}>On</SegmentedBtn>
+                <SegmentedBtn $active={!doTexture} onClick={() => { setDoTexture(false); setActivePreset(null); }}>Off</SegmentedBtn>
+                <SegmentedBtn $active={doTexture} onClick={() => { setDoTexture(true); setActivePreset(null); }}>On</SegmentedBtn>
               </Segmented>
             </Field>
             {isAdmin && (
