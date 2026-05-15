@@ -19,6 +19,8 @@ export interface Job {
   exportFormat: string;
   detailLevel: string;
   doTexture: boolean;
+  useMultiView: boolean;
+  auxImageUrls?: string[];
   progressPct: number;
   progressPhase: string;
   progressStep: number;
@@ -167,6 +169,14 @@ export async function getJobsByUser(userEmail: string): Promise<Job[]> {
     [userEmail]
   );
   return rows;
+}
+
+export async function getJobById(id: string): Promise<Job | null> {
+  const { rows } = await getDb().query(
+    `SELECT * FROM genshape3d_jobs WHERE id = $1 AND deleted = false LIMIT 1`,
+    [id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function listAllJobs(): Promise<Job[]> {

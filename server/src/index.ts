@@ -47,7 +47,7 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
+import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
@@ -994,6 +994,61 @@ app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   res.json({ jobs: await getJobsByUser(email) });
+});
+
+app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
+  const email = req.body.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const source = await getJobById(req.params.id);
+  if (!source) return res.status(404).json({ error: 'source job not found' });
+  if (source.status !== 'done') return res.status(409).json({ error: 'source job is not finished yet' });
+  if (source.userEmail !== email && !(await isAdmin(email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const lim = await checkRateLimit(email);
+  if (!lim.ok) {
+    return res.status(429).json({
+      error: 'rate_limited',
+      detail: `Free tier limit reached (${lim.used}/${lim.limit} in last 24 h).`,
+      used24h: lim.used, limit24h: lim.limit,
+    });
+  }
+
+  const texturePrompt = String(req.body.texturePrompt || '').trim();
+  const promptParts = [
+    source.prompt?.trim(),
+    texturePrompt ? `Texture/material direction: ${texturePrompt}` : '',
+  ].filter(Boolean);
+
+  try {
+    const job = await createJob({
+      userEmail: email,
+      imageUrl: source.imageUrl,
+      name: `${source.name || 'Asset'} textured`,
+      prompt: promptParts.join('\n'),
+      style: source.style || 'Realistic',
+      polygonBudget: source.polygonBudget || 'Low (10k-50k)',
+      textureRes: String(req.body.textureRes || source.textureRes || '1K'),
+      exportFormat: source.exportFormat || 'GLB',
+      detailLevel: 'Standard',
+      doTexture: true,
+      useMultiView: source.useMultiView,
+      octreeResolution: parseInt(req.body.octreeResolution) || source.octreeResolution || 256,
+      targetFaceCount:  parseInt(req.body.targetFaceCount)  || source.targetFaceCount  || 30000,
+      inferenceSteps:   parseInt(req.body.inferenceSteps)   || source.inferenceSteps   || 5,
+      guidanceScale:    parseFloat(req.body.guidanceScale)  || source.guidanceScale    || 5,
+      numChunks:        parseInt(req.body.numChunks)        || source.numChunks        || 0,
+      seed:             parseInt(req.body.seed)             || 0,
+      model:            (req.body.model as string)          || source.model || 'hunyuan3d',
+      preferredWorkerId: (await isAdmin(email)) ? (req.body.preferredWorkerId || '') : '',
+      auxImageUrls: Array.isArray((source as any).auxImageUrls) ? (source as any).auxImageUrls : [],
+    });
+    res.json({ job });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Submit a 3D job re-using an existing R2 upload key. Lets the user pick

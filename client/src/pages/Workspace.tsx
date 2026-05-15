@@ -155,6 +155,36 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
   return { job: (data?.job ?? data) as Job, error: null, warnings: data?.warnings };
 };
 
+const submitTextureRerun = async (
+  email: string,
+  sourceJobId: string,
+  opts: {
+    texturePrompt: string;
+    textureRes: string;
+    model: ModelId;
+    preferredWorkerId?: string;
+  },
+): Promise<SubmitResult> => {
+  const r = await fetch(`/api/jobs/${sourceJobId}/texture-rerun`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      texturePrompt: opts.texturePrompt,
+      textureRes: opts.textureRes,
+      model: opts.model,
+      preferredWorkerId: opts.preferredWorkerId,
+    }),
+  });
+  let data: any = null;
+  try { data = await r.json(); } catch { /* non-JSON 5xx */ }
+  if (!r.ok) {
+    const msg = (data && (data.detail || data.error)) || `Texture rerun failed (HTTP ${r.status})`;
+    return { job: null, error: msg };
+  }
+  return { job: (data?.job ?? data) as Job, error: null };
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Animations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -801,6 +831,47 @@ const CostValue = styled.span`
   font-weight: 600;
 `;
 
+const TextureSource = styled.div`
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.65rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px;
+  background: ${p => p.theme.colors.background}88;
+`;
+
+const TextureSourceThumb = styled.img`
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  flex-shrink: 0;
+`;
+
+const TextureSourceMeta = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+`;
+
+const TextureSourceName = styled.div`
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.text};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const TextureNote = styled.div`
+  font-size: 0.76rem;
+  color: ${p => p.theme.colors.textMuted};
+  line-height: 1.45;
+`;
+
 const GenerateBtn = styled.button<{ $disabled?: boolean }>`
   width: 100%;
   padding: 0.85rem 1rem;
@@ -1288,10 +1359,13 @@ const Workspace: React.FC = () => {
 
   // ── State
   const [file, setFile] = useState<File | null>(null);
+  const [activeTool, setActiveTool] = useState<'image' | 'texture'>('image');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
+  const [texturePrompt, setTexturePrompt] = useState('');
+  const [textureRes, setTextureRes] = useState<'1K' | '2K' | '4K'>('1K');
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -1345,9 +1419,10 @@ const Workspace: React.FC = () => {
 
   const email = user?.email || '';
   const isAdmin = appUser?.role === 'admin';
-  // Non-admins are pinned to Standard / no-texture while we're on the GTX 1080.
+  // Non-admins are pinned to Standard while we're on the GTX 1080. Texture is
+  // deliberately open now so we can benchmark the full textured flow.
   const effectiveQuality = isAdmin ? quality : 'standard';
-  const effectiveTexture = isAdmin ? doTexture : false;
+  const effectiveTexture = doTexture;
 
   // Fetch available workers for the admin picker. Refresh every 30s so
   // the busy/capacity counts stay reasonably fresh.
@@ -1654,6 +1729,63 @@ const Workspace: React.FC = () => {
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
     : null;
 
+  const selectedThumbKey = selectedJob?.imageUrl?.includes('/uploads/')
+    ? `uploads/${selectedJob.imageUrl.split('/uploads/')[1]}`
+    : selectedJob?.imageUrl;
+  const selectedThumb = selectedThumbKey
+    ? `/api/image?key=${encodeURIComponent(selectedThumbKey)}`
+    : null;
+
+  const onTextureRerun = useCallback(async () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (!selectedJob || !email || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    const { job, error } = await submitTextureRerun(email, selectedJob.id, {
+      texturePrompt,
+      textureRes,
+      model,
+      preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
+    });
+    setSubmitting(false);
+    if (job) {
+      setJobs(prev => [job, ...prev]);
+      setSelectedJobId(job.id);
+      setAssetTab('all');
+    } else if (error) {
+      setSubmitError(error);
+      fetch(`/api/limits?email=${encodeURIComponent(email)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setLimits({ used24h: d.used24h, limit24h: d.limit24h }); })
+        .catch(() => { /* non-fatal */ });
+    }
+  }, [isAuthenticated, navigate, selectedJob, email, submitting, texturePrompt, textureRes, model, isAdmin, preferredWorkerId]);
+
+  const primaryActionLabel = activeTool === 'texture'
+    ? (!isAuthenticated
+        ? 'Sign in to texture'
+        : submitting
+          ? 'Submitting...'
+          : !selectedJob
+            ? 'Select an asset first'
+            : selectedJob.status !== 'done'
+              ? 'Wait for this asset to finish'
+              : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
+                ? 'Daily limit reached - try again later'
+                : 'Generate textured run')
+    : (!isAuthenticated
+        ? 'Sign in to generate'
+        : submitting
+          ? 'Submitting...'
+          : !file
+            ? 'Upload an image first'
+            : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
+              ? 'Daily limit reached - try again later'
+              : 'Generate (free)');
+
   const initials = (user?.displayName || user?.email || '?').slice(0, 1).toUpperCase();
 
   // ── Render
@@ -1692,10 +1824,10 @@ const Workspace: React.FC = () => {
       <Body>
         {/* ──────── Icon rail ──────── */}
         <Rail>
-          <RailItem icon="🖼" label="Image" active title="Image to 3D" />
+          <RailItem icon="🖼" label="Image" active={activeTool === 'image'} title="Image to 3D" onClick={() => setActiveTool('image')} />
           <RailItem icon="✨" label="Text" title="Text to image"
                     onClick={() => navigate('/dashboard/text')} />
-          <RailItem icon="🎨" label="Texture" disabled title="Re-texture — coming soon" />
+          <RailItem icon="🎨" label="Texture" active={activeTool === 'texture'} title="Texture selected asset" onClick={() => setActiveTool('texture')} />
           <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
           <RailDivider />
           <RailItem icon="📦" label="Assets" title="My assets" />
@@ -1716,18 +1848,18 @@ const Workspace: React.FC = () => {
         {/* ──────── Config panel ──────── */}
         <Panel>
           <PanelHeader>
-            <PanelTitle>Image to 3D</PanelTitle>
+            <PanelTitle>{activeTool === 'texture' ? 'Texture' : 'Image to 3D'}</PanelTitle>
             <FieldHint
               style={{ cursor: 'pointer', fontSize: '0.72rem' }}
-              onClick={() => navigate('/dashboard/text')}
-              title="Go to Text to Image"
+              onClick={() => activeTool === 'texture' ? setActiveTool('image') : navigate('/dashboard/text')}
+              title={activeTool === 'texture' ? 'Back to Image to 3D' : 'Go to Text to Image'}
             >
-              ✨ Create images
+              {activeTool === 'texture' ? 'Full textured run' : '✨ Create images'}
             </FieldHint>
           </PanelHeader>
 
           {/* Filmstrip — user's text-to-image gallery as horizontal thumbnails */}
-          <FilmstripWrap>
+          {activeTool === 'image' && <FilmstripWrap>
             <FilmArrow
               className="film-arrow"
               $dir="left"
@@ -1763,9 +1895,61 @@ const Workspace: React.FC = () => {
               onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft += 160)}
               title="Scroll right"
             >▶</FilmArrow>
-          </FilmstripWrap>
+          </FilmstripWrap>}
 
           <PanelBody>
+            {activeTool === 'texture' ? (
+              <>
+                <Field>
+                  <FieldLabel>
+                    Source asset
+                    <FieldHint>{selectedJob?.status === 'done' ? 'ready' : 'select a finished asset'}</FieldHint>
+                  </FieldLabel>
+                  {selectedJob && selectedThumb ? (
+                    <TextureSource>
+                      <TextureSourceThumb src={selectedThumb} alt="" />
+                      <TextureSourceMeta>
+                        <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
+                        <TextureNote>
+                          This queues a new full image-to-3D run with texture enabled so we can benchmark the complete textured pipeline.
+                        </TextureNote>
+                      </TextureSourceMeta>
+                    </TextureSource>
+                  ) : (
+                    <TextureNote>Select an asset from the rail on the right, then submit a textured run from here.</TextureNote>
+                  )}
+                </Field>
+
+                <Field>
+                  <FieldLabel>Texture prompt <FieldHint>material and surface direction</FieldHint></FieldLabel>
+                  <PromptArea
+                    placeholder="e.g. aged bronze, worn edges, subtle roughness"
+                    value={texturePrompt}
+                    onChange={e => setTexturePrompt(e.target.value)}
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel>Resolution <FieldHint>stored on the job for benchmarks</FieldHint></FieldLabel>
+                  <Segmented>
+                    {(['1K', '2K', '4K'] as const).map(r => (
+                      <SegmentedBtn key={r} $active={textureRes === r} onClick={() => setTextureRes(r)}>
+                        {r}
+                      </SegmentedBtn>
+                    ))}
+                  </Segmented>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Mode <FieldHint>dedicated retexture worker later</FieldHint></FieldLabel>
+                  <Segmented>
+                    <SegmentedBtn $active>Full run</SegmentedBtn>
+                    <SegmentedBtn $disabled>Retexture <ComingSoonTag>next</ComingSoonTag></SegmentedBtn>
+                  </Segmented>
+                </Field>
+              </>
+            ) : (
+            <>
             <Field>
               <FieldLabel>
                 Reference image
@@ -1859,15 +2043,13 @@ const Workspace: React.FC = () => {
               </Segmented>
             </Field>
 
-            {isAdmin && (
-              <Field>
-                <FieldLabel>Texture <FieldHint>admin only</FieldHint></FieldLabel>
-                <Segmented>
-                  <SegmentedBtn $active={!doTexture} onClick={() => setDoTexture(false)}>Off</SegmentedBtn>
-                  <SegmentedBtn $active={doTexture} onClick={() => setDoTexture(true)}>On</SegmentedBtn>
-                </Segmented>
-              </Field>
-            )}
+            <Field>
+              <FieldLabel>Texture <FieldHint>full textured generation</FieldHint></FieldLabel>
+              <Segmented>
+                <SegmentedBtn $active={!doTexture} onClick={() => setDoTexture(false)}>Off</SegmentedBtn>
+                <SegmentedBtn $active={doTexture} onClick={() => setDoTexture(true)}>On</SegmentedBtn>
+              </Segmented>
+            </Field>
             {isAdmin && (
               <Field>
                 <FieldLabel>Multi-view <FieldHint>auto-generates back+side views; skipped if subject is horizontal</FieldHint></FieldLabel>
@@ -1965,15 +2147,19 @@ const Workspace: React.FC = () => {
                 <SegmentedBtn $disabled>FBX <ComingSoonTag>soon</ComingSoonTag></SegmentedBtn>
               </Segmented>
             </Field>
+            </>
+            )}
           </PanelBody>
           <PanelFooter>
             <CostRow>
               <span>Expected wait</span>
               <CostValue>
                 ⏱{' '}
-                {effectiveQuality === 'high'
-                  ? (effectiveTexture ? '~45 min' : '~30-200 min')
-                  : (effectiveTexture ? '~15 min' : '~5 min')}
+                {activeTool === 'texture'
+                  ? '~15 min'
+                  : effectiveQuality === 'high'
+                    ? (effectiveTexture ? '~45 min' : '~30-200 min')
+                    : (effectiveTexture ? '~15 min' : '~5 min')}
               </CostValue>
             </CostRow>
             {!isAdmin && limits && limits.limit24h !== null && (
@@ -1993,22 +2179,17 @@ const Workspace: React.FC = () => {
             )}
             <GenerateBtn
               $disabled={
-                !isAuthenticated
-                  ? false
-                  : (!file || submitting ||
-                     (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h))
+                activeTool === 'texture'
+                  ? (!isAuthenticated ? false : (!selectedJob || selectedJob.status !== 'done' || submitting ||
+                     (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)))
+                  : !isAuthenticated
+                    ? false
+                    : (!file || submitting ||
+                       (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h))
               }
-              onClick={onGenerate}
+              onClick={activeTool === 'texture' ? onTextureRerun : onGenerate}
             >
-              {!isAuthenticated
-                ? '✦ Sign in to generate'
-                : submitting
-                  ? 'Submitting…'
-                  : !file
-                    ? 'Upload an image first'
-                    : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
-                      ? 'Daily limit reached — try again later'
-                      : '✦ Generate (free)'}
+              {primaryActionLabel}
             </GenerateBtn>
             {submitError && (
               <div
