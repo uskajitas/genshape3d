@@ -751,7 +751,7 @@ const ModelSelect = styled.select`
 
 const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
   { value: 'hunyuan3d',     label: 'Hunyuan3D-2 (default)' },
-  { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1 (shape only — PBR coming)' },
+  { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1 (PBR materials)' },
   { value: 'triposr',       label: 'TripoSR' },
   { value: 'sf3d',          label: 'Stable Fast 3D' },
   { value: 'hi3dgen',       label: 'Hi3DGen' },
