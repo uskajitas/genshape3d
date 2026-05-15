@@ -66,6 +66,7 @@ interface Job {
   assignedWorkerId?: string;
   preferredWorkerId?: string;
   errorMessage?: string;
+  groupId?: string | null;
 }
 
 const fetchJobs = async (email: string): Promise<Job[]> => {
@@ -1232,6 +1233,68 @@ const ModalBtn = styled.button<{ $primary?: boolean }>`
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
+// Small icon button for managing (rename/delete) the selected pack.
+const GroupMgmtBtn = styled.button`
+  font: inherit;
+  font-size: 0.8rem;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.textMuted};
+  border: 1px solid ${p => p.theme.colors.border};
+  cursor: pointer;
+  &:hover:not(:disabled) { border-color: ${p => p.theme.colors.borderHigh}; color: ${p => p.theme.colors.text}; }
+  &:disabled { opacity: 0.3; cursor: not-allowed; }
+`;
+
+// Inline chip shown below the Generate button when a pack is active.
+const PackContextChip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: ${p => p.theme.colors.textMuted};
+  > strong {
+    color: ${p => p.theme.colors.violet};
+    font-weight: 600;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  > button {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.7rem;
+    color: ${p => p.theme.colors.textMuted};
+    cursor: pointer;
+    &:hover { color: ${p => p.theme.colors.text}; }
+  }
+`;
+
+// Small pack label badge shown on cards when viewing "All packs".
+const GroupTagBadge = styled.div`
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  font-size: 0.62rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(139, 92, 246, 0.25);
+  color: #c4b5fd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 10px);
+  pointer-events: none;
+`;
+
 // Shared base for the small top-right action chip on asset cards.
 // Notes on the polish:
 //   - NO transform / scale on hover — that was making the icon visibly
@@ -1504,6 +1567,8 @@ const Workspace: React.FC = () => {
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+  const [showManagePack, setShowManagePack] = useState(false);
+  const [managePackName, setManagePackName] = useState('');
 
   // Gallery images fetched from the text-to-image page — shown in the panel
   // so the user can pick one as the input without re-uploading.
@@ -1614,6 +1679,49 @@ const Workspace: React.FC = () => {
       setNewGroupName('');
     } catch { /* non-fatal */ }
   }, [newGroupName, email]);
+
+  const onOpenManagePack = useCallback(() => {
+    const g = groups.find(g => g.id === selectedGroupId);
+    if (!g) return;
+    setManagePackName(g.name);
+    setShowManagePack(true);
+  }, [groups, selectedGroupId]);
+
+  const onRenamePack = useCallback(async () => {
+    const name = managePackName.trim();
+    if (!name || !selectedGroupId || !email) return;
+    try {
+      const r = await fetch(`/api/groups/${selectedGroupId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name }),
+      });
+      if (!r.ok) return;
+      setGroups(prev => prev.map(g => g.id === selectedGroupId ? { ...g, name } : g));
+      setShowManagePack(false);
+    } catch { /* non-fatal */ }
+  }, [managePackName, selectedGroupId, email]);
+
+  const onDeletePack = useCallback(async () => {
+    if (!selectedGroupId || !email) return;
+    const g = groups.find(g => g.id === selectedGroupId);
+    const ok = await confirm({
+      title: `Delete "${g?.name || 'this pack'}"?`,
+      message: 'The pack will be removed. Assets inside keep their files — only the pack label disappears.',
+      confirmLabel: 'Delete pack',
+      cancelLabel: 'Keep',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await fetch(`/api/groups/${selectedGroupId}?email=${encodeURIComponent(email)}`, {
+        method: 'DELETE',
+      });
+      setGroups(prev => prev.filter(g => g.id !== selectedGroupId));
+      setSelectedGroupId('');
+      setShowManagePack(false);
+    } catch { /* non-fatal */ }
+  }, [selectedGroupId, email, groups]);
 
   // Fetch the user's text-to-image gallery on mount so the panel picker is ready.
   useEffect(() => {
@@ -1861,7 +1969,7 @@ const Workspace: React.FC = () => {
 
   const filteredJobs = useMemo(() => {
     let list = assetTab === 'all' ? jobs : jobs.filter(j => j.status === assetTab);
-    if (selectedGroupId) list = list.filter(j => (j as any).groupId === selectedGroupId);
+    if (selectedGroupId) list = list.filter(j => j.groupId === selectedGroupId);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(j => (j.name || j.id).toLowerCase().includes(q));
     // Processing/running jobs surface first, then everything sorted by
@@ -2343,6 +2451,15 @@ const Workspace: React.FC = () => {
             >
               {primaryActionLabel}
             </GenerateBtn>
+            {activeTool !== 'texture' && selectedGroupId && (() => {
+              const g = groups.find(g => g.id === selectedGroupId);
+              return g ? (
+                <PackContextChip>
+                  Adding to:&nbsp;<strong title={g.name}>{g.name}</strong>
+                  <button type="button" onClick={() => setSelectedGroupId('')} title="Remove pack context">✕</button>
+                </PackContextChip>
+              ) : null;
+            })()}
             {submitError && (
               <div
                 role="alert"
@@ -2468,6 +2585,14 @@ const Workspace: React.FC = () => {
                     </option>
                   ))}
                 </GroupSelect>
+                <GroupMgmtBtn
+                  type="button"
+                  disabled={!selectedGroupId}
+                  onClick={onOpenManagePack}
+                  title="Rename or delete this pack"
+                >
+                  ···
+                </GroupMgmtBtn>
                 <GroupBtn type="button" onClick={() => setShowNewGroup(true)} title="New asset pack">
                   +
                 </GroupBtn>
@@ -2484,7 +2609,10 @@ const Workspace: React.FC = () => {
             {isAuthenticated && filteredJobs.length === 0 && (
               <EmptyAssets>
                 <span style={{ fontSize: '1.4rem' }}>📭</span>
-                No assets yet. Generate your first model to see it here.
+                {selectedGroupId
+                  ? <>No assets in this pack yet. Submit a job with this pack selected to add some.</>
+                  : <>No assets yet. Generate your first model to see it here.</>
+                }
               </EmptyAssets>
             )}
             {filteredJobs.map(job => {
@@ -2580,6 +2708,10 @@ const Workspace: React.FC = () => {
                       </AssetTag>
                       {timeStr && <AssetTime>{timeStr}</AssetTime>}
                     </AssetOverlay>
+                    {!selectedGroupId && job.groupId && (() => {
+                      const g = groups.find(g => g.id === job.groupId);
+                      return g ? <GroupTagBadge title={g.name}>{g.name}</GroupTagBadge> : null;
+                    })()}
 
                     {/* Live status line: worker + model + phase (always visible while in-flight) */}
                     {(job.status === 'processing' || job.status === 'running' || job.status === 'pending') && (
@@ -2704,6 +2836,37 @@ const Workspace: React.FC = () => {
               <ModalBtn type="button" onClick={() => setShowNewGroup(false)}>Cancel</ModalBtn>
               <ModalBtn type="button" $primary disabled={!newGroupName.trim()} onClick={onCreateGroup}>
                 Create
+              </ModalBtn>
+            </ModalRow>
+          </ModalCard>
+        </ModalBackdrop>
+      )}
+      {showManagePack && (
+        <ModalBackdrop onClick={() => setShowManagePack(false)}>
+          <ModalCard onClick={e => e.stopPropagation()}>
+            <ModalTitle>Manage pack</ModalTitle>
+            <ModalInput
+              autoFocus
+              placeholder="Pack name"
+              value={managePackName}
+              onChange={e => setManagePackName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onRenamePack();
+                if (e.key === 'Escape') setShowManagePack(false);
+              }}
+              maxLength={80}
+            />
+            <ModalRow>
+              <ModalBtn
+                type="button"
+                onClick={onDeletePack}
+                style={{ marginRight: 'auto', color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}
+              >
+                Delete pack
+              </ModalBtn>
+              <ModalBtn type="button" onClick={() => setShowManagePack(false)}>Cancel</ModalBtn>
+              <ModalBtn type="button" $primary disabled={!managePackName.trim()} onClick={onRenamePack}>
+                Rename
               </ModalBtn>
             </ModalRow>
           </ModalCard>
