@@ -818,13 +818,34 @@ interface Preset {
   quality: 'standard' | 'high';
   doTexture: boolean;
   useMultiView: boolean;
+  octree: number;
+  steps: number;
+  guidance: number;
+  faces: number;
+  chunks: number;
 }
 
 const PRESETS: Preset[] = [
-  { id: 'draft',   label: 'Quick Draft', hint: '~20s · shape only',   model: 'hunyuan3d',     quality: 'standard', doTexture: false, useMultiView: false },
-  { id: 'prop',    label: 'Prop',        hint: '~3 min · textured',   model: 'hunyuan3d',     quality: 'standard', doTexture: true,  useMultiView: false },
-  { id: 'pbr',     label: 'PBR Asset',   hint: '~5 min · PBR mats',   model: 'hunyuan3d-2-1', quality: 'standard', doTexture: true,  useMultiView: false },
-  { id: 'fast',    label: 'Fast Scan',   hint: '~5s · shape only',    model: 'triposr',       quality: 'standard', doTexture: false, useMultiView: false },
+  // Fast blocking run — low detail, no texture. Good for iterating on shape.
+  { id: 'draft',  label: 'Quick Draft', hint: '~20s · shape check',
+    model: 'hunyuan3d', quality: 'standard', doTexture: false, useMultiView: false,
+    octree: 256, steps: 5,  guidance: 5, faces: 30_000,  chunks: 8000 },
+  // Solid game-ready prop with texture. The everyday workhorse.
+  { id: 'prop',   label: 'Game Prop',   hint: '~3 min · textured mesh',
+    model: 'hunyuan3d', quality: 'standard', doTexture: true,  useMultiView: false,
+    octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
+  // Full PBR pipeline — albedo + roughness + metallic. Needs 3090 worker.
+  { id: 'pbr',    label: 'PBR Asset',   hint: '~5 min · PBR materials',
+    model: 'hunyuan3d-2-1', quality: 'standard', doTexture: true,  useMultiView: false,
+    octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
+  // Hero prop — higher octree + steps = sharper edges and fine details.
+  { id: 'hero',   label: 'Hero Prop',   hint: '~8 min · high detail',
+    model: 'hunyuan3d', quality: 'high',     doTexture: true,  useMultiView: true,
+    octree: 512, steps: 30, guidance: 8, faces: 300_000, chunks: 2000 },
+  // TripoSR: almost instant, shape only. Great for silhouette checks.
+  { id: 'fast',   label: 'Fast Scan',   hint: '~5s · shape only',
+    model: 'triposr', quality: 'standard', doTexture: false, useMultiView: false,
+    octree: 0,   steps: 0,  guidance: 0, faces: 0,       chunks: 0 },
 ];
 
 const PromptArea = styled.textarea`
@@ -2439,6 +2460,11 @@ const Workspace: React.FC = () => {
                       if (isAdmin) setQuality(p.quality);
                       setDoTexture(p.doTexture);
                       setUseMultiView(p.useMultiView);
+                      setAdvOctree(p.octree);
+                      setAdvSteps(p.steps);
+                      setAdvGuidance(p.guidance);
+                      setAdvFaces(p.faces);
+                      setAdvChunks(p.chunks);
                     }}
                   >
                     <PresetLabel>{p.label}</PresetLabel>
@@ -2531,7 +2557,7 @@ const Workspace: React.FC = () => {
                   }
                 >
                   <FieldLabel style={{ cursor: 'help' }}>
-                    Advanced Hunyuan params <FieldHint>hover for guide · 0 = use preset</FieldHint>
+                    Advanced params <FieldHint>hover for guide · presets fill these automatically</FieldHint>
                   </FieldLabel>
                 </Tooltip>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.6rem', fontSize: '0.75rem' }}>
@@ -2540,7 +2566,7 @@ const Workspace: React.FC = () => {
                     <input
                       type="number" min={0} max={512} step={128}
                       value={advOctree}
-                      onChange={e => setAdvOctree(parseInt(e.target.value) || 0)}
+                      onChange={e => { setAdvOctree(parseInt(e.target.value) || 0); setActivePreset(null); }}
                       style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
                     />
                   </label>
@@ -2549,7 +2575,7 @@ const Workspace: React.FC = () => {
                     <input
                       type="number" min={0} max={50}
                       value={advSteps}
-                      onChange={e => setAdvSteps(parseInt(e.target.value) || 0)}
+                      onChange={e => { setAdvSteps(parseInt(e.target.value) || 0); setActivePreset(null); }}
                       style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
                     />
                   </label>
@@ -2558,7 +2584,7 @@ const Workspace: React.FC = () => {
                     <input
                       type="number" min={0} max={20} step={0.5}
                       value={advGuidance}
-                      onChange={e => setAdvGuidance(parseFloat(e.target.value) || 0)}
+                      onChange={e => { setAdvGuidance(parseFloat(e.target.value) || 0); setActivePreset(null); }}
                       style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
                     />
                   </label>
@@ -2567,7 +2593,7 @@ const Workspace: React.FC = () => {
                     <input
                       type="number" min={0} max={1000000} step={10000}
                       value={advFaces}
-                      onChange={e => setAdvFaces(parseInt(e.target.value) || 0)}
+                      onChange={e => { setAdvFaces(parseInt(e.target.value) || 0); setActivePreset(null); }}
                       style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
                     />
                   </label>
@@ -2576,7 +2602,7 @@ const Workspace: React.FC = () => {
                     <input
                       type="number" min={0} max={200000} step={1000}
                       value={advChunks}
-                      onChange={e => setAdvChunks(parseInt(e.target.value) || 0)}
+                      onChange={e => { setAdvChunks(parseInt(e.target.value) || 0); setActivePreset(null); }}
                       style={{ padding: '4px 6px', background: 'transparent', color: 'inherit', border: '1px solid #334', borderRadius: 4 }}
                     />
                   </label>
