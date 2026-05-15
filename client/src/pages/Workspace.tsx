@@ -83,6 +83,8 @@ interface SubmitOpts {
   useMultiView: boolean;
   model: ModelId;
   preferredWorkerId?: string;
+  /** Asset group this job belongs to. Empty string = ungrouped. */
+  groupId?: string;
   /** Admin-only Hunyuan3D overrides. Any field set to 0/empty falls back
    *  to the quality preset's default. */
   advanced?: {
@@ -93,6 +95,19 @@ interface SubmitOpts {
     numChunks?: number;
     seed?: number;
   };
+}
+
+export interface AssetGroupSummary {
+  id: string;
+  userEmail: string;
+  name: string;
+  styleAnchorUrl: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  jobCount: number;
+  doneCount: number;
+  thumbUrl: string;
 }
 
 const renameJob = async (id: string, name: string): Promise<void> => {
@@ -134,6 +149,9 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
   form.append('useMultiView', String(opts.useMultiView));
   if (opts.preferredWorkerId) {
     form.append('preferredWorkerId', opts.preferredWorkerId);
+  }
+  if (opts.groupId) {
+    form.append('groupId', opts.groupId);
   }
   // Admin overrides — when present, they win over the quality preset
   // because /api/upload reads these last (and worker's buildGenParams
@@ -1129,6 +1147,91 @@ const AssetTabBtn = styled.button<{ $active?: boolean }>`
   &:hover { color: ${p => p.theme.colors.text}; border-color: ${p => p.theme.colors.borderHigh}; }
 `;
 
+// Asset-pack picker (sidebar). Filters the asset list to a single pack and
+// pins new submissions to it. The "+" button opens the new-pack dialog.
+const GroupBar = styled.div`
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.25rem;
+`;
+const GroupSelect = styled.select`
+  flex: 1;
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.32rem 0.5rem;
+  border-radius: 6px;
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  border: 1px solid ${p => p.theme.colors.border};
+  cursor: pointer;
+  &:hover { border-color: ${p => p.theme.colors.borderHigh}; }
+`;
+const GroupBtn = styled.button`
+  font: inherit;
+  font-size: 1rem;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  border: 1px solid ${p => p.theme.colors.border};
+  cursor: pointer;
+  &:hover { border-color: ${p => p.theme.colors.violet}; color: ${p => p.theme.colors.violet}; }
+`;
+const ModalBackdrop = styled.div`
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+`;
+const ModalCard = styled.div`
+  background: ${p => p.theme.colors.surface};
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 12px;
+  padding: 1.4rem 1.4rem 1.2rem;
+  min-width: 340px;
+  max-width: 92vw;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+`;
+const ModalTitle = styled.h3`
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
+  color: ${p => p.theme.colors.text};
+`;
+const ModalInput = styled.input`
+  width: 100%;
+  font: inherit;
+  padding: 0.55rem 0.75rem;
+  border-radius: 7px;
+  background: ${p => p.theme.colors.surfaceHigh};
+  color: ${p => p.theme.colors.text};
+  border: 1px solid ${p => p.theme.colors.border};
+  &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
+`;
+const ModalRow = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+`;
+const ModalBtn = styled.button<{ $primary?: boolean }>`
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 7px;
+  border: 1px solid ${p => p.$primary ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$primary
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
+    : 'transparent'};
+  color: ${p => p.theme.colors.text};
+  cursor: pointer;
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
 // Shared base for the small top-right action chip on asset cards.
 // Notes on the polish:
 //   - NO transform / scale on hover — that was making the icon visibly
@@ -1394,6 +1497,14 @@ const Workspace: React.FC = () => {
   const [nameDraft, setNameDraft] = useState('');
   const [limits, setLimits] = useState<{ used24h: number; limit24h: number | null } | null>(null);
 
+  // Asset groups: stylistically-related job batches (spaceship fleets, chess
+  // sets, etc.). selectedGroupId filters the job list to a single group AND
+  // is passed on submit to attach new jobs to that group.
+  const [groups, setGroups] = useState<AssetGroupSummary[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+
   // Gallery images fetched from the text-to-image page — shown in the panel
   // so the user can pick one as the input without re-uploading.
   const [gallery, setGallery] = useState<{ id: string; imageKey: string; name: string; prompt: string }[]>([]);
@@ -1464,6 +1575,45 @@ const Workspace: React.FC = () => {
     const t = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
+
+  // Fetch the user's asset groups (sidebar). Refresh every 15s so newly-
+  // attached jobs bump the group counts without needing a hard reload.
+  useEffect(() => {
+    if (!isAuthenticated || !email) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/groups?email=${encodeURIComponent(email)}`);
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        if (!cancelled) setGroups(d.groups || []);
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const t = setInterval(tick, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [isAuthenticated, email]);
+
+  const onCreateGroup = useCallback(async () => {
+    const name = newGroupName.trim();
+    if (!name || !email) return;
+    try {
+      const r = await fetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      const created: AssetGroupSummary = {
+        ...d.group, jobCount: 0, doneCount: 0, thumbUrl: d.group.styleAnchorUrl || '',
+      };
+      setGroups(prev => [created, ...prev]);
+      setSelectedGroupId(created.id);
+      setShowNewGroup(false);
+      setNewGroupName('');
+    } catch { /* non-fatal */ }
+  }, [newGroupName, email]);
 
   // Fetch the user's text-to-image gallery on mount so the panel picker is ready.
   useEffect(() => {
@@ -1550,6 +1700,7 @@ const Workspace: React.FC = () => {
       useMultiView: isAdmin ? useMultiView : false,
       model,
       preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
+      groupId: selectedGroupId || undefined,
       advanced: isAdmin ? {
         octreeResolution: advOctree,
         inferenceSteps:   advSteps,
@@ -1710,6 +1861,7 @@ const Workspace: React.FC = () => {
 
   const filteredJobs = useMemo(() => {
     let list = assetTab === 'all' ? jobs : jobs.filter(j => j.status === assetTab);
+    if (selectedGroupId) list = list.filter(j => (j as any).groupId === selectedGroupId);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(j => (j.name || j.id).toLowerCase().includes(q));
     // Processing/running jobs surface first, then everything sorted by
@@ -1723,7 +1875,7 @@ const Workspace: React.FC = () => {
       const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bt - at;
     });
-  }, [jobs, search, assetTab]);
+  }, [jobs, search, assetTab, selectedGroupId]);
 
   const meshUrl = selectedJob?.resultUrl
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
@@ -2302,6 +2454,25 @@ const Workspace: React.FC = () => {
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            {isAuthenticated && (
+              <GroupBar>
+                <GroupSelect
+                  value={selectedGroupId}
+                  onChange={e => setSelectedGroupId(e.target.value)}
+                  title="Filter by asset pack — and pin new submissions to the selected pack"
+                >
+                  <option value="">All packs</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.jobCount})
+                    </option>
+                  ))}
+                </GroupSelect>
+                <GroupBtn type="button" onClick={() => setShowNewGroup(true)} title="New asset pack">
+                  +
+                </GroupBtn>
+              </GroupBar>
+            )}
           </AsideHeader>
           <AssetGrid>
             {!isAuthenticated && (
@@ -2514,6 +2685,30 @@ const Workspace: React.FC = () => {
         </Aside>
       </Body>
 
+      {showNewGroup && (
+        <ModalBackdrop onClick={() => setShowNewGroup(false)}>
+          <ModalCard onClick={e => e.stopPropagation()}>
+            <ModalTitle>New asset pack</ModalTitle>
+            <ModalInput
+              autoFocus
+              placeholder="e.g. Spaceship fleet, Chess set"
+              value={newGroupName}
+              onChange={e => setNewGroupName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onCreateGroup();
+                if (e.key === 'Escape') setShowNewGroup(false);
+              }}
+              maxLength={80}
+            />
+            <ModalRow>
+              <ModalBtn type="button" onClick={() => setShowNewGroup(false)}>Cancel</ModalBtn>
+              <ModalBtn type="button" $primary disabled={!newGroupName.trim()} onClick={onCreateGroup}>
+                Create
+              </ModalBtn>
+            </ModalRow>
+          </ModalCard>
+        </ModalBackdrop>
+      )}
     </Shell>
   );
 };

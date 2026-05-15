@@ -148,6 +148,23 @@ export async function initDb(): Promise<void> {
     // Workers write the failure stack/message here so the admin page can show
     // WHY a job failed without needing to SSH into the box that ran it.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "errorMessage" TEXT NOT NULL DEFAULT ''`,
+    // Asset groups: a "pack" of stylistically-related jobs (spaceship fleet,
+    // chess set, etc.). The defensible product angle vs Meshy/Tripo —
+    // they generate isolated meshes; we organize coherent batches.
+    `CREATE TABLE IF NOT EXISTS genshape3d_asset_groups (
+       id              UUID PRIMARY KEY,
+       "userEmail"     TEXT NOT NULL,
+       name            TEXT NOT NULL,
+       "styleAnchorUrl" TEXT NOT NULL DEFAULT '',
+       notes           TEXT NOT NULL DEFAULT '',
+       "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       deleted         BOOLEAN NOT NULL DEFAULT false
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_groups_user ON genshape3d_asset_groups ("userEmail", "createdAt" DESC) WHERE deleted = false`,
+    // Each job optionally belongs to one asset group. Null = ungrouped.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "groupId" UUID`,
+    `CREATE INDEX IF NOT EXISTS idx_jobs_group ON genshape3d_jobs ("groupId") WHERE "groupId" IS NOT NULL AND deleted = false`,
   ];
   for (const sql of alterCols) await db.query(sql);
 

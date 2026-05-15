@@ -39,7 +39,7 @@ import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { initDb } from './db';
+import { initDb, getDb } from './db';
 import {
   upsertOnLogin, recordLoginEvent, getAppUser,
   listAppUsers, setUserRole, deductCredit,
@@ -982,6 +982,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       model:            (req.body.model as string)          || 'hunyuan3d',
       // Admin-only: pin job to a specific worker. Non-admins always get ''.
       preferredWorkerId: (await isAdmin(email)) ? (req.body.preferredWorkerId || '') : '',
+      groupId:          (req.body.groupId as string)         || null,
     });
     res.json({ job, warnings: qcWarnings });
   } catch (err: any) {
@@ -1127,6 +1128,7 @@ app.post('/api/jobs/from-key', async (req, res) => {
       seed:             parseInt(req.body.seed)             || 0,
       model:            (req.body.model as string)          || 'hunyuan3d',
       auxImageUrls,
+      groupId:          (req.body.groupId as string)         || null,
     });
     res.json({ job, auxViewsAttached: auxImageUrls.length });
   } catch (e: any) {
@@ -1218,6 +1220,82 @@ app.patch('/api/jobs/:id/cancel', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'email required' });
   try {
     await cancelJob(req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Asset groups (stylistically-related job batches) ─────────────────────────
+
+app.get('/api/groups', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { listGroupsByUser } = await import('./groupsRepo');
+    res.json({ groups: await listGroupsByUser(email) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/groups', async (req, res) => {
+  const { email, name, styleAnchorUrl, notes } = req.body as {
+    email?: string; name?: string; styleAnchorUrl?: string; notes?: string;
+  };
+  if (!email || !name?.trim()) return res.status(400).json({ error: 'email + name required' });
+  try {
+    const { createGroup } = await import('./groupsRepo');
+    const group = await createGroup({
+      userEmail: email,
+      name: name.trim(),
+      styleAnchorUrl: styleAnchorUrl || '',
+      notes: notes || '',
+    });
+    res.json({ group });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/groups/:id', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { getGroup } = await import('./groupsRepo');
+    const group = await getGroup(req.params.id);
+    if (!group) return res.status(404).json({ error: 'not found' });
+    if (group.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { rows: jobs } = await getDb().query(
+      `SELECT * FROM genshape3d_jobs
+       WHERE "groupId" = $1 AND deleted = false
+       ORDER BY "createdAt" DESC`,
+      [req.params.id],
+    );
+    res.json({ group, jobs });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/groups/:id', async (req, res) => {
+  const { name, styleAnchorUrl } = req.body as { name?: string; styleAnchorUrl?: string };
+  try {
+    const { renameGroup, setGroupStyleAnchor } = await import('./groupsRepo');
+    if (name?.trim()) await renameGroup(req.params.id, name.trim());
+    if (typeof styleAnchorUrl === 'string') await setGroupStyleAnchor(req.params.id, styleAnchorUrl);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/groups/:id', async (req, res) => {
+  try {
+    const { deleteGroup } = await import('./groupsRepo');
+    await deleteGroup(req.params.id);
     res.json({ ok: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
