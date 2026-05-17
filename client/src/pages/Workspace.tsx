@@ -79,6 +79,7 @@ const fetchJobs = async (email: string): Promise<Job[]> => {
 };
 
 type ModelId = 'hunyuan3d' | 'hunyuan3d-2-1' | 'triposr' | 'sf3d' | 'hi3dgen';
+type TextureSourceMode = 'prompt' | 'reference' | 'original' | 'current';
 
 interface SubmitOpts {
   quality: 'standard' | 'high';
@@ -184,6 +185,7 @@ const submitTextureJob = async (
     prompt: string;
     textureRes: string;
     materialPreset: string;
+    sourceMode: TextureSourceMode;
     maps: string[];
     variants: number;
     seed: number;
@@ -201,6 +203,7 @@ const submitTextureJob = async (
       prompt: opts.prompt,
       textureRes: opts.textureRes,
       materialPreset: opts.materialPreset,
+      sourceMode: opts.sourceMode,
       maps: opts.maps,
       variants: opts.variants,
       seed: opts.seed,
@@ -816,6 +819,13 @@ const MATERIAL_PRESETS: Array<{ label: string; hint: string }> = [
   { label: 'Plastic', hint: 'matte or glossy polymer' },
 ];
 
+const TEXTURE_SOURCE_MODES: Array<{ label: string; value: TextureSourceMode; hint: string }> = [
+  { label: 'Prompt', value: 'prompt', hint: 'use prompt and material preset' },
+  { label: 'Reference', value: 'reference', hint: 'use an uploaded material image' },
+  { label: 'Original', value: 'original', hint: 'reuse the model source image' },
+  { label: 'Current', value: 'current', hint: 'start from the current texture' },
+];
+
 
 const PromptArea = styled.textarea`
   width: 100%;
@@ -914,15 +924,15 @@ const TextureSource = styled.div`
   display: flex;
   gap: 0.65rem;
   align-items: center;
-  padding: 0.65rem;
+  padding: 0.58rem;
   border: 1px solid ${p => p.theme.colors.border};
-  border-radius: 10px;
+  border-radius: 8px;
   background: ${p => p.theme.colors.background}88;
 `;
 
 const TextureSourceThumb = styled.img`
-  width: 58px;
-  height: 58px;
+  width: 50px;
+  height: 50px;
   border-radius: 8px;
   object-fit: cover;
   border: 1px solid ${p => p.theme.colors.borderHigh};
@@ -946,9 +956,9 @@ const TextureSourceName = styled.div`
 `;
 
 const TextureNote = styled.div`
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   color: ${p => p.theme.colors.textMuted};
-  line-height: 1.45;
+  line-height: 1.35;
 `;
 
 const TextureEmptyState = styled.div`
@@ -977,9 +987,9 @@ const TextureRecentStrip = styled.div`
 `;
 
 const TextureRecentThumb = styled.button<{ $active?: boolean }>`
-  flex: 0 0 50px;
-  width: 50px;
-  height: 50px;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
   border-radius: 8px;
   border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   background: ${p => p.theme.colors.background};
@@ -997,9 +1007,9 @@ const TextureRecentThumb = styled.button<{ $active?: boolean }>`
 const TextureMoreThumb = styled.button`
   position: sticky;
   right: 0;
-  flex: 0 0 58px;
-  width: 58px;
-  height: 50px;
+  flex: 0 0 60px;
+  width: 60px;
+  height: 46px;
   border-radius: 8px;
   border: 1px solid ${p => p.theme.colors.borderHigh};
   background:
@@ -1019,28 +1029,27 @@ const TextureMoreThumb = styled.button`
 `;
 
 const TextureModelPicker = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-height: 320px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+  max-height: min(560px, calc(100vh - 190px));
   overflow-y: auto;
   padding-right: 0.15rem;
 `;
 
 const TextureModelCard = styled.button<{ $active?: boolean }>`
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  align-items: center;
-  gap: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
   width: 100%;
-  min-height: 58px;
+  min-height: 0;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
   background: ${p => p.$active
     ? `linear-gradient(135deg, ${p.theme.colors.primary}24, ${p.theme.colors.violet}24)`
     : `${p.theme.colors.background}88`};
   color: ${p => p.theme.colors.text};
-  padding: 0.4rem;
+  padding: 0.45rem;
   cursor: pointer;
   text-align: left;
   transition: border-color 0.12s, background 0.12s;
@@ -1050,8 +1059,9 @@ const TextureModelCard = styled.button<{ $active?: boolean }>`
 `;
 
 const TextureModelThumb = styled.img`
-  width: 46px;
-  height: 46px;
+  width: 100%;
+  aspect-ratio: 1 / 0.72;
+  height: auto;
   border-radius: 7px;
   object-fit: cover;
   display: block;
@@ -1059,8 +1069,8 @@ const TextureModelThumb = styled.img`
 `;
 
 const TextureModelThumbPlaceholder = styled.div`
-  width: 46px;
-  height: 46px;
+  width: 100%;
+  aspect-ratio: 1 / 0.72;
   border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
@@ -1068,6 +1078,7 @@ const TextureModelThumbPlaceholder = styled.div`
 
 const TextureModelText = styled.span`
   min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -1110,7 +1121,7 @@ const TexturePickerOverlay = styled.div`
   position: absolute;
   top: 0.9rem;
   left: 0.9rem;
-  width: min(520px, calc(100% - 1.8rem));
+  width: min(680px, calc(100% - 1.8rem));
   max-height: calc(100% - 1.8rem);
   z-index: 8;
   display: flex;
@@ -1176,6 +1187,38 @@ const TextureOptionsGrid = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
+`;
+
+const TextureSettingsRow = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+`;
+
+const TextureCapabilityCard = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+`;
+
+const TextureCapability = styled.div<{ $active?: boolean }>`
+  padding: 0.5rem;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  border-radius: 8px;
+  background: ${p => p.$active ? `${p.theme.colors.violet}1f` : `${p.theme.colors.background}88`};
+`;
+
+const TextureCapabilityTitle = styled.div`
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: ${p => p.theme.colors.text};
+`;
+
+const TextureCapabilityText = styled.div`
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: ${p => p.theme.colors.textMuted};
 `;
 
 const ToggleRow = styled.label`
@@ -1908,9 +1951,10 @@ const Workspace: React.FC = () => {
   const [texturePickerOpen, setTexturePickerOpen] = useState(false);
   const [recentTextureModelIds, setRecentTextureModelIds] = useState<string[]>([]);
   const [texturePreset, setTexturePreset] = useState('Auto');
+  const [textureSourceMode, setTextureSourceMode] = useState<TextureSourceMode>('prompt');
   const [textureReferenceName, setTextureReferenceName] = useState('');
   const [textureStrength, setTextureStrength] = useState(65);
-  const [textureVariants, setTextureVariants] = useState(2);
+  const [textureVariants, setTextureVariants] = useState(1);
   const [textureSeed, setTextureSeed] = useState(0);
   const [textureKeepShape, setTextureKeepShape] = useState(true);
   const [texturePbrBase, setTexturePbrBase] = useState(true);
@@ -2404,6 +2448,7 @@ const Workspace: React.FC = () => {
           id: j.id,
           name: j.name || 'Untitled',
           model: j.model || 'hunyuan3d',
+          textureLabel: j.doTexture ? 'Textured' : 'Untextured',
           createdAt: j.createdAt,
           thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
         };
@@ -2463,6 +2508,7 @@ const Workspace: React.FC = () => {
       prompt: textureDirection,
       textureRes,
       materialPreset: texturePreset,
+      sourceMode: textureSourceMode,
       maps,
       variants: textureVariants,
       seed: textureSeed,
@@ -2471,7 +2517,7 @@ const Workspace: React.FC = () => {
     });
     setSubmitting(false);
     if (textureJob) {
-      setSubmitNotice('Texture job queued. Worker support is next.');
+      setSubmitNotice('Texture job queued for the selected model.');
     }
     if (error) {
       setSubmitError(error);
@@ -2493,6 +2539,7 @@ const Workspace: React.FC = () => {
     texturePrompt,
     textureRes,
     texturePreset,
+    textureSourceMode,
     textureVariants,
     textureSeed,
     textureStrength,
@@ -2674,7 +2721,7 @@ const Workspace: React.FC = () => {
                           <TextureSourceMeta>
                             <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
                             <TextureNote>
-                              This model stays in the center while texture variants are generated.
+                              {selectedJob.doTexture ? 'Textured source' : 'Untextured source'} - texture variants will stay linked to this model.
                             </TextureNote>
                           </TextureSourceMeta>
                         </TextureSource>
@@ -2690,7 +2737,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Prompt <FieldHint>optional — guide the texture</FieldHint></FieldLabel>
+                  <FieldLabel>Direction <FieldHint>prompt, material, or finish</FieldHint></FieldLabel>
                   <PromptArea
                     placeholder="e.g. aged bronze, worn edges, subtle roughness"
                     value={texturePrompt}
@@ -2715,13 +2762,32 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Reference image <FieldHint>{textureReferenceName || 'PNG · JPG · WEBP'}</FieldHint></FieldLabel>
+                  <FieldLabel>Texture source <FieldHint>what should guide the result</FieldHint></FieldLabel>
+                  <PresetGrid>
+                    {TEXTURE_SOURCE_MODES.map(mode => (
+                      <PresetCard
+                        key={mode.value}
+                        $active={textureSourceMode === mode.value}
+                        onClick={() => setTextureSourceMode(mode.value)}
+                      >
+                        <PresetLabel>{mode.label}</PresetLabel>
+                        <PresetHint>{mode.hint}</PresetHint>
+                      </PresetCard>
+                    ))}
+                  </PresetGrid>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Reference image <FieldHint>{textureReferenceName || 'optional material image'}</FieldHint></FieldLabel>
                   <TextureReferenceButton type="button" onClick={() => textureRefInputRef.current?.click()}>
                     <HiddenInput
                       ref={textureRefInputRef}
                       type="file"
                       accept="image/*"
-                      onChange={e => setTextureReferenceName(e.target.files?.[0]?.name || '')}
+                      onChange={e => {
+                        setTextureReferenceName(e.target.files?.[0]?.name || '');
+                        if (e.target.files?.[0]) setTextureSourceMode('reference');
+                      }}
                     />
                     <TextureSourceMeta>
                       <TextureSourceName>{textureReferenceName || 'Add reference image'}</TextureSourceName>
@@ -2751,21 +2817,23 @@ const Workspace: React.FC = () => {
                   </TextureOptionsGrid>
                 </Field>
 
-                <Field>
-                  <FieldLabel>Variants <FieldHint>same model, different texture directions</FieldHint></FieldLabel>
-                  <Segmented>
-                    {([1, 2, 4] as const).map(n => (
-                      <SegmentedBtn key={n} $active={textureVariants === n} onClick={() => setTextureVariants(n)}>
-                        {n}
-                      </SegmentedBtn>
-                    ))}
-                  </Segmented>
-                </Field>
+                <TextureSettingsRow>
+                  <Field>
+                    <FieldLabel>Variants <FieldHint>costs GPU time</FieldHint></FieldLabel>
+                    <Segmented>
+                      {([1, 2, 4] as const).map(n => (
+                        <SegmentedBtn key={n} $active={textureVariants === n} onClick={() => setTextureVariants(n)}>
+                          {n}
+                        </SegmentedBtn>
+                      ))}
+                    </Segmented>
+                  </Field>
 
-                <Field>
-                  <FieldLabel>Seed <FieldHint>0 = random</FieldHint></FieldLabel>
-                  <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
-                </Field>
+                  <Field>
+                    <FieldLabel>Seed <FieldHint>0 = random</FieldHint></FieldLabel>
+                    <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
+                  </Field>
+                </TextureSettingsRow>
 
                 <Field>
                   <FieldLabel>Strength <FieldHint>texture influence</FieldHint></FieldLabel>
@@ -2778,10 +2846,17 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Backend <FieldHint>temporary</FieldHint></FieldLabel>
-                  <TextureEmptyState>
-                    Temporary: this queues the existing texture rerun endpoint until the same-mesh texture worker is online.
-                  </TextureEmptyState>
+                  <FieldLabel>Processing target <FieldHint>capability rule</FieldHint></FieldLabel>
+                  <TextureCapabilityCard>
+                    <TextureCapability $active>
+                      <TextureCapabilityTitle>RTX 3090</TextureCapabilityTitle>
+                      <TextureCapabilityText>PBR texture jobs and material maps.</TextureCapabilityText>
+                    </TextureCapability>
+                    <TextureCapability>
+                      <TextureCapabilityTitle>GTX 1080</TextureCapabilityTitle>
+                      <TextureCapabilityText>Hunyuan mesh generation only.</TextureCapabilityText>
+                    </TextureCapability>
+                  </TextureCapabilityCard>
                 </Field>
 
               </>
@@ -3063,7 +3138,7 @@ const Workspace: React.FC = () => {
                     <TextureModelText>
                       <TextureModelName>{item.name}</TextureModelName>
                       <TextureModelMeta>
-                        {item.model} - {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'saved model'}
+                        {item.textureLabel} - {item.model} - {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'saved model'}
                       </TextureModelMeta>
                     </TextureModelText>
                   </TextureModelCard>
