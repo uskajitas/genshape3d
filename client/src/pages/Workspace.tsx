@@ -810,14 +810,22 @@ const MATERIAL_PRESETS = [
   'Auto', 'Ceramic', 'Wood', 'Metal', 'Stone', 'Leather', 'Fabric', 'Plastic',
 ];
 
-interface Preset {
+// Quality tiers control the shape-generation parameters.
+// These are the knobs that actually determine quality vs speed — not the
+// "Standard/High" label which was just a coarse alias for these numbers.
+//
+//  octree  : voxel grid resolution for the shape DiT (256 / 384 / 512)
+//            higher → sharper edges, more VRAM, slower
+//  steps   : diffusion inference steps (≤10 uses the Turbo checkpoint)
+//            higher → finer surface detail, slower
+//  guidance: classifier-free guidance scale — how faithfully the model
+//            follows the input image (3–10). Too high = over-saturated.
+//  faces   : post-processing target face count after simplification
+//  chunks  : volume-decoding chunk size — lower = smoother seams
+interface QualityTier {
   id: string;
   label: string;
   hint: string;
-  model: ModelId;
-  quality: 'standard' | 'high';
-  doTexture: boolean;
-  useMultiView: boolean;
   octree: number;
   steps: number;
   guidance: number;
@@ -825,27 +833,11 @@ interface Preset {
   chunks: number;
 }
 
-const PRESETS: Preset[] = [
-  // Fast blocking run — low detail, no texture. Good for iterating on shape.
-  { id: 'draft',  label: 'Quick Draft', hint: '~20s · shape check',
-    model: 'hunyuan3d', quality: 'standard', doTexture: false, useMultiView: false,
-    octree: 256, steps: 5,  guidance: 5, faces: 30_000,  chunks: 8000 },
-  // Solid game-ready prop with texture. The everyday workhorse.
-  { id: 'prop',   label: 'Game Prop',   hint: '~3 min · textured mesh',
-    model: 'hunyuan3d', quality: 'standard', doTexture: true,  useMultiView: false,
-    octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
-  // Full PBR pipeline — albedo + roughness + metallic. Needs 3090 worker.
-  { id: 'pbr',    label: 'PBR Asset',   hint: '~5 min · PBR materials',
-    model: 'hunyuan3d-2-1', quality: 'standard', doTexture: true,  useMultiView: false,
-    octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
-  // Hero prop — higher octree + steps = sharper edges and fine details.
-  { id: 'hero',   label: 'Hero Prop',   hint: '~8 min · high detail',
-    model: 'hunyuan3d', quality: 'high',     doTexture: true,  useMultiView: true,
-    octree: 512, steps: 30, guidance: 8, faces: 300_000, chunks: 2000 },
-  // TripoSR: almost instant, shape only. Great for silhouette checks.
-  { id: 'fast',   label: 'Fast Scan',   hint: '~5s · shape only',
-    model: 'triposr', quality: 'standard', doTexture: false, useMultiView: false,
-    octree: 0,   steps: 0,  guidance: 0, faces: 0,       chunks: 0 },
+const QUALITY_TIERS: QualityTier[] = [
+  { id: 'draft',    label: 'Draft',    hint: '~20s',   octree: 256, steps: 5,  guidance: 5, faces:  30_000, chunks: 8000 },
+  { id: 'balanced', label: 'Balanced', hint: '~2 min', octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
+  { id: 'quality',  label: 'Quality',  hint: '~5 min', octree: 512, steps: 20, guidance: 7, faces: 200_000, chunks: 2000 },
+  { id: 'ultra',    label: 'Ultra',    hint: '~10 min',octree: 512, steps: 35, guidance: 8, faces: 400_000, chunks: 1000 },
 ];
 
 const PromptArea = styled.textarea`
@@ -1637,7 +1629,7 @@ const Workspace: React.FC = () => {
   const [activeTool, setActiveTool] = useState<'image' | 'texture'>('image');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
-  const [activePreset, setActivePreset] = useState<string | null>('draft');
+  const [activePreset, setActivePreset] = useState<string | null>('balanced');
   const [quality, setQuality] = useState<'standard' | 'high'>('standard');
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
@@ -1658,11 +1650,11 @@ const Workspace: React.FC = () => {
   // worker auto-skips for horizontal subjects regardless.
   const [useMultiView, setUseMultiView] = useState(false);
   // Admin-only Hunyuan3D overrides. 0 means "use the quality preset value".
-  const [advOctree, setAdvOctree] = useState(0);
-  const [advSteps, setAdvSteps] = useState(0);
-  const [advGuidance, setAdvGuidance] = useState(0);
-  const [advFaces, setAdvFaces] = useState(0);
-  const [advChunks, setAdvChunks] = useState(0);
+  const [advOctree, setAdvOctree] = useState(384);
+  const [advSteps, setAdvSteps] = useState(10);
+  const [advGuidance, setAdvGuidance] = useState(6);
+  const [advFaces, setAdvFaces] = useState(100_000);
+  const [advChunks, setAdvChunks] = useState(4000);
   const [advSeed, setAdvSeed] = useState(0);
   const [model, setModel] = useState<ModelId>('hunyuan3d');
   const [preferredWorkerId, setPreferredWorkerId] = useState('');
@@ -1931,14 +1923,16 @@ const Workspace: React.FC = () => {
       model,
       preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
       groupId: selectedGroupId || undefined,
-      advanced: isAdmin ? {
+      // Advanced params are always sent — quality tier buttons set them for
+      // all users; admin fine-tune inputs can override further.
+      advanced: {
         octreeResolution: advOctree,
         inferenceSteps:   advSteps,
         guidanceScale:    advGuidance,
         targetFaceCount:  advFaces,
         numChunks:        advChunks,
         seed:             advSeed,
-      } : undefined,
+      },
     });
     setSubmitting(false);
     if (job) {
@@ -2447,34 +2441,6 @@ const Workspace: React.FC = () => {
             </Field>
 
             <Field>
-              <FieldLabel>Preset <FieldHint>one click sets all parameters</FieldHint></FieldLabel>
-              <PresetGrid>
-                {PRESETS.map(p => (
-                  <PresetCard
-                    key={p.id}
-                    type="button"
-                    $active={activePreset === p.id}
-                    onClick={() => {
-                      setActivePreset(p.id);
-                      setModel(p.model);
-                      if (isAdmin) setQuality(p.quality);
-                      setDoTexture(p.doTexture);
-                      setUseMultiView(p.useMultiView);
-                      setAdvOctree(p.octree);
-                      setAdvSteps(p.steps);
-                      setAdvGuidance(p.guidance);
-                      setAdvFaces(p.faces);
-                      setAdvChunks(p.chunks);
-                    }}
-                  >
-                    <PresetLabel>{p.label}</PresetLabel>
-                    <PresetHint>{p.hint}</PresetHint>
-                  </PresetCard>
-                ))}
-              </PresetGrid>
-            </Field>
-
-            <Field>
               <FieldLabel>
                 Model <FieldHint>which runner generates the mesh</FieldHint>
               </FieldLabel>
@@ -2501,27 +2467,6 @@ const Workspace: React.FC = () => {
               </Field>
             )}
 
-            <Field>
-              <FieldLabel>
-                Quality
-                {!isAdmin && <FieldHint>Standard only — free tier</FieldHint>}
-              </FieldLabel>
-              <Segmented>
-                <SegmentedBtn
-                  $active={effectiveQuality === 'standard'}
-                  onClick={() => { if (isAdmin) { setQuality('standard'); setActivePreset(null); } }}
-                >
-                  Standard
-                </SegmentedBtn>
-                <SegmentedBtn
-                  $active={isAdmin && quality === 'high'}
-                  $disabled={!isAdmin}
-                  onClick={() => { if (isAdmin) { setQuality('high'); setActivePreset(null); } }}
-                >
-                  High {!isAdmin && <ComingSoonTag>admin</ComingSoonTag>}
-                </SegmentedBtn>
-              </Segmented>
-            </Field>
 
             <Field>
               <FieldLabel>Texture <FieldHint>full textured generation</FieldHint></FieldLabel>
@@ -2540,26 +2485,38 @@ const Workspace: React.FC = () => {
               </Field>
             )}
 
+            <Field>
+              <FieldLabel>
+                Detail level
+                <FieldHint>{QUALITY_TIERS.find(t => t.id === activePreset)?.hint ?? 'custom'}</FieldHint>
+              </FieldLabel>
+              <PresetGrid>
+                {QUALITY_TIERS.map(t => (
+                  <PresetCard
+                    key={t.id}
+                    type="button"
+                    $active={activePreset === t.id}
+                    onClick={() => {
+                      setActivePreset(t.id);
+                      setAdvOctree(t.octree);
+                      setAdvSteps(t.steps);
+                      setAdvGuidance(t.guidance);
+                      setAdvFaces(t.faces);
+                      setAdvChunks(t.chunks);
+                    }}
+                  >
+                    <PresetLabel>{t.label}</PresetLabel>
+                    <PresetHint>{t.hint}</PresetHint>
+                  </PresetCard>
+                ))}
+              </PresetGrid>
+            </Field>
+
             {isAdmin && (
               <Field>
-                <Tooltip
-                  multiline
-                  maxWidth={360}
-                  placement="top"
-                  text={
-                    'octree (256/384/512) — higher = sharper edges, more VRAM. Try 512.\n' +
-                    'inference steps (5–50) — higher = sharper, slower. Try 30.\n' +
-                    'guidance scale (3–10) — higher = more faithful to input, edge-preserving. Try 8.\n' +
-                    'target faces (30k–1M) — higher = less smoothing in simplification. Try 300k.\n' +
-                    'num chunks (1k–200k) — lower = less smoothing in volume decoder. Try 4000.\n' +
-                    'seed — 0 = random, any positive int = reproducible runs.\n' +
-                    'Any field at 0 falls back to the Quality preset value.'
-                  }
-                >
-                  <FieldLabel style={{ cursor: 'help' }}>
-                    Advanced params <FieldHint>hover for guide · presets fill these automatically</FieldHint>
-                  </FieldLabel>
-                </Tooltip>
+                <FieldLabel style={{ cursor: 'default' }}>
+                  Fine-tune <FieldHint>override individual params</FieldHint>
+                </FieldLabel>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.6rem', fontSize: '0.75rem' }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ opacity: 0.6 }}>octree (256/384/512)</span>
