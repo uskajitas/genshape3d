@@ -182,6 +182,13 @@ const submitTextureRerun = async (
   opts: {
     texturePrompt: string;
     textureRes: string;
+    materialPreset: string;
+    maps: string[];
+    variants: number;
+    seed: number;
+    strength: number;
+    keepShape: boolean;
+    referenceImageName?: string;
     model: ModelId;
     preferredWorkerId?: string;
   },
@@ -193,6 +200,13 @@ const submitTextureRerun = async (
       email,
       texturePrompt: opts.texturePrompt,
       textureRes: opts.textureRes,
+      materialPreset: opts.materialPreset,
+      maps: opts.maps,
+      variants: opts.variants,
+      seed: opts.seed,
+      strength: opts.strength,
+      keepShape: opts.keepShape,
+      referenceImageName: opts.referenceImageName,
       model: opts.model,
       preferredWorkerId: opts.preferredWorkerId,
     }),
@@ -443,11 +457,21 @@ const Rail = styled.aside`
     linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
 `;
 
-const RailBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
+const RailItemButton = styled.button<{ $disabled?: boolean }>`
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
+`;
+
+const RailBtn = styled.span<{ $active?: boolean; $disabled?: boolean }>`
   width: 44px; height: 44px;
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
   font-size: 1rem;
   background: ${p => p.$active
     ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
@@ -458,7 +482,7 @@ const RailBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
   position: relative;
   transition: background 0.15s, color 0.15s, transform 0.12s;
   ${p => p.$active && `box-shadow: 0 4px 18px ${p.theme.colors.primary}66;`}
-  &:hover {
+  ${RailItemButton}:hover & {
     ${p => !p.$disabled && !p.$active && `
       background: ${p.theme.colors.surfaceHigh};
     `}
@@ -490,17 +514,21 @@ const RailItem: React.FC<{
   onClick?: () => void;
   title?: string;
 }> = ({ icon, label, active, disabled, onClick, title }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+  <RailItemButton
+    type="button"
+    $disabled={disabled}
+    disabled={disabled}
+    onClick={disabled ? undefined : onClick}
+    title={title || label}
+  >
     <RailBtn
       $active={active}
       $disabled={disabled}
-      onClick={disabled ? undefined : onClick}
-      title={title || label}
     >
       {icon}
     </RailBtn>
     <RailLabel>{label}</RailLabel>
-  </div>
+  </RailItemButton>
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1712,7 +1740,6 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
   const [textureRes, setTextureRes] = useState<'1K' | '2K' | '4K'>('1K');
-  const [textureMode, setTextureMode] = useState<'retexture' | 'full'>('retexture');
   const [texturePreset, setTexturePreset] = useState('Auto');
   const [textureReferenceName, setTextureReferenceName] = useState('');
   const [textureStrength, setTextureStrength] = useState(65);
@@ -2216,40 +2243,87 @@ const Workspace: React.FC = () => {
     if (!selectedJob || !email || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
-    const { job, error } = await submitTextureRerun(email, selectedJob.id, {
-      texturePrompt,
-      textureRes,
-      model,
-      preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
-    });
+    const maps = [
+      texturePbrBase && 'baseColor',
+      texturePbrRoughness && 'roughness',
+      texturePbrNormal && 'normal',
+      texturePbrMetallic && 'metallic',
+    ].filter(Boolean) as string[];
+    const textureDirection = [
+      texturePreset !== 'Auto' ? `Material: ${texturePreset}` : '',
+      texturePrompt.trim(),
+    ].filter(Boolean).join('. ');
+    const variantJobs: Job[] = [];
+    let submitErrorText: string | null = null;
+    for (let i = 0; i < textureVariants; i += 1) {
+      const { job, error } = await submitTextureRerun(email, selectedJob.id, {
+        texturePrompt: textureDirection,
+        textureRes,
+        materialPreset: texturePreset,
+        maps,
+        variants: textureVariants,
+        seed: textureSeed > 0 ? textureSeed + i : 0,
+        strength: textureStrength,
+        keepShape: textureKeepShape,
+        referenceImageName: textureReferenceName || undefined,
+        model,
+        preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
+      });
+      if (job) {
+        variantJobs.push(job);
+      } else if (error) {
+        submitErrorText = error;
+        break;
+      }
+    }
     setSubmitting(false);
-    if (job) {
-      setJobs(prev => [job, ...prev]);
-      setSelectedJobId(job.id);
+    if (variantJobs.length > 0) {
+      setJobs(prev => [...variantJobs, ...prev]);
+      setSelectedJobId(variantJobs[0].id);
       setAssetTab('all');
-    } else if (error) {
-      setSubmitError(error);
+    }
+    if (submitErrorText) {
+      setSubmitError(submitErrorText);
       fetch(`/api/limits?email=${encodeURIComponent(email)}`)
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setLimits({ used24h: d.used24h, limit24h: d.limit24h }); })
         .catch(() => { /* non-fatal */ });
     }
-  }, [isAuthenticated, navigate, selectedJob, email, submitting, texturePrompt, textureRes, model, isAdmin, preferredWorkerId]);
+  }, [
+    isAuthenticated,
+    navigate,
+    selectedJob,
+    email,
+    submitting,
+    texturePbrBase,
+    texturePbrRoughness,
+    texturePbrNormal,
+    texturePbrMetallic,
+    texturePrompt,
+    textureRes,
+    texturePreset,
+    textureVariants,
+    textureSeed,
+    textureStrength,
+    textureKeepShape,
+    textureReferenceName,
+    model,
+    isAdmin,
+    preferredWorkerId,
+  ]);
 
   const primaryActionLabel = activeTool === 'texture'
     ? (!isAuthenticated
         ? 'Sign in to texture'
         : submitting
           ? 'Submitting...'
-          : textureMode === 'retexture'
-            ? 'Texture worker needed'
           : !selectedJob
             ? 'Select an asset first'
             : selectedJob.status !== 'done'
               ? 'Wait for this asset to finish'
               : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
                 ? 'Daily limit reached - try again later'
-                : 'Generate textured run')
+                : `Generate ${textureVariants} texture variant${textureVariants === 1 ? '' : 's'}`)
     : (!isAuthenticated
         ? 'Sign in to generate'
         : submitting
@@ -2400,7 +2474,7 @@ const Workspace: React.FC = () => {
 
                 <Field>
                   <FieldLabel>
-                    Reference model
+                    Selected model
                     <FieldHint>{selectedJob?.status === 'done' ? 'ready' : 'select a finished asset'}</FieldHint>
                   </FieldLabel>
                   {selectedJob && selectedThumb ? (
@@ -2409,7 +2483,7 @@ const Workspace: React.FC = () => {
                       <TextureSourceMeta>
                         <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
                         <TextureNote>
-                          Selected model. Texture inputs stay here; generated results appear on the right.
+                          This model stays in the center while texture variants are generated.
                         </TextureNote>
                       </TextureSourceMeta>
                     </TextureSource>
@@ -2425,18 +2499,6 @@ const Workspace: React.FC = () => {
                     value={texturePrompt}
                     onChange={e => setTexturePrompt(e.target.value)}
                   />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Mode <FieldHint>{textureMode === 'retexture' ? 'same mesh' : 'new mesh'}</FieldHint></FieldLabel>
-                  <Segmented>
-                    <SegmentedBtn $active={textureMode === 'retexture'} onClick={() => setTextureMode('retexture')}>
-                      Retexture
-                    </SegmentedBtn>
-                    <SegmentedBtn $active={textureMode === 'full'} onClick={() => setTextureMode('full')}>
-                      Full run
-                    </SegmentedBtn>
-                  </Segmented>
                 </Field>
 
                 <Field>
@@ -2493,20 +2555,38 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Detail level <FieldHint>iteration settings</FieldHint></FieldLabel>
-                  <TextureOptionsGrid>
-                    <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
-                    <TextureNumberField
-                      label="Variants"
-                      value={textureVariants}
-                      min={1}
-                      max={4}
-                      onChange={v => setTextureVariants(Math.max(1, Math.min(4, v)))}
-                    />
-                    <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
-                    <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
-                  </TextureOptionsGrid>
+                  <FieldLabel>Variants <FieldHint>same model, different texture directions</FieldHint></FieldLabel>
+                  <Segmented>
+                    {([1, 2, 4] as const).map(n => (
+                      <SegmentedBtn key={n} $active={textureVariants === n} onClick={() => setTextureVariants(n)}>
+                        {n}
+                      </SegmentedBtn>
+                    ))}
+                  </Segmented>
                 </Field>
+
+                <Field>
+                  <FieldLabel>Seed <FieldHint>0 = random</FieldHint></FieldLabel>
+                  <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
+                </Field>
+
+                <Field>
+                  <FieldLabel>Strength <FieldHint>texture influence</FieldHint></FieldLabel>
+                  <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
+                </Field>
+
+                <Field>
+                  <FieldLabel>Keep shape <FieldHint>preserve the source mesh</FieldHint></FieldLabel>
+                  <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
+                </Field>
+
+                <Field>
+                  <FieldLabel>Backend <FieldHint>temporary</FieldHint></FieldLabel>
+                  <TextureEmptyState>
+                    Temporary: this queues the existing texture rerun endpoint until the same-mesh texture worker is online.
+                  </TextureEmptyState>
+                </Field>
+
               </>
             ) : (
             <>
@@ -2691,7 +2771,7 @@ const Workspace: React.FC = () => {
             <GenerateBtn
               $disabled={
                 activeTool === 'texture'
-                  ? (!isAuthenticated ? false : (textureMode === 'retexture' || !selectedJob || selectedJob.status !== 'done' || submitting ||
+                  ? (!isAuthenticated ? false : (!selectedJob || selectedJob.status !== 'done' || submitting ||
                      (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)))
                   : !isAuthenticated
                     ? false
