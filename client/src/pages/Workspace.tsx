@@ -1029,20 +1029,21 @@ const TextureMoreThumb = styled.button`
 `;
 
 const TextureModelPicker = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   max-height: min(560px, calc(100vh - 190px));
   overflow-y: auto;
   padding-right: 0.15rem;
 `;
 
 const TextureModelCard = styled.button<{ $active?: boolean }>`
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
   width: 100%;
-  min-height: 0;
+  min-height: 68px;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
   background: ${p => p.$active
@@ -1059,9 +1060,8 @@ const TextureModelCard = styled.button<{ $active?: boolean }>`
 `;
 
 const TextureModelThumb = styled.img`
-  width: 100%;
-  aspect-ratio: 1 / 0.72;
-  height: auto;
+  width: 56px;
+  height: 56px;
   border-radius: 7px;
   object-fit: cover;
   display: block;
@@ -1069,8 +1069,8 @@ const TextureModelThumb = styled.img`
 `;
 
 const TextureModelThumbPlaceholder = styled.div`
-  width: 100%;
-  aspect-ratio: 1 / 0.72;
+  width: 56px;
+  height: 56px;
   border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
@@ -1078,7 +1078,6 @@ const TextureModelThumbPlaceholder = styled.div`
 
 const TextureModelText = styled.span`
   min-width: 0;
-  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -1121,7 +1120,7 @@ const TexturePickerOverlay = styled.div`
   position: absolute;
   top: 0.9rem;
   left: 0.9rem;
-  width: min(680px, calc(100% - 1.8rem));
+  width: min(560px, calc(100% - 1.8rem));
   max-height: calc(100% - 1.8rem);
   z-index: 8;
   display: flex;
@@ -2421,6 +2420,25 @@ const Workspace: React.FC = () => {
     });
   }, [jobs, search, assetTab, selectedGroupId]);
 
+  const textureRailJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return jobs
+      .filter(j => j.status === 'done' && j.resultUrl)
+      .filter(j => {
+        if (!q) return true;
+        return (j.name || '').toLowerCase().includes(q)
+          || (j.model || '').toLowerCase().includes(q)
+          || j.id.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      });
+  }, [jobs, search]);
+
+  const railJobs = activeTool === 'texture' ? textureRailJobs : filteredJobs;
+
   const meshUrl = selectedJob?.resultUrl
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
     : null;
@@ -3148,7 +3166,7 @@ const Workspace: React.FC = () => {
               </TextureModelPicker>
             </TexturePickerOverlay>
           )}
-          {hoveredJobOverlay && !(activeTool === 'texture' && texturePickerOpen) && (
+          {hoveredJobOverlay && activeTool !== 'texture' && (
             <DetailOverlay
               visible
               title={hoveredJobOverlay.job.name?.trim() || 'Untitled asset'}
@@ -3224,6 +3242,7 @@ const Workspace: React.FC = () => {
         <Aside>
           <AsideHeader>
             <AsideTitle>My assets</AsideTitle>
+            {activeTool !== 'texture' && (
             <AssetTabs>
               {(['all', 'pending', 'done', 'cancelled'] as const).map(t => (
                 <AssetTabBtn key={t} $active={assetTab === t} onClick={() => setAssetTab(t)}>
@@ -3231,12 +3250,13 @@ const Workspace: React.FC = () => {
                 </AssetTabBtn>
               ))}
             </AssetTabs>
+            )}
             <Search
-              placeholder="Search…"
+              placeholder={activeTool === 'texture' ? 'Search models...' : 'Search...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
-            {isAuthenticated && (
+            {isAuthenticated && activeTool !== 'texture' && (
               <GroupBar>
                 <Dropdown
                   value={selectedGroupId}
@@ -3275,16 +3295,18 @@ const Workspace: React.FC = () => {
                 Sign in to see your generations.
               </EmptyAssets>
             )}
-            {isAuthenticated && filteredJobs.length === 0 && (
+            {isAuthenticated && railJobs.length === 0 && (
               <EmptyAssets>
-                <span style={{ fontSize: '1.4rem' }}>📭</span>
-                {selectedGroupId
+                <span style={{ fontSize: '1.4rem' }}>{activeTool === 'texture' ? '🎨' : '📭'}</span>
+                {activeTool === 'texture'
+                  ? <>No finished models yet. Generate a model first, then texture it here.</>
+                  : selectedGroupId
                   ? <>No assets in this pack yet. Submit a job with this pack selected to add some.</>
                   : <>No assets yet. Generate your first model to see it here.</>
                 }
               </EmptyAssets>
             )}
-            {filteredJobs.map(job => {
+            {railJobs.map(job => {
               const thumbKey = job.imageUrl?.includes('/uploads/')
                 ? `uploads/${job.imageUrl.split('/uploads/')[1]}`
                 : job.imageUrl;
@@ -3329,7 +3351,7 @@ const Workspace: React.FC = () => {
                 >
                   <AssetCard
                     $active={selectedJobId === job.id}
-                    onClick={() => setSelectedJobId(job.id)}
+                    onClick={() => activeTool === 'texture' ? selectTextureModel(job.id) : setSelectedJobId(job.id)}
                   >
                     {thumb
                       ? <AssetThumb
@@ -3338,7 +3360,7 @@ const Workspace: React.FC = () => {
                           loading="lazy"
                           decoding="async"
                           style={
-                            !hasTex && job.status === 'done'
+                            activeTool !== 'texture' && !hasTex && job.status === 'done'
                               ? { filter: 'grayscale(0.85) brightness(0.85)' }
                               : undefined
                           }
@@ -3349,7 +3371,7 @@ const Workspace: React.FC = () => {
                         ? `#${queuePos[job.id]} queue`
                         : job.status}
                     </AssetBadge>
-                    {job.status === 'pending' || job.status === 'processing' || job.status === 'running' ? (
+                    {activeTool !== 'texture' && (job.status === 'pending' || job.status === 'processing' || job.status === 'running') ? (
                       <Tooltip text="Cancel job" placement="left">
                         <CancelJobBtn
                           className="cancel-btn"
@@ -3359,7 +3381,7 @@ const Workspace: React.FC = () => {
                           <IconClose size={13} />
                         </CancelJobBtn>
                       </Tooltip>
-                    ) : (
+                    ) : activeTool !== 'texture' ? (
                       <DeleteJobBtn
                         className="delete-btn"
                         aria-label="Delete asset"
@@ -3367,13 +3389,15 @@ const Workspace: React.FC = () => {
                       >
                         <IconTrash size={13} />
                       </DeleteJobBtn>
-                    )}
+                    ) : null}
                     <AssetOverlay className="asset-overlay">
-                      <AssetTag $color={isHigh ? '#C084FC' : undefined}>
-                        {isHigh ? 'HIGH' : 'STD'}
-                      </AssetTag>
+                      {activeTool !== 'texture' && (
+                        <AssetTag $color={isHigh ? '#C084FC' : undefined}>
+                          {isHigh ? 'HIGH' : 'STD'}
+                        </AssetTag>
+                      )}
                       <AssetTag $color={hasTex ? '#EC4899' : undefined}>
-                        {hasTex ? 'TEXTURED' : 'NO TEX'}
+                        {hasTex ? 'TEXTURED' : 'UNTEXTURED'}
                       </AssetTag>
                       {timeStr && <AssetTime>{timeStr}</AssetTime>}
                     </AssetOverlay>
