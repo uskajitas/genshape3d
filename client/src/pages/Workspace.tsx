@@ -2578,6 +2578,12 @@ const Workspace: React.FC = () => {
                 title="Admin stats"
                 onClick={() => navigate('/admin/stats')}
               />
+              <RailItem
+                icon="🧪"
+                label="Benchmark"
+                title="Benchmark runs"
+                onClick={() => navigate('/benchmark')}
+              />
             </>
           )}
         </Rail>
