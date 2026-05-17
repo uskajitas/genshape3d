@@ -25,6 +25,7 @@ import { confirm } from '../components/ConfirmModal';
 import { IconClose, IconTrash } from '../components/Icons';
 import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
+import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -817,49 +818,6 @@ const MATERIAL_PRESETS: Array<{ label: string; hint: string }> = [
   { label: 'Plastic', hint: 'matte or glossy polymer' },
 ];
 
-// Quality tiers control the shape-generation parameters.
-// These are the knobs that actually determine quality vs speed — not the
-// "Standard/High" label which was just a coarse alias for these numbers.
-//
-//  octree  : voxel grid resolution for the shape DiT (256 / 384 / 512)
-//            higher → sharper edges, more VRAM, slower
-//  steps   : diffusion inference steps (≤10 uses the Turbo checkpoint)
-//            higher → finer surface detail, slower
-//  guidance: classifier-free guidance scale — how faithfully the model
-//            follows the input image (3–10). Too high = over-saturated.
-//  faces   : post-processing target face count after simplification
-//  chunks  : volume-decoding chunk size — lower = smoother seams
-interface MeshTypePreset {
-  id: string;
-  label: string;
-  desc: string;
-  hint: string;
-  octree: number;
-  steps: number;
-  guidance: number;
-  faces: number;
-  chunks: number;
-}
-
-// Mesh-type presets: controls the CHARACTER of the output, not just speed.
-//
-//  octree   256/384/512 — sharper edges at 512; hard surfaces need it
-//  steps    ≤10 = Turbo checkpoint (fast); >10 = full model (more detail)
-//  guidance 3–10 — how closely the model follows your image's silhouette.
-//           Hard surface: high (7-9). Organic: low (5-6). >9 → artifacts.
-//  faces    post-processing simplification target. Hard surface needs more
-//           polygons to keep edge loops. Organic shapes forgive lower counts.
-//  chunks   volume-decoder chunk count. Low = smoother seam joins.
-const MESH_TYPE_PRESETS: MeshTypePreset[] = [
-  { id: 'hard',    label: 'Hard Surface', desc: 'Weapons, vehicles, architecture, machinery',
-    hint: '~5 min',  octree: 512, steps: 20, guidance: 8, faces: 200_000, chunks: 2000 },
-  { id: 'organic', label: 'Organic',      desc: 'Characters, creatures, plants, natural forms',
-    hint: '~3 min',  octree: 384, steps: 12, guidance: 5, faces:  80_000, chunks: 4000 },
-  { id: 'prop',    label: 'Prop',         desc: 'Furniture, food, everyday objects',
-    hint: '~2 min',  octree: 384, steps: 10, guidance: 6, faces: 100_000, chunks: 4000 },
-  { id: 'draft',   label: 'Draft',        desc: 'Quick silhouette check — not final output',
-    hint: '~20s',    octree: 256, steps: 5,  guidance: 5, faces:  30_000, chunks: 8000 },
-];
 
 const PromptArea = styled.textarea`
   width: 100%;
@@ -3102,95 +3060,17 @@ const Workspace: React.FC = () => {
           </ModalCard>
         </ModalBackdrop>
       )}
-      {showAdvModal && isAdmin && (
-        <ModalBackdrop onClick={() => setShowAdvModal(false)}>
-          <ModalCard onClick={e => e.stopPropagation()} style={{ minWidth: 420, maxWidth: 520 }}>
-            <ModalTitle>Advanced generation params</ModalTitle>
-            <div style={{ fontSize: '0.78rem', color: '#a1a1aa', marginBottom: '1rem', lineHeight: 1.5 }}>
-              These override the mesh-type preset. Changes here clear the preset selection.
-            </div>
-            {([
-              {
-                key: 'octree', label: 'Octree resolution', value: advOctree,
-                min: 128, max: 512, step: 128,
-                setter: (v: number) => { setAdvOctree(v); setActivePreset(null); },
-                desc: 'Voxel grid resolution during shape generation. Higher = sharper corners and hard edges. Hard surface: 512. Organic: 384. Uses more VRAM.',
-                options: [256, 384, 512],
-              },
-              {
-                key: 'steps', label: 'Inference steps', value: advSteps,
-                min: 1, max: 50, step: 1,
-                setter: (v: number) => { setAdvSteps(v); setActivePreset(null); },
-                desc: '≤10 uses the fast Turbo checkpoint. >10 switches to the full model for finer surface detail. Hard surface: 20–30. Quick check: 5.',
-              },
-              {
-                key: 'guidance', label: 'Guidance scale', value: advGuidance,
-                min: 1, max: 12, step: 0.5,
-                setter: (v: number) => { setAdvGuidance(v); setActivePreset(null); },
-                desc: 'How closely the model follows your input image. High (7–9) = faithful to silhouette and edges (good for hard surface). Low (5–6) = model interprets freely, more natural for organic. Above 9 → artifacts.',
-              },
-              {
-                key: 'faces', label: 'Target face count', value: advFaces,
-                min: 10000, max: 500000, step: 10000,
-                setter: (v: number) => { setAdvFaces(v); setActivePreset(null); },
-                desc: 'Post-processing mesh simplification target. Hard surface needs more polygons to keep edge loops (200k+). Organic shapes forgive lower counts (50k–100k). Does not affect generation quality, only final poly count.',
-              },
-              {
-                key: 'chunks', label: 'Num chunks', value: advChunks,
-                min: 500, max: 20000, step: 500,
-                setter: (v: number) => { setAdvChunks(v); setActivePreset(null); },
-                desc: 'Volume-decoder chunk count. Lower = fewer seam artifacts where chunks join. Keep at 1k–4k for quality. Higher only if you hit OOM.',
-              },
-              {
-                key: 'seed', label: 'Seed', value: advSeed,
-                min: 0, max: 2147483647, step: 1,
-                setter: (v: number) => setAdvSeed(v),
-                desc: '0 = random each run. Any positive integer = reproducible result. Use to compare params on the same input.',
-              },
-            ] as const).map((p: any) => (
-              <div key={p.key} style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: 4 }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{p.label}</span>
-                  <span style={{ fontSize: '0.72rem', color: '#a78bfa', fontWeight: 700 }}>{p.value}</span>
-                  {p.options && (
-                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-                      {p.options.map((o: number) => (
-                        <button key={o} type="button" onClick={() => p.setter(o)} style={{
-                          fontSize: '0.68rem', padding: '1px 6px', borderRadius: 4,
-                          border: `1px solid ${p.value === o ? '#7c3aed' : '#334'}`,
-                          background: p.value === o ? '#7c3aed33' : 'transparent',
-                          color: 'inherit', cursor: 'pointer',
-                        }}>{o}</button>
-                      ))}
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="range"
-                  min={p.min} max={p.max} step={p.step}
-                  value={p.value}
-                  onChange={e => p.setter(parseFloat(e.target.value))}
-                  style={{ width: '100%', accentColor: '#7c3aed' }}
-                />
-                <div style={{ fontSize: '0.7rem', color: '#71717a', marginTop: 3, lineHeight: 1.45 }}>{p.desc}</div>
-              </div>
-            ))}
-            <ModalRow>
-              <ModalBtn type="button" onClick={() => {
-                const preset = MESH_TYPE_PRESETS.find(t => t.id === activePreset);
-                if (preset) {
-                  setAdvOctree(preset.octree); setAdvSteps(preset.steps);
-                  setAdvGuidance(preset.guidance); setAdvFaces(preset.faces);
-                  setAdvChunks(preset.chunks);
-                }
-              }} style={{ marginRight: 'auto', fontSize: '0.78rem' }}>
-                Reset to preset
-              </ModalBtn>
-              <ModalBtn type="button" $primary onClick={() => setShowAdvModal(false)}>Done</ModalBtn>
-            </ModalRow>
-          </ModalCard>
-        </ModalBackdrop>
-      )}
+      <AdvancedParamsModal
+        open={showAdvModal && isAdmin}
+        onClose={() => setShowAdvModal(false)}
+        activePreset={activePreset}
+        values={{ octree: advOctree, steps: advSteps, guidance: advGuidance, faces: advFaces, chunks: advChunks, seed: advSeed }}
+        onChange={(v: AdvancedParams, presetId: string | null) => {
+          setAdvOctree(v.octree); setAdvSteps(v.steps); setAdvGuidance(v.guidance);
+          setAdvFaces(v.faces); setAdvChunks(v.chunks); setAdvSeed(v.seed);
+          setActivePreset(presetId);
+        }}
+      />
     </Shell>
   );
 };
