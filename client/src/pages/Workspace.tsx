@@ -1144,61 +1144,6 @@ const TextureSettingsRow = styled.div`
   gap: 0.6rem;
 `;
 
-const TextureRailModel = styled.button<{ $active?: boolean }>`
-  width: 100%;
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 0.65rem;
-  align-items: center;
-  padding: 0.55rem;
-  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
-  border-radius: 8px;
-  background: ${p => p.$active ? `${p.theme.colors.violet}1f` : `${p.theme.colors.background}88`};
-  color: ${p => p.theme.colors.text};
-  cursor: pointer;
-  text-align: left;
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
-`;
-
-const TextureRailThumb = styled.img`
-  width: 64px;
-  height: 64px;
-  object-fit: cover;
-  border-radius: 7px;
-  border: 1px solid ${p => p.theme.colors.border};
-`;
-
-const TextureRailPlaceholder = styled.div`
-  width: 64px;
-  height: 64px;
-  border-radius: 7px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.surfaceHigh};
-`;
-
-const TextureRailMeta = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-`;
-
-const TextureRailName = styled.div`
-  font-size: 0.78rem;
-  font-weight: 800;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const TextureRailInfo = styled.div`
-  font-size: 0.68rem;
-  color: ${p => p.theme.colors.textMuted};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
 const ToggleRow = styled.label`
   display: flex;
   align-items: center;
@@ -2399,24 +2344,7 @@ const Workspace: React.FC = () => {
     });
   }, [jobs, search, assetTab, selectedGroupId]);
 
-  const textureRailJobs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return jobs
-      .filter(j => j.status === 'done' && j.resultUrl)
-      .filter(j => {
-        if (!q) return true;
-        return (j.name || '').toLowerCase().includes(q)
-          || (j.model || '').toLowerCase().includes(q)
-          || j.id.toLowerCase().includes(q);
-      })
-      .sort((a, b) => {
-        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bt - at;
-      });
-  }, [jobs, search]);
-
-  const railJobs = activeTool === 'texture' ? textureRailJobs : filteredJobs;
+  const railJobs = activeTool === 'texture' ? filteredJobs.filter(j => j.status === 'done' && j.resultUrl) : filteredJobs;
 
   const meshUrl = selectedJob?.resultUrl
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
@@ -2742,8 +2670,8 @@ const Workspace: React.FC = () => {
                         <TextureSourceThumb src={selectedThumb} alt="" />
                         <TextureSourceMeta>
                           <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
-                          <TextureNote>
-                            {selectedJob.doTexture ? 'Textured source' : 'Untextured source'} - choose another model from the strip above or My assets.
+                          <TextureNote title="Texture variants will stay linked to this source model.">
+                            {selectedJob.doTexture ? 'Textured' : 'Untextured'}
                           </TextureNote>
                         </TextureSourceMeta>
                       </TextureSource>
@@ -2760,7 +2688,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Direction <FieldHint>prompt, material, or finish</FieldHint></FieldLabel>
+                  <FieldLabel>Direction <FieldHint title="Describe the desired material, finish, age, wear, color, or style.">?</FieldHint></FieldLabel>
                   <PromptArea
                     placeholder="e.g. aged bronze, worn edges, subtle roughness"
                     value={texturePrompt}
@@ -2769,7 +2697,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Material <FieldHint>one click sets the starting point</FieldHint></FieldLabel>
+                  <FieldLabel>Material <FieldHint title="Choose a broad material preset. The prompt can refine it.">?</FieldHint></FieldLabel>
                   <PresetGrid>
                     {MATERIAL_PRESETS.map(preset => (
                       <PresetCard
@@ -2785,7 +2713,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Texture source <FieldHint>what should guide the result</FieldHint></FieldLabel>
+                  <FieldLabel>Source <FieldHint title="Choose whether the texture is guided by the prompt, a reference image, the original source image, or the current model texture.">?</FieldHint></FieldLabel>
                   <PresetGrid>
                     {TEXTURE_SOURCE_MODES.map(mode => (
                       <PresetCard
@@ -2801,7 +2729,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Reference image <FieldHint>{textureReferenceName || 'optional material image'}</FieldHint></FieldLabel>
+                  <FieldLabel>Reference <FieldHint title="Optional material or style image. Selecting one switches Source to Reference.">{textureReferenceName || '?'}</FieldHint></FieldLabel>
                   <TextureReferenceButton type="button" onClick={() => textureRefInputRef.current?.click()}>
                     <HiddenInput
                       ref={textureRefInputRef}
@@ -2814,13 +2742,13 @@ const Workspace: React.FC = () => {
                     />
                     <TextureSourceMeta>
                       <TextureSourceName>{textureReferenceName || 'Add reference image'}</TextureSourceName>
-                      <TextureNote>Use a photo of marble, fabric, leather, paint, metal grain, or any target look.</TextureNote>
+                      <TextureNote title="Use a material swatch, style image, or target finish.">Material image</TextureNote>
                     </TextureSourceMeta>
                   </TextureReferenceButton>
                 </Field>
 
                 <Field>
-                  <FieldLabel>Texture <FieldHint>output size</FieldHint></FieldLabel>
+                  <FieldLabel>Size <FieldHint title="Requested texture resolution. Higher resolution costs more GPU time.">?</FieldHint></FieldLabel>
                   <Segmented>
                     {(['1K', '2K', '4K'] as const).map(r => (
                       <SegmentedBtn key={r} $active={textureRes === r} onClick={() => setTextureRes(r)}>
@@ -2831,7 +2759,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Maps <FieldHint>PBR outputs</FieldHint></FieldLabel>
+                  <FieldLabel>Maps <FieldHint title="PBR maps requested from the texture job.">?</FieldHint></FieldLabel>
                   <TextureOptionsGrid>
                     <TextureToggle checked={texturePbrBase} onChange={setTexturePbrBase}>Base color</TextureToggle>
                     <TextureToggle checked={texturePbrRoughness} onChange={setTexturePbrRoughness}>Roughness</TextureToggle>
@@ -2842,7 +2770,7 @@ const Workspace: React.FC = () => {
 
                 <TextureSettingsRow>
                   <Field>
-                    <FieldLabel>Variants <FieldHint>costs GPU time</FieldHint></FieldLabel>
+                    <FieldLabel>Variants <FieldHint title="More variants cost more GPU time. Default is one.">?</FieldHint></FieldLabel>
                     <Segmented>
                       {([1, 2, 4] as const).map(n => (
                         <SegmentedBtn key={n} $active={textureVariants === n} onClick={() => setTextureVariants(n)}>
@@ -2853,18 +2781,18 @@ const Workspace: React.FC = () => {
                   </Field>
 
                   <Field>
-                    <FieldLabel>Seed <FieldHint>0 = random</FieldHint></FieldLabel>
+                    <FieldLabel>Seed <FieldHint title="Use 0 for random. Set a number for repeatable results when supported.">?</FieldHint></FieldLabel>
                     <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
                   </Field>
                 </TextureSettingsRow>
 
                 <Field>
-                  <FieldLabel>Strength <FieldHint>texture influence</FieldHint></FieldLabel>
+                  <FieldLabel>Strength <FieldHint title="Controls how strongly the new direction changes the material.">?</FieldHint></FieldLabel>
                   <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
                 </Field>
 
                 <Field>
-                  <FieldLabel>Keep shape <FieldHint>preserve the source mesh</FieldHint></FieldLabel>
+                  <FieldLabel>Keep shape <FieldHint title="Preserve the selected model's shape.">?</FieldHint></FieldLabel>
                   <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
                 </Field>
 
@@ -3243,7 +3171,7 @@ const Workspace: React.FC = () => {
             </AssetTabs>
             )}
             <Search
-              placeholder={activeTool === 'texture' ? 'Search models...' : 'Search...'}
+              placeholder={activeTool === 'texture' ? 'Search finished assets...' : 'Search...'}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -3290,7 +3218,7 @@ const Workspace: React.FC = () => {
               <EmptyAssets>
                 <span style={{ fontSize: '1.4rem' }}>{activeTool === 'texture' ? '🎨' : '📭'}</span>
                 {activeTool === 'texture'
-                  ? <>No finished models yet. Generate a model first, then texture it here.</>
+                  ? <>No finished assets yet.</>
                   : selectedGroupId
                   ? <>No assets in this pack yet. Submit a job with this pack selected to add some.</>
                   : <>No assets yet. Generate your first model to see it here.</>
@@ -3334,27 +3262,6 @@ const Workspace: React.FC = () => {
                 setEditingNameId(null);
               };
 
-              if (activeTool === 'texture') {
-                return (
-                  <TextureRailModel
-                    key={job.id}
-                    type="button"
-                    $active={selectedJobId === job.id}
-                    onClick={() => selectTextureModel(job.id)}
-                    title={job.name || 'Untitled'}
-                  >
-                    {thumb
-                      ? <TextureRailThumb src={thumb} alt="" loading="lazy" decoding="async" />
-                      : <TextureRailPlaceholder />}
-                    <TextureRailMeta>
-                      <TextureRailName>{job.name || 'Untitled'}</TextureRailName>
-                      <TextureRailInfo>{hasTex ? 'Textured source' : 'Untextured source'}</TextureRailInfo>
-                      <TextureRailInfo>{job.model || 'hunyuan3d'}</TextureRailInfo>
-                    </TextureRailMeta>
-                  </TextureRailModel>
-                );
-              }
-
               return (
                 <AssetItem
                   key={job.id}
@@ -3363,7 +3270,7 @@ const Workspace: React.FC = () => {
                 >
                   <AssetCard
                     $active={selectedJobId === job.id}
-                    onClick={() => activeTool === 'texture' ? selectTextureModel(job.id) : setSelectedJobId(job.id)}
+                    onClick={() => setSelectedJobId(job.id)}
                   >
                     {thumb
                       ? <AssetThumb
