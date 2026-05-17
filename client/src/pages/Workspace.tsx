@@ -911,6 +911,50 @@ const TextureNote = styled.div`
   line-height: 1.45;
 `;
 
+const TextureModelPicker = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+`;
+
+const TextureModelCard = styled.button<{ $active?: boolean }>`
+  position: relative;
+  aspect-ratio: 1;
+  border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  border-radius: 8px;
+  background: ${p => p.theme.colors.background};
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.12s;
+  &:hover {
+    transform: translateY(-1px);
+    border-color: ${p => p.theme.colors.violet};
+  }
+`;
+
+const TextureModelThumb = styled.img`
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+`;
+
+const TextureModelName = styled.span`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.65rem 0.25rem 0.22rem;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
 const TextureReferenceButton = styled.button`
   display: flex;
   width: 100%;
@@ -2137,6 +2181,23 @@ const Workspace: React.FC = () => {
     ? `/api/image?key=${encodeURIComponent(selectedThumbKey)}`
     : null;
 
+  const textureModelChoices = useMemo(
+    () => jobs
+      .filter(j => j.status === 'done' && j.resultUrl)
+      .slice(0, 6)
+      .map(j => {
+        const key = j.imageUrl?.includes('/uploads/')
+          ? `uploads/${j.imageUrl.split('/uploads/')[1]}`
+          : j.imageUrl;
+        return {
+          id: j.id,
+          name: j.name || 'Untitled',
+          thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
+        };
+      }),
+    [jobs],
+  );
+
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
       navigate('/login');
@@ -2304,6 +2365,28 @@ const Workspace: React.FC = () => {
             {activeTool === 'texture' ? (
               <>
                 <Field>
+                  <FieldLabel>Pick model <FieldHint>generated 3D assets</FieldHint></FieldLabel>
+                  {textureModelChoices.length > 0 ? (
+                    <TextureModelPicker>
+                      {textureModelChoices.map(item => (
+                        <TextureModelCard
+                          key={item.id}
+                          type="button"
+                          $active={selectedJobId === item.id}
+                          onClick={() => setSelectedJobId(item.id)}
+                          title={item.name}
+                        >
+                          {item.thumb && <TextureModelThumb src={item.thumb} alt="" loading="lazy" decoding="async" />}
+                          <TextureModelName>{item.name}</TextureModelName>
+                        </TextureModelCard>
+                      ))}
+                    </TextureModelPicker>
+                  ) : (
+                    <TextureNote>Generate a 3D asset first, then it will appear here for texturing.</TextureNote>
+                  )}
+                </Field>
+
+                <Field>
                   <FieldLabel>
                     Reference model
                     <FieldHint>{selectedJob?.status === 'done' ? 'ready' : 'select a finished asset'}</FieldHint>
@@ -2319,7 +2402,7 @@ const Workspace: React.FC = () => {
                       </TextureSourceMeta>
                     </TextureSource>
                   ) : (
-                    <TextureNote>Select a generated asset on the right. It will stay in the center while you set texture inputs here.</TextureNote>
+                    <TextureNote>Pick a model above. It will stay in the center while you set texture inputs here.</TextureNote>
                   )}
                 </Field>
 
@@ -2714,7 +2797,7 @@ const Workspace: React.FC = () => {
         {/* ──────── Asset rail ──────── */}
         <Aside>
           <AsideHeader>
-            <AsideTitle>{activeTool === 'texture' ? 'Generated outputs' : 'My assets'}</AsideTitle>
+            <AsideTitle>My assets</AsideTitle>
             <AssetTabs>
               {(['all', 'pending', 'done', 'cancelled'] as const).map(t => (
                 <AssetTabBtn key={t} $active={assetTab === t} onClick={() => setAssetTab(t)}>
@@ -2723,7 +2806,7 @@ const Workspace: React.FC = () => {
               ))}
             </AssetTabs>
             <Search
-              placeholder={activeTool === 'texture' ? 'Search outputs…' : 'Search…'}
+              placeholder="Search…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
