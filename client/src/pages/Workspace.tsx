@@ -122,6 +122,7 @@ const renameJob = async (id: string, name: string): Promise<void> => {
 };
 
 type SubmitResult = { job: Job | null; error: string | null; warnings?: string[] };
+type TextureSubmitResult = { textureJob: { id: string; status: string } | null; error: string | null };
 
 const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<SubmitResult> => {
   const form = new FormData();
@@ -176,11 +177,11 @@ const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<S
   return { job: (data?.job ?? data) as Job, error: null, warnings: data?.warnings };
 };
 
-const submitTextureRerun = async (
+const submitTextureJob = async (
   email: string,
-  sourceJobId: string,
+  sourceJob: Job,
   opts: {
-    texturePrompt: string;
+    prompt: string;
     textureRes: string;
     materialPreset: string;
     maps: string[];
@@ -188,17 +189,16 @@ const submitTextureRerun = async (
     seed: number;
     strength: number;
     keepShape: boolean;
-    referenceImageName?: string;
-    model: ModelId;
-    preferredWorkerId?: string;
   },
-): Promise<SubmitResult> => {
-  const r = await fetch(`/api/jobs/${sourceJobId}/texture-rerun`, {
+): Promise<TextureSubmitResult> => {
+  const r = await fetch('/api/textures', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       email,
-      texturePrompt: opts.texturePrompt,
+      sourceJobId: sourceJob.id,
+      sourceModelUrl: sourceJob.resultUrl,
+      prompt: opts.prompt,
       textureRes: opts.textureRes,
       materialPreset: opts.materialPreset,
       maps: opts.maps,
@@ -206,18 +206,15 @@ const submitTextureRerun = async (
       seed: opts.seed,
       strength: opts.strength,
       keepShape: opts.keepShape,
-      referenceImageName: opts.referenceImageName,
-      model: opts.model,
-      preferredWorkerId: opts.preferredWorkerId,
     }),
   });
   let data: any = null;
   try { data = await r.json(); } catch { /* non-JSON 5xx */ }
   if (!r.ok) {
-    const msg = (data && (data.detail || data.error)) || `Texture rerun failed (HTTP ${r.status})`;
-    return { job: null, error: msg };
+    const msg = (data && (data.detail || data.error)) || `Texture job failed (HTTP ${r.status})`;
+    return { textureJob: null, error: msg };
   }
-  return { job: (data?.job ?? data) as Job, error: null };
+  return { textureJob: data?.textureJob ?? data, error: null };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1941,6 +1938,7 @@ const Workspace: React.FC = () => {
   const [hoveredJobId, setHoveredJobId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitNotice, setSubmitNotice] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
@@ -2161,6 +2159,7 @@ const Workspace: React.FC = () => {
     setFile(f);
     setPreviewUrl(URL.createObjectURL(f));
     setSubmitError(null);
+    setSubmitNotice(null);
   }, [previewUrl]);
 
   const onClearFile = useCallback((e: React.MouseEvent) => {
@@ -2191,6 +2190,7 @@ const Workspace: React.FC = () => {
     if (!file || !email || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
+    setSubmitNotice(null);
     const { job, error } = await submitJob(email, file, {
       quality: effectiveQuality,
       doTexture: effectiveTexture,
@@ -2447,6 +2447,7 @@ const Workspace: React.FC = () => {
     if (!selectedJob || !email || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
+    setSubmitNotice(null);
     const maps = [
       texturePbrBase && 'baseColor',
       texturePbrRoughness && 'roughness',
@@ -2457,8 +2458,8 @@ const Workspace: React.FC = () => {
       texturePreset !== 'Auto' ? `Material: ${texturePreset}` : '',
       texturePrompt.trim(),
     ].filter(Boolean).join('. ');
-    const { job, error } = await submitTextureRerun(email, selectedJob.id, {
-      texturePrompt: textureDirection,
+    const { textureJob, error } = await submitTextureJob(email, selectedJob, {
+      prompt: textureDirection,
       textureRes,
       materialPreset: texturePreset,
       maps,
@@ -2466,15 +2467,10 @@ const Workspace: React.FC = () => {
       seed: textureSeed,
       strength: textureStrength,
       keepShape: textureKeepShape,
-      referenceImageName: textureReferenceName || undefined,
-      model,
-      preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
     });
     setSubmitting(false);
-    if (job) {
-      setJobs(prev => [job, ...prev]);
-      setSelectedJobId(job.id);
-      setAssetTab('all');
+    if (textureJob) {
+      setSubmitNotice('Texture job queued. Worker support is next.');
     }
     if (error) {
       setSubmitError(error);
@@ -3006,6 +3002,23 @@ const Workspace: React.FC = () => {
                 }}
               >
                 {submitError}
+              </div>
+            )}
+            {submitNotice && (
+              <div
+                role="status"
+                style={{
+                  marginTop: 8,
+                  padding: '8px 10px',
+                  borderRadius: 8,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  color: '#9ee7c8',
+                  fontSize: '0.78rem',
+                  lineHeight: 1.4,
+                }}
+              >
+                {submitNotice}
               </div>
             )}
             {isAdmin && (

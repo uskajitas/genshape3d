@@ -96,6 +96,41 @@ export async function initDb(): Promise<void> {
       ON genshape3d_text2image_assets (user_email, created_at DESC);
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS genshape3d_texture_jobs (
+      id                   TEXT PRIMARY KEY,
+      "userEmail"          TEXT NOT NULL,
+      "sourceJobId"        TEXT NOT NULL REFERENCES genshape3d_jobs(id),
+      "sourceModelUrl"     TEXT NOT NULL,
+      prompt               TEXT NOT NULL DEFAULT '',
+      "materialPreset"     TEXT NOT NULL DEFAULT 'Auto',
+      "referenceImageKey"  TEXT NOT NULL DEFAULT '',
+      "textureRes"         TEXT NOT NULL DEFAULT '2K',
+      maps                 JSONB NOT NULL DEFAULT '["baseColor","roughness","normal"]'::jsonb,
+      variants             INTEGER NOT NULL DEFAULT 1,
+      seed                 INTEGER NOT NULL DEFAULT 0,
+      strength             INTEGER NOT NULL DEFAULT 65,
+      "keepShape"          BOOLEAN NOT NULL DEFAULT true,
+      status               TEXT NOT NULL DEFAULT 'pending',
+      "resultUrl"          TEXT NOT NULL DEFAULT '',
+      "errorMessage"       TEXT NOT NULL DEFAULT '',
+      "progressPct"        INTEGER NOT NULL DEFAULT 0,
+      "progressPhase"      TEXT NOT NULL DEFAULT '',
+      "assignedWorkerId"   TEXT NOT NULL DEFAULT '',
+      "createdAt"          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt"          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "startedAt"          TIMESTAMPTZ DEFAULT NULL,
+      "completedAt"        TIMESTAMPTZ DEFAULT NULL,
+      deleted              BOOLEAN NOT NULL DEFAULT false
+    );
+    CREATE INDEX IF NOT EXISTS idx_texture_jobs_user
+      ON genshape3d_texture_jobs ("userEmail", "createdAt" DESC) WHERE deleted = false;
+    CREATE INDEX IF NOT EXISTS idx_texture_jobs_source
+      ON genshape3d_texture_jobs ("sourceJobId", "createdAt" DESC) WHERE deleted = false;
+    CREATE INDEX IF NOT EXISTS idx_texture_jobs_pending
+      ON genshape3d_texture_jobs (status, "createdAt") WHERE deleted = false;
+  `);
+
   // Add new columns to existing tables if they don't exist yet
   const alterCols = [
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`,

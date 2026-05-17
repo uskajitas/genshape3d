@@ -48,6 +48,7 @@ import {
 import { uploadToR2, getR2Stream } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
 import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
+import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
@@ -1002,6 +1003,53 @@ app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   res.json({ jobs: await getJobsByUser(email) });
+});
+
+app.get('/api/textures', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const sourceJobId = String(req.query.sourceJobId || '').trim();
+  const textureJobs = sourceJobId
+    ? await getTextureJobsForSource(sourceJobId, email)
+    : await getTextureJobsByUser(email);
+  res.json({ textureJobs });
+});
+
+app.post('/api/textures', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  const sourceJobId = String(req.body?.sourceJobId || '').trim();
+  if (!sourceJobId) return res.status(400).json({ error: 'sourceJobId required' });
+
+  const source = await getJobById(sourceJobId);
+  if (!source) return res.status(404).json({ error: 'source job not found' });
+  if (source.status !== 'done' || !source.resultUrl) {
+    return res.status(409).json({ error: 'source model is not ready' });
+  }
+  if (source.userEmail !== email && !(await isAdmin(email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  try {
+    const textureJob = await createTextureJob({
+      userEmail: email,
+      sourceJobId: source.id,
+      sourceModelUrl: String(req.body?.sourceModelUrl || source.resultUrl),
+      prompt: String(req.body?.prompt || '').trim(),
+      materialPreset: String(req.body?.materialPreset || 'Auto'),
+      referenceImageKey: String(req.body?.referenceImageKey || ''),
+      textureRes: String(req.body?.textureRes || '2K'),
+      maps: Array.isArray(req.body?.maps) ? req.body.maps.map(String) : undefined,
+      variants: parseInt(req.body?.variants) || 1,
+      seed: parseInt(req.body?.seed) || 0,
+      strength: parseInt(req.body?.strength) || 65,
+      keepShape: req.body?.keepShape !== false,
+    });
+    res.json({ textureJob });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
