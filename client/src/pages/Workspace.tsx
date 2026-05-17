@@ -949,51 +949,98 @@ const TextureEmptyState = styled.div`
   line-height: 1.45;
 `;
 
+const TextureModelControl = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+`;
+
 const TextureModelPicker = styled.div`
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-  max-height: 270px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 320px;
   overflow-y: auto;
   padding-right: 0.15rem;
 `;
 
 const TextureModelCard = styled.button<{ $active?: boolean }>`
-  position: relative;
-  aspect-ratio: 1;
-  border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
-  background: ${p => p.theme.colors.background};
-  overflow: hidden;
-  padding: 0;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}24, ${p.theme.colors.violet}24)`
+    : `${p.theme.colors.background}88`};
+  color: ${p => p.theme.colors.text};
+  padding: 0.4rem;
   cursor: pointer;
-  transition: border-color 0.12s, transform 0.12s;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
   &:hover {
-    transform: translateY(-1px);
     border-color: ${p => p.theme.colors.violet};
   }
 `;
 
 const TextureModelThumb = styled.img`
-  width: 100%;
-  height: 100%;
+  width: 46px;
+  height: 46px;
+  border-radius: 7px;
   object-fit: cover;
   display: block;
+  border: 1px solid ${p => p.theme.colors.border};
+`;
+
+const TextureModelThumbPlaceholder = styled.div`
+  width: 46px;
+  height: 46px;
+  border-radius: 7px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surfaceHigh};
+`;
+
+const TextureModelText = styled.span`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 `;
 
 const TextureModelName = styled.span`
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 0.65rem 0.25rem 0.22rem;
-  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
-  color: #fff;
-  font-size: 0.55rem;
+  font-size: 0.8rem;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+`;
+
+const TextureModelMeta = styled.span`
+  font-size: 0.68rem;
+  color: ${p => p.theme.colors.textMuted};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const TextureModelSearch = styled.input`
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.78rem;
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+  &::placeholder { color: ${p => p.theme.colors.textMuted}; }
 `;
 
 const TextureReferenceButton = styled.button`
@@ -1743,6 +1790,7 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
   const [textureRes, setTextureRes] = useState<'1K' | '2K' | '4K'>('1K');
+  const [textureModelSearch, setTextureModelSearch] = useState('');
   const [texturePreset, setTexturePreset] = useState('Auto');
   const [textureReferenceName, setTextureReferenceName] = useState('');
   const [textureStrength, setTextureStrength] = useState(65);
@@ -2236,11 +2284,23 @@ const Workspace: React.FC = () => {
         return {
           id: j.id,
           name: j.name || 'Untitled',
+          model: j.model || 'hunyuan3d',
+          createdAt: j.createdAt,
           thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
         };
       }),
     [jobs],
   );
+
+  const filteredTextureModelChoices = useMemo(() => {
+    const q = textureModelSearch.trim().toLowerCase();
+    if (!q) return textureModelChoices;
+    return textureModelChoices.filter(item =>
+      item.name.toLowerCase().includes(q)
+      || item.model.toLowerCase().includes(q)
+      || item.id.toLowerCase().includes(q)
+    );
+  }, [textureModelChoices, textureModelSearch]);
 
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
@@ -2461,20 +2521,34 @@ const Workspace: React.FC = () => {
                     <FieldHint>{textureModelChoices.length} generated 3D asset{textureModelChoices.length === 1 ? '' : 's'}</FieldHint>
                   </FieldLabel>
                   {textureModelChoices.length > 0 ? (
-                    <TextureModelPicker>
-                      {textureModelChoices.map(item => (
-                        <TextureModelCard
-                          key={item.id}
-                          type="button"
-                          $active={selectedJobId === item.id}
-                          onClick={() => setSelectedJobId(item.id)}
-                          title={item.name}
-                        >
-                          {item.thumb && <TextureModelThumb src={item.thumb} alt="" loading="lazy" decoding="async" />}
-                          <TextureModelName>{item.name}</TextureModelName>
-                        </TextureModelCard>
-                      ))}
-                    </TextureModelPicker>
+                    <TextureModelControl>
+                      <TextureModelSearch
+                        value={textureModelSearch}
+                        onChange={e => setTextureModelSearch(e.target.value)}
+                        placeholder="Search models..."
+                      />
+                      <TextureModelPicker>
+                        {filteredTextureModelChoices.length > 0 ? filteredTextureModelChoices.map(item => (
+                          <TextureModelCard
+                            key={item.id}
+                            type="button"
+                            $active={selectedJobId === item.id}
+                            onClick={() => setSelectedJobId(item.id)}
+                            title={item.name}
+                          >
+                            {item.thumb ? <TextureModelThumb src={item.thumb} alt="" loading="lazy" decoding="async" /> : <TextureModelThumbPlaceholder />}
+                            <TextureModelText>
+                              <TextureModelName>{item.name}</TextureModelName>
+                              <TextureModelMeta>
+                                {item.model} - {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'saved model'}
+                              </TextureModelMeta>
+                            </TextureModelText>
+                          </TextureModelCard>
+                        )) : (
+                          <TextureEmptyState>No matching models.</TextureEmptyState>
+                        )}
+                      </TextureModelPicker>
+                    </TextureModelControl>
                   ) : (
                     <TextureEmptyState>
                       No finished 3D assets yet. Generate a model first; finished models will appear here as texture inputs.
