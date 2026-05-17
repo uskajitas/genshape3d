@@ -2565,7 +2565,7 @@ const Workspace: React.FC = () => {
                     }}
                   >
                     <PresetLabel>{t.label}</PresetLabel>
-                    <PresetHint>{t.desc}</PresetHint>
+                    <PresetHint>{t.hint}</PresetHint>
                   </PresetCard>
                 ))}
               </PresetGrid>
