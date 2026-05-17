@@ -953,6 +953,9 @@ const TextureModelPicker = styled.div`
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
+  max-height: 270px;
+  overflow-y: auto;
+  padding-right: 0.15rem;
 `;
 
 const TextureModelCard = styled.button<{ $active?: boolean }>`
@@ -2221,7 +2224,11 @@ const Workspace: React.FC = () => {
   const textureModelChoices = useMemo(
     () => jobs
       .filter(j => j.status === 'done' && j.resultUrl)
-      .slice(0, 6)
+      .sort((a, b) => {
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      })
       .map(j => {
         const key = j.imageUrl?.includes('/uploads/')
           ? `uploads/${j.imageUrl.split('/uploads/')[1]}`
@@ -2449,7 +2456,10 @@ const Workspace: React.FC = () => {
             {activeTool === 'texture' ? (
               <>
                 <Field>
-                  <FieldLabel>Pick model <FieldHint>generated 3D assets</FieldHint></FieldLabel>
+                  <FieldLabel>
+                    Pick model
+                    <FieldHint>{textureModelChoices.length} generated 3D asset{textureModelChoices.length === 1 ? '' : 's'}</FieldHint>
+                  </FieldLabel>
                   {textureModelChoices.length > 0 ? (
                     <TextureModelPicker>
                       {textureModelChoices.map(item => (
