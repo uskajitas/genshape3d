@@ -2457,37 +2457,27 @@ const Workspace: React.FC = () => {
       texturePreset !== 'Auto' ? `Material: ${texturePreset}` : '',
       texturePrompt.trim(),
     ].filter(Boolean).join('. ');
-    const variantJobs: Job[] = [];
-    let submitErrorText: string | null = null;
-    for (let i = 0; i < textureVariants; i += 1) {
-      const { job, error } = await submitTextureRerun(email, selectedJob.id, {
-        texturePrompt: textureDirection,
-        textureRes,
-        materialPreset: texturePreset,
-        maps,
-        variants: textureVariants,
-        seed: textureSeed > 0 ? textureSeed + i : 0,
-        strength: textureStrength,
-        keepShape: textureKeepShape,
-        referenceImageName: textureReferenceName || undefined,
-        model,
-        preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
-      });
-      if (job) {
-        variantJobs.push(job);
-      } else if (error) {
-        submitErrorText = error;
-        break;
-      }
-    }
+    const { job, error } = await submitTextureRerun(email, selectedJob.id, {
+      texturePrompt: textureDirection,
+      textureRes,
+      materialPreset: texturePreset,
+      maps,
+      variants: textureVariants,
+      seed: textureSeed,
+      strength: textureStrength,
+      keepShape: textureKeepShape,
+      referenceImageName: textureReferenceName || undefined,
+      model,
+      preferredWorkerId: isAdmin ? preferredWorkerId : undefined,
+    });
     setSubmitting(false);
-    if (variantJobs.length > 0) {
-      setJobs(prev => [...variantJobs, ...prev]);
-      setSelectedJobId(variantJobs[0].id);
+    if (job) {
+      setJobs(prev => [job, ...prev]);
+      setSelectedJobId(job.id);
       setAssetTab('all');
     }
-    if (submitErrorText) {
-      setSubmitError(submitErrorText);
+    if (error) {
+      setSubmitError(error);
       fetch(`/api/limits?email=${encodeURIComponent(email)}`)
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setLimits({ used24h: d.used24h, limit24h: d.limit24h }); })
@@ -2527,7 +2517,7 @@ const Workspace: React.FC = () => {
               ? 'Wait for this asset to finish'
               : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
                 ? 'Daily limit reached - try again later'
-                : `Generate ${textureVariants} texture variant${textureVariants === 1 ? '' : 's'}`)
+                : 'Generate texture')
     : (!isAuthenticated
         ? 'Sign in to generate'
         : submitting
