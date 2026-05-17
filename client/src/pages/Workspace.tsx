@@ -2238,7 +2238,7 @@ const Workspace: React.FC = () => {
               onClick={() => activeTool === 'texture' ? setActiveTool('image') : navigate('/dashboard/text')}
               title={activeTool === 'texture' ? 'Back to Image to 3D' : 'Go to Text to Image'}
             >
-              {activeTool === 'texture' ? 'Full textured run' : '✨ Create images'}
+              {activeTool === 'texture' ? 'Inputs' : '✨ Create images'}
             </FieldHint>
           </PanelHeader>
 
@@ -2295,12 +2295,12 @@ const Workspace: React.FC = () => {
                       <TextureSourceMeta>
                         <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
                         <TextureNote>
-                          This queues a new full image-to-3D run with texture enabled so we can benchmark the complete textured pipeline.
+                          Selected model. Texture inputs stay here; generated results appear on the right.
                         </TextureNote>
                       </TextureSourceMeta>
                     </TextureSource>
                   ) : (
-                    <TextureNote>Select an asset from the rail on the right, then submit a textured run from here.</TextureNote>
+                    <TextureNote>Select a generated asset on the right. It will stay in the center while you set texture inputs here.</TextureNote>
                   )}
                 </Field>
 
@@ -2778,7 +2778,7 @@ const Workspace: React.FC = () => {
         {/* ──────── Asset rail ──────── */}
         <Aside>
           <AsideHeader>
-            <AsideTitle>My assets</AsideTitle>
+            <AsideTitle>{activeTool === 'texture' ? 'Generated outputs' : 'My assets'}</AsideTitle>
             <AssetTabs>
               {(['all', 'pending', 'done', 'cancelled'] as const).map(t => (
                 <AssetTabBtn key={t} $active={assetTab === t} onClick={() => setAssetTab(t)}>
@@ -2787,7 +2787,7 @@ const Workspace: React.FC = () => {
               ))}
             </AssetTabs>
             <Search
-              placeholder="Search…"
+              placeholder={activeTool === 'texture' ? 'Search outputs…' : 'Search…'}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
