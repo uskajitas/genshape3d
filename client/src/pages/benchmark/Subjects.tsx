@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { useAuth } from '../../context/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { benchmarkApi, BenchmarkSubject, BenchmarkCategory } from './api';
+import { SUBJECT_TEMPLATES, TOP_CATEGORY_NAMES, SUB_TO_TOP, SubjectTemplate } from './templates';
 
 // ─── Generation param types (mirrors TextToImage) ────────────────────────────
 
@@ -324,6 +325,172 @@ const Hint = styled.div`
   font-size: 0.68rem; color: ${p => p.theme.colors.textMuted};
 `;
 
+// ─── Import templates modal ───────────────────────────────────────────────────
+
+const TplModal = styled.div`
+  background: ${p => p.theme.colors.surface};
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 14px; width: 100%; max-width: 860px;
+  max-height: 88vh; display: flex; flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+  overflow: hidden;
+`;
+
+const TplHeader = styled.div`
+  padding: 0.9rem 1.25rem 0.75rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  flex-shrink: 0; display: flex; align-items: center; gap: 1rem;
+`;
+
+const TplTitle = styled.h2`
+  margin: 0; font-size: 1rem; font-weight: 800; color: ${p => p.theme.colors.text}; flex: 1;
+`;
+
+const TplBody = styled.div`
+  display: grid; grid-template-columns: 200px 1fr;
+  flex: 1; min-height: 0; overflow: hidden;
+`;
+
+const TplSidebar = styled.div`
+  border-right: 1px solid ${p => p.theme.colors.border};
+  overflow-y: auto; padding: 0.5rem;
+  display: flex; flex-direction: column; gap: 2px;
+`;
+
+const TplSideBtn = styled.button<{ $active?: boolean }>`
+  font: inherit; font-size: 0.75rem; font-weight: 600;
+  padding: 0.4rem 0.65rem; border-radius: 7px; cursor: pointer; text-align: left;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : 'transparent'};
+  background: ${p => p.$active ? `${p.theme.colors.violet}22` : 'transparent'};
+  color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.textMuted};
+  &:hover { border-color: ${p => p.theme.colors.violet}; color: ${p => p.theme.colors.violet}; }
+`;
+
+const TplList = styled.div`
+  overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.3rem;
+`;
+
+const TplRow = styled.label`
+  display: flex; align-items: flex-start; gap: 0.65rem;
+  padding: 0.5rem 0.65rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+  &:hover { background: ${p => p.theme.colors.surfaceHigh}; }
+`;
+
+const TplCheckbox = styled.input`
+  margin-top: 3px; flex-shrink: 0; accent-color: ${p => p.theme.colors.violet};
+`;
+
+const TplInfo = styled.div`
+  display: flex; flex-direction: column; gap: 2px;
+`;
+
+const TplName = styled.div`
+  font-size: 0.82rem; font-weight: 700; color: ${p => p.theme.colors.text};
+`;
+
+const TplPrompt = styled.div`
+  font-size: 0.68rem; color: ${p => p.theme.colors.textMuted};
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px;
+`;
+
+const TplFooter = styled.div`
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid ${p => p.theme.colors.border};
+  display: flex; gap: 0.75rem; align-items: center; flex-shrink: 0;
+`;
+
+// ─── Quick Generate overlay ───────────────────────────────────────────────────
+
+const QGOverlay = styled.div`
+  position: fixed; inset: 0; background: ${p => p.theme.colors.background};
+  z-index: 300; display: flex; flex-direction: column;
+`;
+
+const QGNav = styled.div`
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid ${p => p.theme.colors.border};
+  display: flex; align-items: center; gap: 1rem; flex-shrink: 0;
+`;
+
+const QGTitle = styled.div`
+  font-size: 0.9rem; font-weight: 800; color: ${p => p.theme.colors.text}; flex: 1;
+`;
+
+const QGProgress = styled.div`
+  font-size: 0.78rem; color: ${p => p.theme.colors.textMuted};
+`;
+
+const QGBody = styled.div`
+  flex: 1; display: grid; grid-template-columns: 1fr 340px;
+  min-height: 0; overflow: hidden;
+`;
+
+const QGLeft = styled.div`
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 2rem; overflow: hidden;
+`;
+
+const QGImgBox = styled.div<{ $url?: string }>`
+  width: 100%; max-width: 540px; aspect-ratio: 1;
+  border-radius: 16px; overflow: hidden;
+  background: ${p => p.theme.colors.surfaceHigh};
+  ${p => p.$url ? `background-image: url(${p.$url}); background-size: contain; background-repeat: no-repeat; background-position: center;` : ''}
+  border: 1px solid ${p => p.theme.colors.border};
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+`;
+
+const QGSubjectInfo = styled.div`
+  text-align: center;
+`;
+
+const QGSubjectName = styled.div`
+  font-size: 1.1rem; font-weight: 800; color: ${p => p.theme.colors.text};
+`;
+
+const QGSubjectCat = styled.div`
+  font-size: 0.75rem; color: ${p => p.theme.colors.violet}; margin-top: 2px;
+`;
+
+const QGActions = styled.div`
+  display: flex; gap: 0.75rem;
+`;
+
+const QGBtn = styled.button<{ $approve?: boolean; $skip?: boolean }>`
+  font: inherit; font-size: 0.9rem; font-weight: 700;
+  padding: 0.7rem 1.8rem; border-radius: 10px; cursor: pointer;
+  border: 1px solid ${p => p.$approve ? '#22c55e' : p.$skip ? '#ef4444' : p.theme.colors.border};
+  background: ${p => p.$approve ? '#22c55e22' : p.$skip ? '#ef444422' : 'transparent'};
+  color: ${p => p.$approve ? '#22c55e' : p.$skip ? '#ef4444' : p.theme.colors.text};
+  &:hover { opacity: 0.8; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+`;
+
+const QGRight = styled.div`
+  border-left: 1px solid ${p => p.theme.colors.border};
+  overflow-y: auto; padding: 1.25rem;
+  display: flex; flex-direction: column; gap: 0.65rem;
+`;
+
+const QGSectionTitle = styled.div`
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: ${p => p.theme.colors.textMuted};
+`;
+
+// Pending subjects banner
+const PendingBanner = styled.div`
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: ${p => p.theme.colors.surfaceHigh};
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px; font-size: 0.8rem;
+`;
+
+const PendingCount = styled.span`
+  font-weight: 800; color: ${p => p.theme.colors.violet};
+`;
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface SubjectForm {
@@ -342,8 +509,8 @@ export const BenchmarkSubjects: React.FC = () => {
 
   const [subjects, setSubjects] = useState<BenchmarkSubject[]>([]);
   const [categories, setCategories] = useState<BenchmarkCategory[]>([]);
-  const [filterTop, setFilterTop] = useState<string>('');   // top-level category id
-  const [filterSub, setFilterSub] = useState<string>('');   // sub-category id
+  const [filterTop, setFilterTop] = useState<string>('');
+  const [filterSub, setFilterSub] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -353,6 +520,23 @@ export const BenchmarkSubjects: React.FC = () => {
   const [genError, setGenError] = useState('');
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Import templates state ──
+  const [showTplModal, setShowTplModal] = useState(false);
+  const [tplTopFilter, setTplTopFilter] = useState<string>('');   // '' = all
+  const [tplSelected, setTplSelected] = useState<Set<number>>(new Set()); // indices into SUBJECT_TEMPLATES
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState('');
+
+  // ── Quick Generate state ──
+  const [showQG, setShowQG] = useState(false);
+  const [qgQueue, setQgQueue] = useState<BenchmarkSubject[]>([]);
+  const [qgIdx, setQgIdx] = useState(0);
+  const [qgParams, setQgParams] = useState<GenParams>(DEFAULT_GEN);
+  const [qgGenerating, setQgGenerating] = useState(false);
+  const [qgImageUrl, setQgImageUrl] = useState('');
+  const [qgError, setQgError] = useState('');
+  const [qgApproved, setQgApproved] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -457,6 +641,125 @@ export const BenchmarkSubjects: React.FC = () => {
     await load();
   };
 
+  // ── Import templates ──────────────────────────────────────────────────────
+
+  const tplFiltered = tplTopFilter
+    ? SUBJECT_TEMPLATES.filter(t => SUB_TO_TOP[t.categoryId] === tplTopFilter)
+    : SUBJECT_TEMPLATES;
+
+  const toggleTpl = (idx: number) => setTplSelected(s => {
+    const n = new Set(s);
+    // idx here is global index into SUBJECT_TEMPLATES
+    n.has(idx) ? n.delete(idx) : n.add(idx);
+    return n;
+  });
+
+  const selectAllVisible = () => {
+    const visibleIndices = tplFiltered.map(t => SUBJECT_TEMPLATES.indexOf(t));
+    setTplSelected(s => {
+      const n = new Set(s);
+      visibleIndices.forEach(i => n.add(i));
+      return n;
+    });
+  };
+
+  const clearVisible = () => {
+    const visibleIndices = new Set(tplFiltered.map(t => SUBJECT_TEMPLATES.indexOf(t)));
+    setTplSelected(s => new Set([...s].filter(i => !visibleIndices.has(i))));
+  };
+
+  const handleImport = async () => {
+    const selected = [...tplSelected].map(i => SUBJECT_TEMPLATES[i]);
+    if (selected.length === 0) return;
+    setImporting(true);
+    let done = 0;
+    for (const tpl of selected) {
+      setImportProgress(`Importing ${++done} / ${selected.length}…`);
+      await benchmarkApi.createSubject(email, {
+        name: tpl.name,
+        categoryId: tpl.categoryId,
+        generationPrompt: tpl.generationPrompt,
+        imageUrl: '',
+        notes: '',
+      });
+    }
+    setImporting(false);
+    setImportProgress('');
+    setTplSelected(new Set());
+    setShowTplModal(false);
+    await load();
+  };
+
+  // ── Quick Generate ────────────────────────────────────────────────────────
+
+  const startQG = () => {
+    const pending = subjects.filter(s => !s.imageUrl);
+    if (pending.length === 0) return;
+    setQgQueue(pending);
+    setQgIdx(0);
+    setQgImageUrl('');
+    setQgError('');
+    setQgApproved(0);
+    setShowQG(true);
+  };
+
+  const qgCurrent = qgQueue[qgIdx];
+
+  const qgGenerate = async () => {
+    if (!qgCurrent) return;
+    setQgGenerating(true); setQgError('');
+    try {
+      const px = ASPECT_PIXELS[qgParams.aspect];
+      const qs = new URLSearchParams({
+        prompt:        qgCurrent.generationPrompt,
+        w:             String(px.w),
+        h:             String(px.h),
+        bg:            qgParams.bg,
+        view:          qgParams.view,
+        style:         qgParams.style,
+        material:      qgParams.material,
+        provider:      qgParams.provider,
+        strict_single: qgParams.strictSingle ? '1' : '0',
+        email,
+      });
+      if (qgParams.negative.trim()) qs.set('negative', qgParams.negative.trim());
+      const r = await fetch(`/api/text2image?${qs}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const imageKeyHdr = r.headers.get('X-Image-Key');
+      if (imageKeyHdr) {
+        const key = decodeURIComponent(imageKeyHdr);
+        setQgImageUrl(`/api/image?key=${encodeURIComponent(key)}`);
+      } else {
+        const blob = await r.blob();
+        setQgImageUrl(URL.createObjectURL(blob));
+      }
+    } catch (e: any) {
+      setQgError(e.message || 'Generation failed');
+    } finally {
+      setQgGenerating(false);
+    }
+  };
+
+  const qgApprove = async () => {
+    if (!qgCurrent || !qgImageUrl) return;
+    await benchmarkApi.updateSubject(email, qgCurrent.id, { imageUrl: qgImageUrl });
+    setQgApproved(n => n + 1);
+    qgNext();
+  };
+
+  const qgSkip = () => qgNext();
+
+  const qgNext = () => {
+    setQgImageUrl('');
+    setQgError('');
+    if (qgIdx + 1 >= qgQueue.length) {
+      setShowQG(false);
+      load();
+    } else {
+      setQgIdx(i => i + 1);
+    }
+  };
+
   const topCats = categories.filter(c => !c.parentId);
   const subCats = filterTop ? categories.filter(c => c.parentId === filterTop) : [];
 
@@ -478,8 +781,22 @@ export const BenchmarkSubjects: React.FC = () => {
     <Page>
       <TopBar>
         <PageTitle>Subject Library</PageTitle>
+        <Btn onClick={() => setShowTplModal(true)}>📋 Import templates</Btn>
         <Btn $primary onClick={openNew}>+ New subject</Btn>
       </TopBar>
+
+      {(() => {
+        const pending = subjects.filter(s => !s.imageUrl);
+        return pending.length > 0 ? (
+          <PendingBanner>
+            <PendingCount>{pending.length}</PendingCount>
+            <span style={{ color: 'var(--text-muted)' }}>subjects have no image yet</span>
+            <Btn $primary onClick={startQG} style={{ marginLeft: 'auto', padding: '0.3rem 0.9rem' }}>
+              ⚡ Quick Generate
+            </Btn>
+          </PendingBanner>
+        ) : null;
+      })()}
 
       {/* Top-level category chips */}
       <FilterBar>
@@ -537,6 +854,170 @@ export const BenchmarkSubjects: React.FC = () => {
             </Card>
           ))}
         </Grid>
+      )}
+
+      {/* ── Import templates modal ── */}
+      {showTplModal && (
+        <Backdrop onClick={() => setShowTplModal(false)}>
+          <TplModal onClick={e => e.stopPropagation()}>
+            <TplHeader>
+              <TplTitle>📋 Import templates — {SUBJECT_TEMPLATES.length} subjects ready</TplTitle>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {tplSelected.size} selected
+              </span>
+            </TplHeader>
+            <TplBody>
+              <TplSidebar>
+                <TplSideBtn $active={!tplTopFilter} onClick={() => setTplTopFilter('')}>
+                  All ({SUBJECT_TEMPLATES.length})
+                </TplSideBtn>
+                {Object.entries(TOP_CATEGORY_NAMES).map(([topId, topName]) => {
+                  const count = SUBJECT_TEMPLATES.filter(t => SUB_TO_TOP[t.categoryId] === topId).length;
+                  return (
+                    <TplSideBtn key={topId} $active={tplTopFilter === topId} onClick={() => setTplTopFilter(topId)}>
+                      {topName} ({count})
+                    </TplSideBtn>
+                  );
+                })}
+              </TplSidebar>
+              <TplList>
+                {tplFiltered.map(tpl => {
+                  const globalIdx = SUBJECT_TEMPLATES.indexOf(tpl);
+                  const catName = categories.find(c => c.id === tpl.categoryId)?.name ?? '—';
+                  return (
+                    <TplRow key={globalIdx}>
+                      <TplCheckbox
+                        type="checkbox"
+                        checked={tplSelected.has(globalIdx)}
+                        onChange={() => toggleTpl(globalIdx)}
+                      />
+                      <TplInfo>
+                        <TplName>{tpl.name} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 400 }}>{catName}</span></TplName>
+                        <TplPrompt>{tpl.generationPrompt}</TplPrompt>
+                      </TplInfo>
+                    </TplRow>
+                  );
+                })}
+              </TplList>
+            </TplBody>
+            <TplFooter>
+              <Btn onClick={selectAllVisible} style={{ fontSize: '0.75rem' }}>Select all visible</Btn>
+              <Btn onClick={clearVisible} style={{ fontSize: '0.75rem' }}>Clear visible</Btn>
+              <span style={{ flex: 1 }} />
+              {importProgress && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{importProgress}</span>}
+              <Btn onClick={() => setShowTplModal(false)}>Cancel</Btn>
+              <Btn
+                $primary
+                onClick={handleImport}
+                disabled={importing || tplSelected.size === 0}
+              >
+                {importing ? importProgress : `Import ${tplSelected.size} subjects`}
+              </Btn>
+            </TplFooter>
+          </TplModal>
+        </Backdrop>
+      )}
+
+      {/* ── Quick Generate overlay ── */}
+      {showQG && qgCurrent && (
+        <QGOverlay>
+          <QGNav>
+            <QGTitle>⚡ Quick Generate</QGTitle>
+            <QGProgress>
+              {qgIdx + 1} / {qgQueue.length} · {qgApproved} approved
+            </QGProgress>
+            <Btn onClick={() => { setShowQG(false); load(); }}>✕ Exit</Btn>
+          </QGNav>
+          <QGBody>
+            <QGLeft>
+              <QGSubjectInfo>
+                <QGSubjectName>{qgCurrent.name}</QGSubjectName>
+                <QGSubjectCat>
+                  {qgCurrent.parentCategoryName ? `${qgCurrent.parentCategoryName} › ` : ''}{qgCurrent.categoryName}
+                </QGSubjectCat>
+              </QGSubjectInfo>
+
+              <QGImgBox $url={qgImageUrl || undefined}>
+                {!qgImageUrl && !qgGenerating && (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    Hit Generate to create the reference image
+                  </div>
+                )}
+                {qgGenerating && (
+                  <GenOverlay>⏳ Generating…</GenOverlay>
+                )}
+              </QGImgBox>
+
+              {qgError && <ErrorMsg>{qgError}</ErrorMsg>}
+
+              <QGActions>
+                <QGBtn onClick={qgGenerate} disabled={qgGenerating}>
+                  {qgGenerating ? '⏳' : qgImageUrl ? '↺ Regenerate' : '✦ Generate'}
+                </QGBtn>
+                <QGBtn $approve onClick={qgApprove} disabled={!qgImageUrl || qgGenerating}>
+                  ✓ Approve
+                </QGBtn>
+                <QGBtn $skip onClick={qgSkip} disabled={qgGenerating}>
+                  ✗ Skip
+                </QGBtn>
+              </QGActions>
+
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', maxWidth: 480, textAlign: 'center' }}>
+                {qgCurrent.generationPrompt}
+              </div>
+            </QGLeft>
+
+            <QGRight>
+              <QGSectionTitle>Generation settings</QGSectionTitle>
+              <FieldGroup>
+                <Label>Model</Label>
+                <NativeSelect value={qgParams.provider} onChange={e => setQgParams(p => ({ ...p, provider: e.target.value as Provider }))}>
+                  {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label} — {p.hint}</option>)}
+                </NativeSelect>
+              </FieldGroup>
+              <FieldRow>
+                <FieldGroup>
+                  <Label>Style</Label>
+                  <ChipRow>{STYLES.map(s => <Chip key={s.value} $active={qgParams.style === s.value} onClick={() => setQgParams(p => ({ ...p, style: s.value }))}>{s.label}</Chip>)}</ChipRow>
+                </FieldGroup>
+                <FieldGroup>
+                  <Label>Background</Label>
+                  <ChipRow>{BACKGROUNDS.map(b => <Chip key={b.value} $active={qgParams.bg === b.value} onClick={() => setQgParams(p => ({ ...p, bg: b.value }))}>{b.label}</Chip>)}</ChipRow>
+                </FieldGroup>
+              </FieldRow>
+              <FieldRow>
+                <FieldGroup>
+                  <Label>View</Label>
+                  <ChipRow>{VIEWS.map(v => <Chip key={v.value} $active={qgParams.view === v.value} onClick={() => setQgParams(p => ({ ...p, view: v.value }))}>{v.label}</Chip>)}</ChipRow>
+                </FieldGroup>
+                <FieldGroup>
+                  <Label>Aspect</Label>
+                  <ChipRow>{ASPECTS.map(a => <Chip key={a.value} $active={qgParams.aspect === a.value} onClick={() => setQgParams(p => ({ ...p, aspect: a.value }))}>{a.label}</Chip>)}</ChipRow>
+                </FieldGroup>
+              </FieldRow>
+              <FieldGroup>
+                <Label>Material</Label>
+                <ChipRow>{MATERIALS.map(m => <Chip key={m.value} $active={qgParams.material === m.value} onClick={() => setQgParams(p => ({ ...p, material: m.value }))}>{m.label}</Chip>)}</ChipRow>
+              </FieldGroup>
+              <FieldGroup>
+                <Label>Negative</Label>
+                <Input value={qgParams.negative} onChange={e => setQgParams(p => ({ ...p, negative: e.target.value }))} placeholder="What to avoid…" />
+              </FieldGroup>
+
+              <QGSectionTitle style={{ marginTop: '0.5rem' }}>Queue</QGSectionTitle>
+              {qgQueue.map((s, i) => (
+                <div key={s.id} style={{
+                  fontSize: '0.72rem', padding: '0.25rem 0.5rem', borderRadius: 6,
+                  background: i === qgIdx ? 'var(--violet-dim, rgba(139,92,246,0.15))' : 'transparent',
+                  color: i < qgIdx ? '#22c55e' : i === qgIdx ? 'var(--violet)' : 'var(--text-muted)',
+                  fontWeight: i === qgIdx ? 700 : 400,
+                }}>
+                  {i < qgIdx ? '✓ ' : i === qgIdx ? '▶ ' : ''}{s.name}
+                </div>
+              ))}
+            </QGRight>
+          </QGBody>
+        </QGOverlay>
       )}
 
       {showModal && (
