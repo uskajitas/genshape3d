@@ -911,6 +911,16 @@ const TextureNote = styled.div`
   line-height: 1.45;
 `;
 
+const TextureEmptyState = styled.div`
+  padding: 0.85rem;
+  border: 1px dashed ${p => p.theme.colors.borderHigh};
+  border-radius: 10px;
+  background: ${p => p.theme.colors.background}66;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.78rem;
+  line-height: 1.45;
+`;
+
 const TextureModelPicker = styled.div`
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2361,7 +2371,7 @@ const Workspace: React.FC = () => {
             >▶</FilmArrow>
           </FilmstripWrap>}
 
-          <PanelBody>
+          <PanelBody key={activeTool}>
             {activeTool === 'texture' ? (
               <>
                 <Field>
@@ -2382,7 +2392,9 @@ const Workspace: React.FC = () => {
                       ))}
                     </TextureModelPicker>
                   ) : (
-                    <TextureNote>Generate a 3D asset first, then it will appear here for texturing.</TextureNote>
+                    <TextureEmptyState>
+                      No finished 3D assets yet. Generate a model first; finished models will appear here as texture inputs.
+                    </TextureEmptyState>
                   )}
                 </Field>
 
