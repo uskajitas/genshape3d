@@ -252,6 +252,38 @@ const Footer = styled.div`
   flex-shrink: 0;
 `;
 
+const CompareTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.67rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+`;
+
+const CompareTh = styled.th<{ $active?: boolean }>`
+  padding: 4px 6px;
+  text-align: center;
+  font-weight: 700;
+  color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.textMuted};
+  border-bottom: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  white-space: nowrap;
+`;
+
+const CompareTd = styled.td<{ $active?: boolean; $changed?: boolean }>`
+  padding: 3px 6px;
+  text-align: center;
+  color: ${p => p.$active ? p.theme.colors.text : p.theme.colors.textMuted};
+  font-weight: ${p => p.$active ? 700 : 400};
+  background: ${p => p.$active ? `${p.theme.colors.violet}0d` : 'transparent'};
+`;
+
+const CompareRowLabel = styled.td`
+  padding: 3px 4px;
+  font-size: 0.64rem;
+  color: ${p => p.theme.colors.textMuted};
+  white-space: nowrap;
+`;
+
 const FooterNote = styled.div`
   flex: 1;
   font-size: 0.72rem;
@@ -427,6 +459,43 @@ export const AdvancedParamsModal: React.FC<Props> = ({
                 <TypeCardDesc>{p.desc}</TypeCardDesc>
               </TypeCard>
             ))}
+
+            {/* Comparison table — shows all preset values at a glance */}
+            <CompareTable>
+              <thead>
+                <tr>
+                  <CompareTh style={{ textAlign: 'left' }}>param</CompareTh>
+                  {MESH_TYPE_PRESETS.map(p => (
+                    <CompareTh key={p.id} $active={draftPreset === p.id}>
+                      {p.label.split(' ')[0]}
+                    </CompareTh>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {([
+                  { label: 'octree', fn: (p: MeshTypePreset) => p.octree },
+                  { label: 'steps',  fn: (p: MeshTypePreset) => p.steps },
+                  { label: 'guide',  fn: (p: MeshTypePreset) => p.guidance },
+                  { label: 'faces',  fn: (p: MeshTypePreset) => p.faces >= 1000 ? `${(p.faces/1000).toFixed(0)}k` : p.faces },
+                  { label: 'chunks', fn: (p: MeshTypePreset) => `${(p.chunks/1000).toFixed(0)}k` },
+                ] as const).map(row => (
+                  <tr key={row.label}>
+                    <CompareRowLabel>{row.label}</CompareRowLabel>
+                    {MESH_TYPE_PRESETS.map(p => (
+                      <CompareTd
+                        key={p.id}
+                        $active={draftPreset === p.id}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => applyPreset(p)}
+                      >
+                        {(row.fn as (p: MeshTypePreset) => any)(p)}
+                      </CompareTd>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </CompareTable>
           </LeftCol>
 
           {/* Right: individual param controls */}
