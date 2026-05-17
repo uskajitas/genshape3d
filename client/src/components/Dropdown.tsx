@@ -1,10 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Dropdown — custom select that matches the GenShape3D look.
 //
-// Pill-or-block trigger with subtle gradient, fade-in panel below, purple/pink
-// gradient accent on the selected option, optional hint line per option,
-// click-outside + Escape to close. Generic over the option value type so
-// the same component drives Provider/Material/Aspect/etc.
+// Pill-or-block trigger with subtle gradient, fade-in panel below (or above
+// when viewport is tight), purple/pink gradient accent on the selected option,
+// optional hint line per option, optional icon per option, click-outside +
+// Escape to close. Generic over the option value type so the same component
+// drives Model / Worker / Group / Provider / etc.
+//
+// Usage:
+//   <Dropdown value={v} options={opts} onChange={setV} />
+//
+//   options: Array<{ value, label, hint?, icon?, disabled? }>
+//   icon can be any ReactNode — emoji, SVG, styled dot, etc.
+//
+//   Add fullWidth prop to make the trigger stretch to fill its parent.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -15,6 +24,8 @@ export interface DropdownOption<T extends string> {
   value: T;
   label: string;
   hint?: string;
+  /** Any ReactNode shown to the left of the label — emoji, SVG, status dot, etc. */
+  icon?: React.ReactNode;
   disabled?: boolean;
 }
 
@@ -29,6 +40,8 @@ interface DropdownProps<T extends string> {
   width?: number | string;
   align?: 'left' | 'right';
   disabled?: boolean;
+  /** Stretch the trigger to fill its parent flex/grid cell. */
+  fullWidth?: boolean;
 }
 
 const fadeIn = keyframes`
@@ -36,12 +49,18 @@ const fadeIn = keyframes`
   to   { opacity: 1; transform: translateY(0); }
 `;
 
-const Wrap = styled.div`
+const Wrap = styled.div<{ $fullWidth?: boolean }>`
   position: relative;
-  display: inline-flex;
+  display: ${p => p.$fullWidth ? 'flex' : 'inline-flex'};
+  ${p => p.$fullWidth && 'width: 100%; min-width: 0;'}
 `;
 
-const Trigger = styled.button<{ $variant: 'pill' | 'block'; $open: boolean; $disabled?: boolean }>`
+const Trigger = styled.button<{
+  $variant: 'pill' | 'block';
+  $open: boolean;
+  $disabled?: boolean;
+  $fullWidth?: boolean;
+}>`
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
@@ -59,6 +78,7 @@ const Trigger = styled.button<{ $variant: 'pill' | 'block'; $open: boolean; $dis
   opacity: ${p => p.$disabled ? 0.5 : 1};
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   ${p => p.$open && `box-shadow: 0 0 0 3px ${p.theme.colors.violet}33;`}
+  ${p => p.$fullWidth && 'width: 100%; min-width: 0;'}
   &:hover  { ${p => !p.$disabled && `border-color: ${p.theme.colors.violet};`} }
   &:disabled { pointer-events: none; }
 `;
@@ -69,6 +89,14 @@ const TriggerLabel = styled.span`
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-size: 0.62rem;
+  flex-shrink: 0;
+`;
+
+const TriggerIcon = styled.span`
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 1;
 `;
 
 const TriggerValue = styled.span`
@@ -77,6 +105,7 @@ const TriggerValue = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
 `;
 
 const Caret = styled.span<{ $open: boolean }>`
@@ -85,6 +114,7 @@ const Caret = styled.span<{ $open: boolean }>`
   transition: transform 0.18s;
   transform: ${p => p.$open ? 'rotate(180deg)' : 'rotate(0deg)'};
   margin-left: 0.15rem;
+  flex-shrink: 0;
 `;
 
 // Panel is rendered into a portal so it isn't clipped by the parent's
@@ -109,11 +139,11 @@ const Panel = styled.div`
   overflow-y: auto;
 `;
 
-const Item = styled.button<{ $active: boolean; $disabled?: boolean }>`
+const Item = styled.button<{ $active: boolean; $disabled?: boolean; $hasIcon?: boolean }>`
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  flex-direction: ${p => p.$hasIcon ? 'row' : 'column'};
+  align-items: ${p => p.$hasIcon ? 'center' : 'flex-start'};
+  gap: ${p => p.$hasIcon ? '0.55rem' : '1px'};
   padding: 0.55rem 0.75rem 0.55rem 0.85rem;
   border-radius: 8px;
   border: 0;
@@ -127,6 +157,7 @@ const Item = styled.button<{ $active: boolean; $disabled?: boolean }>`
   opacity: ${p => p.$disabled ? 0.5 : 1};
   transition: background 0.12s, color 0.12s, transform 0.1s;
   position: relative;
+  width: 100%;
   ${p => p.$active && `
     &::before {
       content: '';
@@ -150,6 +181,22 @@ const Item = styled.button<{ $active: boolean; $disabled?: boolean }>`
   }
 `;
 
+const ItemIcon = styled.span`
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+`;
+
+const ItemText = styled.span`
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+`;
+
 const ItemLabel = styled.span`
   font-size: 0.84rem;
   font-weight: 600;
@@ -163,15 +210,13 @@ const ItemHint = styled.span`
 
 export function Dropdown<T extends string>({
   value, options, onChange, variant = 'block', label,
-  width, align = 'left', disabled = false,
+  width, align = 'left', disabled = false, fullWidth = false,
 }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
 
-  // Position the portal-rendered panel relative to the trigger, clamped to
-  // the viewport (so we never spill off the right edge or below the bottom).
   const reposition = () => {
     const w = wrapRef.current;
     if (!w) return;
@@ -181,18 +226,12 @@ export function Dropdown<T extends string>({
     const desiredWidth = typeof width === 'number'
       ? width
       : (typeof width === 'string' && width)
-        ? null  // CSS handles it
+        ? null
         : Math.max(rect.width, 180);
 
     const panelW = (desiredWidth ?? rect.width);
     const panelMaxH = 360;
 
-    // Estimate ACTUAL panel height from the option count + padding. Keying
-    // off panelMaxH instead would cause unnecessary flip-ups: a 4-option
-    // dropdown that only needs ~180px would flip above if the trigger had
-    // less than 360px below it, even when there's plenty of room.
-    // ITEM_H = 42px (padding 0.55rem×2 + label line) — close to the real
-    // height with no per-item hint. Hints add another ~14px each.
     const ITEM_H = 42;
     const HINT_H = 14;
     const PADDING_Y = 12;
@@ -201,14 +240,11 @@ export function Dropdown<T extends string>({
       options.reduce((h, o) => h + ITEM_H + (o.hint ? HINT_H : 0), 0) + PADDING_Y,
     );
 
-    // Horizontal — start aligned to the configured edge, then clamp.
     let left = align === 'right'
       ? rect.right - panelW
       : rect.left;
     left = Math.max(margin, Math.min(left, window.innerWidth - panelW - margin));
 
-    // Vertical — open below if the panel actually fits there. Only flip up
-    // when below is genuinely too cramped AND above has more room.
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
     const fitsBelow = spaceBelow >= estimatedH;
@@ -224,20 +260,17 @@ export function Dropdown<T extends string>({
     });
   };
 
-  // Re-measure when opened, on resize, on scroll
   useLayoutEffect(() => {
     if (!open) return;
     reposition();
-    const onResize = () => reposition();
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onResize, true);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
     return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onResize, true);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
     };
-  }, [open]);  // eslint-disable-line
+  }, [open]); // eslint-disable-line
 
-  // Click-outside closes (works across portals because both ref subtrees are checked)
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
@@ -250,7 +283,6 @@ export function Dropdown<T extends string>({
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  // Escape closes
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
@@ -261,16 +293,18 @@ export function Dropdown<T extends string>({
   const current = options.find(o => o.value === value);
 
   return (
-    <Wrap ref={wrapRef}>
+    <Wrap ref={wrapRef} $fullWidth={fullWidth}>
       <Trigger
         type="button"
         $variant={variant}
         $open={open}
         $disabled={disabled}
+        $fullWidth={fullWidth}
         disabled={disabled}
         onClick={() => !disabled && setOpen(o => !o)}
       >
         {label && <TriggerLabel>{label}</TriggerLabel>}
+        {current?.icon && <TriggerIcon>{current.icon}</TriggerIcon>}
         <TriggerValue>{current?.label ?? '—'}</TriggerValue>
         <Caret $open={open}>▾</Caret>
       </Trigger>
@@ -282,14 +316,18 @@ export function Dropdown<T extends string>({
               type="button"
               $active={opt.value === value}
               $disabled={opt.disabled}
+              $hasIcon={!!opt.icon}
               onClick={() => {
                 if (opt.disabled) return;
                 onChange(opt.value);
                 setOpen(false);
               }}
             >
-              <ItemLabel>{opt.label}</ItemLabel>
-              {opt.hint && <ItemHint>{opt.hint}</ItemHint>}
+              {opt.icon && <ItemIcon>{opt.icon}</ItemIcon>}
+              <ItemText>
+                <ItemLabel>{opt.label}</ItemLabel>
+                {opt.hint && <ItemHint>{opt.hint}</ItemHint>}
+              </ItemText>
             </Item>
           ))}
         </Panel>,

@@ -26,6 +26,7 @@ import { IconClose, IconTrash } from '../components/Icons';
 import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
+import { Dropdown, type DropdownOption } from '../components/Dropdown';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -771,40 +772,12 @@ const ComingSoonTag = styled.span`
   letter-spacing: 0.05em;
 `;
 
-// Native <select> styled to match the panel's other form controls.
-// Used for the model dropdown (Hunyuan3D / TripoSR / Stable Fast 3D / Hi3DGen).
-const ModelSelect = styled.select`
-  width: 100%;
-  padding: 0.45rem 0.7rem;
-  padding-right: 1.85rem;
-  border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.background};
-  color: ${p => p.theme.colors.text};
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 500;
-  cursor: pointer;
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, ${p => p.theme.colors.textMuted} 50%),
-                    linear-gradient(135deg, ${p => p.theme.colors.textMuted} 50%, transparent 50%);
-  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
-  background-size: 5px 5px;
-  background-repeat: no-repeat;
-  &:hover  { border-color: ${p => p.theme.colors.borderHigh}; }
-  &:focus  {
-    outline: none;
-    border-color: ${p => p.theme.colors.violet};
-    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
-  }
-`;
-
-const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
-  { value: 'hunyuan3d',     label: 'Hunyuan3D-2 (default)' },
-  { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1 (PBR materials)' },
-  { value: 'triposr',       label: 'TripoSR' },
-  { value: 'sf3d',          label: 'Stable Fast 3D' },
-  { value: 'hi3dgen',       label: 'Hi3DGen' },
+const MODEL_OPTIONS: DropdownOption<ModelId>[] = [
+  { value: 'hunyuan3d',     label: 'Hunyuan3D-2',     hint: 'default · i7 / GTX 1080' },
+  { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1',   hint: 'PBR materials · 3090 / RTX 3090' },
+  { value: 'triposr',       label: 'TripoSR',          hint: 'fast · 3090 / RTX 3090' },
+  { value: 'sf3d',          label: 'Stable Fast 3D',   hint: 'fast · 3090 / RTX 3090' },
+  { value: 'hi3dgen',       label: 'Hi3DGen',          hint: 'high detail · 3090 / RTX 3090' },
 ];
 
 const MATERIAL_PRESETS: Array<{ label: string; hint: string }> = [
@@ -1271,18 +1244,6 @@ const GroupBar = styled.div`
   gap: 0.4rem;
   align-items: center;
   margin-top: 0.25rem;
-`;
-const GroupSelect = styled.select`
-  flex: 1;
-  font: inherit;
-  font-size: 0.74rem;
-  padding: 0.32rem 0.5rem;
-  border-radius: 6px;
-  background: ${p => p.theme.colors.surfaceHigh};
-  color: ${p => p.theme.colors.text};
-  border: 1px solid ${p => p.theme.colors.border};
-  cursor: pointer;
-  &:hover { border-color: ${p => p.theme.colors.borderHigh}; }
 `;
 const GroupBtn = styled.button`
   font: inherit;
@@ -2502,11 +2463,12 @@ const Workspace: React.FC = () => {
               <FieldLabel>
                 Model <FieldHint>which runner generates the mesh</FieldHint>
               </FieldLabel>
-              <ModelSelect value={model} onChange={e => { setModel(e.target.value as ModelId); setActivePreset(null); }}>
-                {MODEL_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </ModelSelect>
+              <Dropdown
+                value={model}
+                options={MODEL_OPTIONS}
+                onChange={v => { setModel(v as ModelId); setActivePreset(null); }}
+                fullWidth
+              />
             </Field>
 
             {isAdmin && workers.length > 0 && (
@@ -2514,14 +2476,20 @@ const Workspace: React.FC = () => {
                 <FieldLabel>
                   Worker <FieldHint>admin — pin to a specific server</FieldHint>
                 </FieldLabel>
-                <ModelSelect value={preferredWorkerId} onChange={e => setPreferredWorkerId(e.target.value)}>
-                  <option value="">Any available</option>
-                  {workers.map(w => (
-                    <option key={w.id} value={w.id}>
-                      {w.online ? '🟢' : '🔴'} {w.id} — {w.busy > 0 ? `working` : w.online ? 'idle' : 'offline'}
-                    </option>
-                  ))}
-                </ModelSelect>
+                <Dropdown
+                  value={preferredWorkerId}
+                  options={[
+                    { value: '', label: 'Any available' },
+                    ...workers.map(w => ({
+                      value: w.id,
+                      label: w.id,
+                      hint: w.busy > 0 ? 'working' : w.online ? 'idle' : 'offline',
+                      icon: <span style={{ fontSize: '8px', color: w.online ? '#22c55e' : '#ef4444' }}>●</span>,
+                    })),
+                  ]}
+                  onChange={v => setPreferredWorkerId(v)}
+                  fullWidth
+                />
               </Field>
             )}
 
@@ -2761,18 +2729,22 @@ const Workspace: React.FC = () => {
             />
             {isAuthenticated && (
               <GroupBar>
-                <GroupSelect
+                <Dropdown
                   value={selectedGroupId}
-                  onChange={e => setSelectedGroupId(e.target.value)}
-                  title="Filter by asset pack — and pin new submissions to the selected pack"
-                >
-                  <option value="">All packs</option>
-                  {groups.map(g => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.jobCount})
-                    </option>
-                  ))}
-                </GroupSelect>
+                  options={[
+                    { value: '', label: 'All packs' },
+                    ...groups.map(g => ({
+                      value: g.id,
+                      label: g.name,
+                      hint: g.doneCount > 0
+                        ? `${g.doneCount}/${g.jobCount} done`
+                        : `${g.jobCount} job${g.jobCount !== 1 ? 's' : ''}`,
+                      icon: <span style={{ fontSize: '0.8rem' }}>📦</span>,
+                    })),
+                  ]}
+                  onChange={v => setSelectedGroupId(v)}
+                  fullWidth
+                />
                 <GroupMgmtBtn
                   type="button"
                   disabled={!selectedGroupId}
