@@ -105,7 +105,7 @@ const PROVIDER_HINT_USER: Record<Provider, string> = {
 
 const DEFAULT_PARAMS: GenParams = {
   bg: 'black',
-  view: 'front',
+  view: 'three_q',
   projection: 'perspective',
   scale: 'margin',
   style: 'clay',

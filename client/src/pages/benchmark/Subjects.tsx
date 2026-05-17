@@ -28,7 +28,7 @@ interface GenParams {
 const DEFAULT_GEN: GenParams = {
   provider: 'fal-flux-schnell',
   bg: 'black',
-  view: 'front',
+  view: 'three_q',
   style: 'clay',
   material: 'auto',
   aspect: '1:1',
