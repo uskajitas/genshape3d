@@ -52,6 +52,13 @@ import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { mountWorkersApi } from './workersApi';
+import {
+  listRatingDimensions, addRatingDimension,
+  getCategoryTree, listCategories,
+  listSubjects, getSubject, createSubject, updateSubject, deleteSubject,
+  listRuns, getRun, createRun, markRunComplete,
+  getRunItems, createRunItems, rateRunItem, exportRun,
+} from './benchmarkRepo';
 
 const app = express();
 const port = process.env.PORT || 8110;
@@ -1518,6 +1525,165 @@ app.get('/api/admin/stats', async (req, res) => {
     console.error('[admin/stats]', e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Benchmark ─────────────────────────────────────────────────────────────────
+// All routes are admin-only. The email must belong to an admin account.
+
+const benchmarkAdminCheck = async (email: string | undefined, res: any): Promise<boolean> => {
+  if (!email || !(await isAdmin(email))) {
+    res.status(403).json({ error: 'admin only' });
+    return false;
+  }
+  return true;
+};
+
+// Rating dimensions
+app.get('/api/benchmark/dimensions', async (req, res) => {
+  try { res.json(await listRatingDimensions()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/benchmark/dimensions', async (req, res) => {
+  const { email, key, label, description } = req.body;
+  if (!await benchmarkAdminCheck(email, res)) return;
+  try { res.json(await addRatingDimension({ key, label, description })); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Categories
+app.get('/api/benchmark/categories', async (_req, res) => {
+  try { res.json(await getCategoryTree()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Subjects
+app.get('/api/benchmark/subjects', async (_req, res) => {
+  try { res.json(await listSubjects()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/benchmark/subjects/:id', async (req, res) => {
+  try {
+    const s = await getSubject(req.params.id);
+    if (!s) return res.status(404).json({ error: 'not found' });
+    res.json(s);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/benchmark/subjects', async (req, res) => {
+  const { email, ...data } = req.body;
+  if (!await benchmarkAdminCheck(email, res)) return;
+  try { res.json(await createSubject(data)); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/benchmark/subjects/:id', async (req, res) => {
+  const { email, ...data } = req.body;
+  if (!await benchmarkAdminCheck(email, res)) return;
+  try { await updateSubject(req.params.id, data); res.json({ ok: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/benchmark/subjects/:id', async (req, res) => {
+  const email = req.query.email as string;
+  if (!await benchmarkAdminCheck(email, res)) return;
+  try { await deleteSubject(req.params.id); res.json({ ok: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Runs
+app.get('/api/benchmark/runs', async (_req, res) => {
+  try { res.json(await listRuns()); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/benchmark/runs/:id', async (req, res) => {
+  try {
+    const run = await getRun(req.params.id);
+    if (!run) return res.status(404).json({ error: 'not found' });
+    res.json(run);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/benchmark/runs/:id/items', async (req, res) => {
+  try { res.json(await getRunItems(req.params.id)); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/benchmark/runs/:id/export', async (req, res) => {
+  try {
+    const data = await exportRun(req.params.id);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="benchmark-${req.params.id}.json"`);
+    res.json(data);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Create a run: accepts { email, name, items: [{subjectId, model, preset, octree, steps, guidance, faces, chunks, seed}] }
+// For each item it creates a real 3D job and stores the run item.
+app.post('/api/benchmark/runs', async (req, res) => {
+  const { email, name, items } = req.body as {
+    email: string;
+    name: string;
+    items: Array<{
+      subjectId: string;
+      model: string;
+      preset: string;
+      octree: number; steps: number; guidance: number;
+      faces: number; chunks: number; seed: number;
+    }>;
+  };
+  if (!await benchmarkAdminCheck(email, res)) return;
+  if (!name?.trim() || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'name and items required' });
+  }
+
+  try {
+    const { createJob } = await import('./jobsRepo');
+    const { getSubject } = await import('./benchmarkRepo');
+
+    // Create the run record first
+    const run = await createRun({
+      name: name.trim(),
+      configSnapshot: { items, createdBy: email },
+    });
+
+    // For each item: fetch subject image, create a real job, create run item
+    const runItems: any[] = [];
+    for (const it of items) {
+      const subject = await getSubject(it.subjectId);
+      if (!subject) continue;
+
+      const job = await createJob({
+        userEmail: email,
+        imageUrl: subject.imageUrl,
+        name: `[BM] ${subject.name} · ${it.model} · ${it.preset || 'custom'}`,
+        model: it.model,
+        octreeResolution: it.octree,
+        inferenceSteps: it.steps,
+        guidanceScale: it.guidance,
+        targetFaceCount: it.faces,
+        numChunks: it.chunks,
+        seed: it.seed,
+      });
+
+      runItems.push({ ...it, jobId: job.id });
+    }
+
+    await createRunItems(run.id, runItems);
+    res.json(run);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Rate a single run item
+app.patch('/api/benchmark/items/:id/rate', async (req, res) => {
+  const { email, ratings, ratingNotes } = req.body;
+  if (!await benchmarkAdminCheck(email, res)) return;
+  try {
+    await rateRunItem(req.params.id, ratings, ratingNotes || '');
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Workers (multi-machine control plane) ────────────────────────────────────
