@@ -956,6 +956,7 @@ const TextureModelControl = styled.div`
 `;
 
 const TextureRecentStrip = styled.div`
+  position: relative;
   display: flex;
   gap: 0.4rem;
   overflow-x: auto;
@@ -981,18 +982,28 @@ const TextureRecentThumb = styled.button<{ $active?: boolean }>`
   img { width: 100%; height: 100%; object-fit: cover; display: block; }
 `;
 
-const TextureBrowseButton = styled.button`
-  width: 100%;
-  padding: 0.5rem 0.65rem;
+const TextureMoreThumb = styled.button`
+  position: sticky;
+  right: 0;
+  flex: 0 0 58px;
+  width: 58px;
+  height: 50px;
   border-radius: 8px;
   border: 1px solid ${p => p.theme.colors.borderHigh};
-  background: ${p => p.theme.colors.surfaceHigh};
+  background:
+    linear-gradient(90deg, ${p => p.theme.colors.surface}00, ${p => p.theme.colors.surface} 14px),
+    linear-gradient(135deg, ${p => p.theme.colors.primary}30, ${p => p.theme.colors.violet}30),
+    ${p => p.theme.colors.surfaceHigh};
   color: ${p => p.theme.colors.text};
   font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.7rem;
+  font-weight: 800;
   cursor: pointer;
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
+  box-shadow: -10px 0 16px ${p => p.theme.colors.surface};
+  &:hover {
+    border-color: ${p => p.theme.colors.violet};
+    color: white;
+  }
 `;
 
 const TextureModelPicker = styled.div`
@@ -2633,6 +2644,22 @@ const Workspace: React.FC = () => {
                   </FieldLabel>
                   {textureModelChoices.length > 0 ? (
                     <TextureModelControl>
+                      <TextureRecentStrip>
+                        {recentTextureModelChoices.map(item => (
+                          <TextureRecentThumb
+                            key={item.id}
+                            type="button"
+                            $active={selectedJobId === item.id}
+                            onClick={() => selectTextureModel(item.id)}
+                            title={item.name}
+                          >
+                            {item.thumb && <img src={item.thumb} alt="" loading="lazy" decoding="async" />}
+                          </TextureRecentThumb>
+                        ))}
+                        <TextureMoreThumb type="button" onClick={() => setTexturePickerOpen(true)} title="Browse all models">
+                          More
+                        </TextureMoreThumb>
+                      </TextureRecentStrip>
                       {selectedJob && selectedThumb ? (
                         <TextureSource>
                           <TextureSourceThumb src={selectedThumb} alt="" />
@@ -2646,22 +2673,6 @@ const Workspace: React.FC = () => {
                       ) : (
                         <TextureNote>Choose a finished model to texture.</TextureNote>
                       )}
-                      <TextureRecentStrip>
-                        {recentTextureModelChoices.map(item => (
-                          <TextureRecentThumb
-                            key={item.id}
-                            type="button"
-                            $active={selectedJobId === item.id}
-                            onClick={() => selectTextureModel(item.id)}
-                            title={item.name}
-                          >
-                            {item.thumb && <img src={item.thumb} alt="" loading="lazy" decoding="async" />}
-                          </TextureRecentThumb>
-                        ))}
-                      </TextureRecentStrip>
-                      <TextureBrowseButton type="button" onClick={() => setTexturePickerOpen(true)}>
-                        Browse all models
-                      </TextureBrowseButton>
                     </TextureModelControl>
                   ) : (
                     <TextureEmptyState>
