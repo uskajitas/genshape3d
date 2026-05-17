@@ -882,6 +882,21 @@ const PanelFooter = styled.div`
   gap: 0.6rem;
 `;
 
+const AdminLinks = styled.div`
+  display: flex;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid ${p => p.theme.colors.border};
+`;
+
+const AdminLink = styled(Link)`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
+  text-decoration: none;
+  &:hover { color: ${p => p.theme.colors.violet}; }
+`;
+
 const CostRow = styled.div`
   display: flex;
   align-items: center;
@@ -3002,6 +3017,12 @@ const Workspace: React.FC = () => {
               >
                 {submitError}
               </div>
+            )}
+            {isAdmin && (
+              <AdminLinks>
+                <AdminLink to="/admin/stats">📊 Stats</AdminLink>
+                <AdminLink to="/benchmark">🧪 Benchmark</AdminLink>
+              </AdminLinks>
             )}
           </PanelFooter>
         </Panel>
