@@ -1686,7 +1686,8 @@ const AssetItem = styled.div`
   gap: 0.3rem;
 `;
 
-const AssetCard = styled.button<{ $active?: boolean }>`
+const AssetCard = styled.div<{ $active?: boolean }>`
+  cursor: pointer;
   position: relative;
   aspect-ratio: 1;
   border-radius: 10px;

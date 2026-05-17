@@ -565,9 +565,9 @@ export const BenchmarkSubjects: React.FC = () => {
                   <Label>Category</Label>
                   <NativeSelect value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}>
                     <option value="">— pick a category —</option>
-                    {allCats.filter(c => !c.parentId).map(parent => (
+                    {categories.filter(c => !c.parentId).map(parent => (
                       <optgroup key={parent.id} label={parent.name}>
-                        {allCats.filter(c => c.parentId === parent.id).map(child => (
+                        {categories.filter(c => c.parentId === parent.id).map(child => (
                           <option key={child.id} value={child.id}>{child.name}</option>
                         ))}
                       </optgroup>
