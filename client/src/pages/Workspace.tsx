@@ -1119,7 +1119,7 @@ const TextureModelSearch = styled.input`
 const TexturePickerOverlay = styled.div`
   position: absolute;
   top: 0.9rem;
-  left: 0.9rem;
+  right: 0.9rem;
   width: min(560px, calc(100% - 1.8rem));
   max-height: calc(100% - 1.8rem);
   z-index: 8;
@@ -1194,30 +1194,59 @@ const TextureSettingsRow = styled.div`
   gap: 0.6rem;
 `;
 
-const TextureCapabilityCard = styled.div`
+const TextureRailModel = styled.button<{ $active?: boolean }>`
+  width: 100%;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
-`;
-
-const TextureCapability = styled.div<{ $active?: boolean }>`
-  padding: 0.5rem;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.55rem;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
   background: ${p => p.$active ? `${p.theme.colors.violet}1f` : `${p.theme.colors.background}88`};
-`;
-
-const TextureCapabilityTitle = styled.div`
-  font-size: 0.74rem;
-  font-weight: 800;
   color: ${p => p.theme.colors.text};
+  cursor: pointer;
+  text-align: left;
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
 `;
 
-const TextureCapabilityText = styled.div`
-  margin-top: 0.15rem;
+const TextureRailThumb = styled.img`
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid ${p => p.theme.colors.border};
+`;
+
+const TextureRailPlaceholder = styled.div`
+  width: 64px;
+  height: 64px;
+  border-radius: 7px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surfaceHigh};
+`;
+
+const TextureRailMeta = styled.div`
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+`;
+
+const TextureRailName = styled.div`
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const TextureRailInfo = styled.div`
   font-size: 0.68rem;
-  line-height: 1.35;
   color: ${p => p.theme.colors.textMuted};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `;
 
 const ToggleRow = styled.label`
@@ -2863,20 +2892,6 @@ const Workspace: React.FC = () => {
                   <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
                 </Field>
 
-                <Field>
-                  <FieldLabel>Processing target <FieldHint>capability rule</FieldHint></FieldLabel>
-                  <TextureCapabilityCard>
-                    <TextureCapability $active>
-                      <TextureCapabilityTitle>RTX 3090</TextureCapabilityTitle>
-                      <TextureCapabilityText>PBR texture jobs and material maps.</TextureCapabilityText>
-                    </TextureCapability>
-                    <TextureCapability>
-                      <TextureCapabilityTitle>GTX 1080</TextureCapabilityTitle>
-                      <TextureCapabilityText>Hunyuan mesh generation only.</TextureCapabilityText>
-                    </TextureCapability>
-                  </TextureCapabilityCard>
-                </Field>
-
               </>
             ) : (
             <>
@@ -3342,6 +3357,27 @@ const Workspace: React.FC = () => {
                 }
                 setEditingNameId(null);
               };
+
+              if (activeTool === 'texture') {
+                return (
+                  <TextureRailModel
+                    key={job.id}
+                    type="button"
+                    $active={selectedJobId === job.id}
+                    onClick={() => selectTextureModel(job.id)}
+                    title={job.name || 'Untitled'}
+                  >
+                    {thumb
+                      ? <TextureRailThumb src={thumb} alt="" loading="lazy" decoding="async" />
+                      : <TextureRailPlaceholder />}
+                    <TextureRailMeta>
+                      <TextureRailName>{job.name || 'Untitled'}</TextureRailName>
+                      <TextureRailInfo>{hasTex ? 'Textured source' : 'Untextured source'}</TextureRailInfo>
+                      <TextureRailInfo>{job.model || 'hunyuan3d'}</TextureRailInfo>
+                    </TextureRailMeta>
+                  </TextureRailModel>
+                );
+              }
 
               return (
                 <AssetItem
