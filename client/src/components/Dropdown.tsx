@@ -232,13 +232,18 @@ export function Dropdown<T extends string>({
     const panelW = (desiredWidth ?? rect.width);
     const panelMaxH = 360;
 
+    // Use the actual rendered panel height when available (portal is committed
+    // before useLayoutEffect fires, so panelRef is set on every reposition call).
+    // Fall back to formula estimate only if the ref is somehow missing.
     const ITEM_H = 42;
     const HINT_H = 14;
     const PADDING_Y = 12;
-    const estimatedH = Math.min(
-      panelMaxH,
-      options.reduce((h, o) => h + ITEM_H + (o.hint ? HINT_H : 0), 0) + PADDING_Y,
-    );
+    const panelH = panelRef.current
+      ? panelRef.current.getBoundingClientRect().height
+      : Math.min(
+          panelMaxH,
+          options.reduce((h, o) => h + ITEM_H + (o.hint ? HINT_H : 0), 0) + PADDING_Y,
+        );
 
     let left = align === 'right'
       ? rect.right - panelW
@@ -247,10 +252,10 @@ export function Dropdown<T extends string>({
 
     const spaceBelow = window.innerHeight - rect.bottom - margin;
     const spaceAbove = rect.top - margin;
-    const fitsBelow = spaceBelow >= estimatedH;
+    const fitsBelow = spaceBelow >= panelH;
     const top = fitsBelow || spaceBelow >= spaceAbove
       ? rect.bottom + 6
-      : Math.max(margin, rect.top - 6 - estimatedH);
+      : Math.max(margin, rect.top - 6 - panelH);
 
     setPanelStyle({
       top,
