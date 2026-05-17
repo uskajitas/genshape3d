@@ -195,53 +195,60 @@ const Backdrop = styled.div`
 const Modal = styled.div`
   background: ${p => p.theme.colors.surface};
   border: 1px solid ${p => p.theme.colors.borderHigh};
-  border-radius: 14px; width: 100%; max-width: 780px;
-  max-height: 90vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 0;
+  border-radius: 14px; width: 100%; max-width: 980px;
+  max-height: 92vh;
+  display: flex; flex-direction: column;
   box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+  overflow: hidden;
 `;
 
 const ModalHeader = styled.div`
-  padding: 1.5rem 1.75rem 1rem;
+  padding: 0.9rem 1.25rem 0.75rem;
   border-bottom: 1px solid ${p => p.theme.colors.border};
+  flex-shrink: 0;
 `;
 
 const ModalTitle = styled.h2`
-  margin: 0; font-size: 1.05rem; font-weight: 800; color: ${p => p.theme.colors.text};
+  margin: 0; font-size: 1rem; font-weight: 800; color: ${p => p.theme.colors.text};
 `;
 
 const ModalBody = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
+  grid-template-columns: 320px 1fr;
   flex: 1;
-  @media (max-width: 600px) { grid-template-columns: 1fr; }
+  min-height: 0;
+  overflow: hidden;
 `;
 
 const ModalCol = styled.div`
-  padding: 1.25rem 1.75rem;
-  display: flex; flex-direction: column; gap: 1rem;
+  padding: 1rem 1.25rem;
+  display: flex; flex-direction: column; gap: 0.65rem;
+  overflow-y: auto;
   &:first-child { border-right: 1px solid ${p => p.theme.colors.border}; }
 `;
 
 const ColTitle = styled.div`
-  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.07em;
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: ${p => p.theme.colors.textMuted};
-  margin-bottom: -0.25rem;
 `;
 
 const FieldGroup = styled.div`
-  display: flex; flex-direction: column; gap: 0.35rem;
+  display: flex; flex-direction: column; gap: 0.25rem;
+`;
+
+/* Two chip groups side by side */
+const FieldRow = styled.div`
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
 `;
 
 const Label = styled.label`
-  font-size: 0.72rem; font-weight: 700; color: ${p => p.theme.colors.textMuted};
+  font-size: 0.66rem; font-weight: 700; color: ${p => p.theme.colors.textMuted};
   text-transform: uppercase; letter-spacing: 0.05em;
 `;
 
 const Input = styled.input`
-  font: inherit; font-size: 0.85rem;
-  padding: 0.5rem 0.75rem; border-radius: 8px;
+  font: inherit; font-size: 0.83rem;
+  padding: 0.4rem 0.65rem; border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
   color: ${p => p.theme.colors.text};
@@ -249,27 +256,27 @@ const Input = styled.input`
 `;
 
 const Textarea = styled.textarea`
-  font: inherit; font-size: 0.82rem;
-  padding: 0.5rem 0.75rem; border-radius: 8px;
+  font: inherit; font-size: 0.8rem;
+  padding: 0.4rem 0.65rem; border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
   color: ${p => p.theme.colors.text};
-  resize: vertical; min-height: 70px;
+  resize: none; height: 68px;
   &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
 `;
 
 const NativeSelect = styled.select`
-  font: inherit; font-size: 0.85rem;
-  padding: 0.5rem 0.75rem; border-radius: 8px;
+  font: inherit; font-size: 0.82rem;
+  padding: 0.38rem 0.65rem; border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
   color: ${p => p.theme.colors.text};
-  cursor: pointer;
+  cursor: pointer; width: 100%;
   &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
 `;
 
 const ChipRow = styled.div`
-  display: flex; gap: 0.35rem; flex-wrap: wrap;
+  display: flex; gap: 0.25rem; flex-wrap: wrap;
 `;
 
 const Chip = styled.button<{ $active?: boolean }>`
@@ -282,7 +289,7 @@ const Chip = styled.button<{ $active?: boolean }>`
 `;
 
 const ImgPreview = styled.div<{ $url?: string }>`
-  width: 100%; aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  width: 100%; aspect-ratio: 4/3; border-radius: 10px; overflow: hidden;
   background: ${p => p.theme.colors.surfaceHigh};
   ${p => p.$url ? `background-image: url(${p.$url}); background-size: contain; background-repeat: no-repeat; background-position: center;` : ''}
   display: flex; align-items: center; justify-content: center;
@@ -299,9 +306,10 @@ const GenOverlay = styled.div`
 `;
 
 const ModalFooter = styled.div`
-  padding: 1rem 1.75rem;
+  padding: 0.75rem 1.25rem;
   border-top: 1px solid ${p => p.theme.colors.border};
   display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center;
+  flex-shrink: 0;
 `;
 
 const ErrorMsg = styled.div`
@@ -574,38 +582,51 @@ export const BenchmarkSubjects: React.FC = () => {
                   </NativeSelect>
                 </FieldGroup>
 
-                <FieldGroup>
-                  <Label>Style</Label>
-                  <ChipRow>
-                    {STYLES.map(s => (
-                      <Chip key={s.value} $active={genParams.style === s.value} onClick={() => setParam('style', s.value)}>
-                        {s.label}
-                      </Chip>
-                    ))}
-                  </ChipRow>
-                </FieldGroup>
+                <FieldRow>
+                  <FieldGroup>
+                    <Label>Style</Label>
+                    <ChipRow>
+                      {STYLES.map(s => (
+                        <Chip key={s.value} $active={genParams.style === s.value} onClick={() => setParam('style', s.value)}>
+                          {s.label}
+                        </Chip>
+                      ))}
+                    </ChipRow>
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Background</Label>
+                    <ChipRow>
+                      {BACKGROUNDS.map(b => (
+                        <Chip key={b.value} $active={genParams.bg === b.value} onClick={() => setParam('bg', b.value)}>
+                          {b.label}
+                        </Chip>
+                      ))}
+                    </ChipRow>
+                  </FieldGroup>
+                </FieldRow>
 
-                <FieldGroup>
-                  <Label>Background</Label>
-                  <ChipRow>
-                    {BACKGROUNDS.map(b => (
-                      <Chip key={b.value} $active={genParams.bg === b.value} onClick={() => setParam('bg', b.value)}>
-                        {b.label}
-                      </Chip>
-                    ))}
-                  </ChipRow>
-                </FieldGroup>
-
-                <FieldGroup>
-                  <Label>View</Label>
-                  <ChipRow>
-                    {VIEWS.map(v => (
-                      <Chip key={v.value} $active={genParams.view === v.value} onClick={() => setParam('view', v.value)}>
-                        {v.label}
-                      </Chip>
-                    ))}
-                  </ChipRow>
-                </FieldGroup>
+                <FieldRow>
+                  <FieldGroup>
+                    <Label>View</Label>
+                    <ChipRow>
+                      {VIEWS.map(v => (
+                        <Chip key={v.value} $active={genParams.view === v.value} onClick={() => setParam('view', v.value)}>
+                          {v.label}
+                        </Chip>
+                      ))}
+                    </ChipRow>
+                  </FieldGroup>
+                  <FieldGroup>
+                    <Label>Aspect</Label>
+                    <ChipRow>
+                      {ASPECTS.map(a => (
+                        <Chip key={a.value} $active={genParams.aspect === a.value} onClick={() => setParam('aspect', a.value)}>
+                          {a.label}
+                        </Chip>
+                      ))}
+                    </ChipRow>
+                  </FieldGroup>
+                </FieldRow>
 
                 <FieldGroup>
                   <Label>Material</Label>
@@ -613,17 +634,6 @@ export const BenchmarkSubjects: React.FC = () => {
                     {MATERIALS.map(m => (
                       <Chip key={m.value} $active={genParams.material === m.value} onClick={() => setParam('material', m.value)}>
                         {m.label}
-                      </Chip>
-                    ))}
-                  </ChipRow>
-                </FieldGroup>
-
-                <FieldGroup>
-                  <Label>Aspect</Label>
-                  <ChipRow>
-                    {ASPECTS.map(a => (
-                      <Chip key={a.value} $active={genParams.aspect === a.value} onClick={() => setParam('aspect', a.value)}>
-                        {a.label}
                       </Chip>
                     ))}
                   </ChipRow>
