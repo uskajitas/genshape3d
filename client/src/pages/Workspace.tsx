@@ -2550,23 +2550,23 @@ const Workspace: React.FC = () => {
               </FieldLabel>
               <PresetGrid>
                 {MESH_TYPE_PRESETS.map(t => (
-                  <PresetCard
-                    key={t.id}
-                    type="button"
-                    $active={activePreset === t.id}
-                    title={t.desc}
-                    onClick={() => {
-                      setActivePreset(t.id);
-                      setAdvOctree(t.octree);
-                      setAdvSteps(t.steps);
-                      setAdvGuidance(t.guidance);
-                      setAdvFaces(t.faces);
-                      setAdvChunks(t.chunks);
-                    }}
-                  >
-                    <PresetLabel>{t.label}</PresetLabel>
-                    <PresetHint>{t.hint}</PresetHint>
-                  </PresetCard>
+                  <Tooltip key={t.id} text={t.desc} placement="right" multiline maxWidth={260}>
+                    <PresetCard
+                      type="button"
+                      $active={activePreset === t.id}
+                      onClick={() => {
+                        setActivePreset(t.id);
+                        setAdvOctree(t.octree);
+                        setAdvSteps(t.steps);
+                        setAdvGuidance(t.guidance);
+                        setAdvFaces(t.faces);
+                        setAdvChunks(t.chunks);
+                      }}
+                    >
+                      <PresetLabel>{t.label}</PresetLabel>
+                      <PresetHint>{t.hint}</PresetHint>
+                    </PresetCard>
+                  </Tooltip>
                 ))}
               </PresetGrid>
             </Field>
