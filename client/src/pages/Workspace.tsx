@@ -2296,7 +2296,7 @@ const Workspace: React.FC = () => {
               onClick={() => activeTool === 'texture' ? setActiveTool('image') : navigate('/dashboard/text')}
               title={activeTool === 'texture' ? 'Back to Image to 3D' : 'Go to Text to Image'}
             >
-              {activeTool === 'texture' ? 'Inputs' : '✨ Create images'}
+              {activeTool === 'texture' ? 'Select input' : '✨ Create images'}
             </FieldHint>
           </PanelHeader>
 
@@ -2344,7 +2344,7 @@ const Workspace: React.FC = () => {
               <>
                 <Field>
                   <FieldLabel>
-                    Source asset
+                    Reference model
                     <FieldHint>{selectedJob?.status === 'done' ? 'ready' : 'select a finished asset'}</FieldHint>
                   </FieldLabel>
                   {selectedJob && selectedThumb ? (
@@ -2363,6 +2363,15 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
+                  <FieldLabel>Prompt <FieldHint>optional — guide the texture</FieldHint></FieldLabel>
+                  <PromptArea
+                    placeholder="e.g. aged bronze, worn edges, subtle roughness"
+                    value={texturePrompt}
+                    onChange={e => setTexturePrompt(e.target.value)}
+                  />
+                </Field>
+
+                <Field>
                   <FieldLabel>Mode <FieldHint>{textureMode === 'retexture' ? 'same mesh' : 'new mesh'}</FieldHint></FieldLabel>
                   <Segmented>
                     <SegmentedBtn $active={textureMode === 'retexture'} onClick={() => setTextureMode('retexture')}>
@@ -2375,16 +2384,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Prompt <FieldHint>surface direction</FieldHint></FieldLabel>
-                  <PromptArea
-                    placeholder="e.g. aged bronze, worn edges, subtle roughness"
-                    value={texturePrompt}
-                    onChange={e => setTexturePrompt(e.target.value)}
-                  />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Material preset <FieldHint>quick starting point</FieldHint></FieldLabel>
+                  <FieldLabel>Material <FieldHint>one click sets the starting point</FieldHint></FieldLabel>
                   <PresetGrid>
                     {MATERIAL_PRESETS.map(preset => (
                       <PresetCard
@@ -2400,7 +2400,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Reference <FieldHint>{textureReferenceName || 'optional material image'}</FieldHint></FieldLabel>
+                  <FieldLabel>Reference image <FieldHint>{textureReferenceName || 'PNG · JPG · WEBP'}</FieldHint></FieldLabel>
                   <TextureReferenceButton type="button" onClick={() => textureRefInputRef.current?.click()}>
                     <HiddenInput
                       ref={textureRefInputRef}
@@ -2416,7 +2416,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Resolution <FieldHint>texture output size</FieldHint></FieldLabel>
+                  <FieldLabel>Texture <FieldHint>output size</FieldHint></FieldLabel>
                   <Segmented>
                     {(['1K', '2K', '4K'] as const).map(r => (
                       <SegmentedBtn key={r} $active={textureRes === r} onClick={() => setTextureRes(r)}>
@@ -2427,7 +2427,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>PBR maps <FieldHint>export controls</FieldHint></FieldLabel>
+                  <FieldLabel>Maps <FieldHint>PBR outputs</FieldHint></FieldLabel>
                   <TextureOptionsGrid>
                     <TextureToggle checked={texturePbrBase} onChange={setTexturePbrBase}>Base color</TextureToggle>
                     <TextureToggle checked={texturePbrRoughness} onChange={setTexturePbrRoughness}>Roughness</TextureToggle>
@@ -2437,7 +2437,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Controls <FieldHint>iteration settings</FieldHint></FieldLabel>
+                  <FieldLabel>Detail level <FieldHint>iteration settings</FieldHint></FieldLabel>
                   <TextureOptionsGrid>
                     <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
                     <TextureNumberField
