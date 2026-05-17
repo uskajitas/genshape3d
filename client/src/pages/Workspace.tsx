@@ -2408,10 +2408,9 @@ const Workspace: React.FC = () => {
     return selected ? [selected, ...used, ...recent].slice(0, 6) : [...used, ...recent].slice(0, 6);
   }, [textureModelChoices, selectedJobId, recentTextureModelIds]);
 
-  const selectTextureModel = useCallback((id: string, closePicker = false) => {
+  const selectTextureModel = useCallback((id: string) => {
     setSelectedJobId(id);
     setRecentTextureModelIds(prev => [id, ...prev.filter(existingId => existingId !== id)].slice(0, 12));
-    if (closePicker) setTexturePickerOpen(false);
   }, []);
 
   const onTextureRerun = useCallback(async () => {
@@ -3015,7 +3014,7 @@ const Workspace: React.FC = () => {
                     key={item.id}
                     type="button"
                     $active={selectedJobId === item.id}
-                    onClick={() => selectTextureModel(item.id, true)}
+                    onClick={() => selectTextureModel(item.id)}
                     title={item.name}
                   >
                     {item.thumb ? <TextureModelThumb src={item.thumb} alt="" loading="lazy" decoding="async" /> : <TextureModelThumbPlaceholder />}
