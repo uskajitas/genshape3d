@@ -806,8 +806,15 @@ const MODEL_OPTIONS: Array<{ value: ModelId; label: string }> = [
   { value: 'hi3dgen',       label: 'Hi3DGen' },
 ];
 
-const MATERIAL_PRESETS = [
-  'Auto', 'Ceramic', 'Wood', 'Metal', 'Stone', 'Leather', 'Fabric', 'Plastic',
+const MATERIAL_PRESETS: Array<{ label: string; hint: string }> = [
+  { label: 'Auto',    hint: 'infer from prompt' },
+  { label: 'Ceramic', hint: 'glaze, clay, porcelain' },
+  { label: 'Wood',    hint: 'grain and varnish' },
+  { label: 'Metal',   hint: 'polish, wear, rust' },
+  { label: 'Stone',   hint: 'mineral, marble, concrete' },
+  { label: 'Leather', hint: 'grain, seams, wear' },
+  { label: 'Fabric',  hint: 'weave, softness, pattern' },
+  { label: 'Plastic', hint: 'matte or glossy polymer' },
 ];
 
 // Quality tiers control the shape-generation parameters.
@@ -959,18 +966,20 @@ const TextureNote = styled.div`
   line-height: 1.45;
 `;
 
-const PresetBtn = styled.button<{ $active?: boolean }>`
-  padding: 0.42rem 0.5rem;
-  border-radius: 7px;
-  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
-  background: ${p => p.$active ? `${p.theme.colors.violet}22` : p.theme.colors.background};
+const TextureReferenceButton = styled.button`
+  display: flex;
+  width: 100%;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.65rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 10px;
+  background: ${p => p.theme.colors.background}88;
   color: ${p => p.theme.colors.text};
   font: inherit;
-  font-size: 0.74rem;
-  font-weight: 600;
   cursor: pointer;
   text-align: left;
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
+  &:hover { border-color: ${p => p.theme.colors.borderHigh}; }
 `;
 
 const TextureOptionsGrid = styled.div`
@@ -990,6 +999,40 @@ const ToggleRow = styled.label`
   color: ${p => p.theme.colors.text};
   font-size: 0.74rem;
   font-weight: 600;
+`;
+
+const ControlField = styled.label`
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  font-size: 0.74rem;
+  color: ${p => p.theme.colors.text};
+`;
+
+const ControlInput = styled.input`
+  width: 100%;
+  padding: 0.42rem 0.5rem;
+  border-radius: 7px;
+  border: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.76rem;
+  &:focus {
+    outline: none;
+    border-color: ${p => p.theme.colors.violet};
+    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
+  }
+`;
+
+const RangeInput = styled.input`
+  width: 100%;
+  accent-color: ${p => p.theme.colors.violet};
+`;
+
+const ControlValue = styled.span`
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.7rem;
 `;
 
 const GenerateBtn = styled.button<{ $disabled?: boolean }>`
@@ -1617,6 +1660,54 @@ const HeroIllustration: React.FC = () => (
     <HeroDot $top={92} $left={48} />
     <HeroDot $top={50} $left={4} $color="#EC4899" />
   </HeroOrb>
+);
+
+const TextureToggle: React.FC<{
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  children: React.ReactNode;
+}> = ({ checked, onChange, children }) => (
+  <ToggleRow>
+    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+    {children}
+  </ToggleRow>
+);
+
+const TextureNumberField: React.FC<{
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  onChange: (value: number) => void;
+}> = ({ label, value, min = 0, max, onChange }) => (
+  <ControlField>
+    {label}
+    <ControlInput
+      type="number"
+      min={min}
+      max={max}
+      value={value}
+      onChange={e => onChange(parseInt(e.target.value, 10) || min)}
+    />
+  </ControlField>
+);
+
+const TextureSliderField: React.FC<{
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({ label, value, onChange }) => (
+  <ControlField>
+    {label}
+    <RangeInput
+      type="range"
+      min={0}
+      max={100}
+      value={value}
+      onChange={e => onChange(parseInt(e.target.value, 10) || 0)}
+    />
+    <ControlValue>{value}%</ControlValue>
+  </ControlField>
 );
 
 const Workspace: React.FC = () => {
@@ -2323,20 +2414,21 @@ const Workspace: React.FC = () => {
                   <FieldLabel>Material preset <FieldHint>quick starting point</FieldHint></FieldLabel>
                   <PresetGrid>
                     {MATERIAL_PRESETS.map(preset => (
-                      <PresetBtn
-                        key={preset}
-                        $active={texturePreset === preset}
-                        onClick={() => setTexturePreset(preset)}
+                      <PresetCard
+                        key={preset.label}
+                        $active={texturePreset === preset.label}
+                        onClick={() => setTexturePreset(preset.label)}
                       >
-                        {preset}
-                      </PresetBtn>
+                        <PresetLabel>{preset.label}</PresetLabel>
+                        <PresetHint>{preset.hint}</PresetHint>
+                      </PresetCard>
                     ))}
                   </PresetGrid>
                 </Field>
 
                 <Field>
                   <FieldLabel>Reference <FieldHint>{textureReferenceName || 'optional material image'}</FieldHint></FieldLabel>
-                  <TextureSource as="button" type="button" onClick={() => textureRefInputRef.current?.click()} style={{ cursor: 'pointer', textAlign: 'left' }}>
+                  <TextureReferenceButton type="button" onClick={() => textureRefInputRef.current?.click()}>
                     <HiddenInput
                       ref={textureRefInputRef}
                       type="file"
@@ -2347,7 +2439,7 @@ const Workspace: React.FC = () => {
                       <TextureSourceName>{textureReferenceName || 'Add reference image'}</TextureSourceName>
                       <TextureNote>Use a photo of marble, fabric, leather, paint, metal grain, or any target look.</TextureNote>
                     </TextureSourceMeta>
-                  </TextureSource>
+                  </TextureReferenceButton>
                 </Field>
 
                 <Field>
@@ -2364,33 +2456,26 @@ const Workspace: React.FC = () => {
                 <Field>
                   <FieldLabel>PBR maps <FieldHint>export controls</FieldHint></FieldLabel>
                   <TextureOptionsGrid>
-                    <ToggleRow><input type="checkbox" checked={texturePbrBase} onChange={e => setTexturePbrBase(e.target.checked)} /> Base color</ToggleRow>
-                    <ToggleRow><input type="checkbox" checked={texturePbrRoughness} onChange={e => setTexturePbrRoughness(e.target.checked)} /> Roughness</ToggleRow>
-                    <ToggleRow><input type="checkbox" checked={texturePbrNormal} onChange={e => setTexturePbrNormal(e.target.checked)} /> Normal</ToggleRow>
-                    <ToggleRow><input type="checkbox" checked={texturePbrMetallic} onChange={e => setTexturePbrMetallic(e.target.checked)} /> Metallic</ToggleRow>
+                    <TextureToggle checked={texturePbrBase} onChange={setTexturePbrBase}>Base color</TextureToggle>
+                    <TextureToggle checked={texturePbrRoughness} onChange={setTexturePbrRoughness}>Roughness</TextureToggle>
+                    <TextureToggle checked={texturePbrNormal} onChange={setTexturePbrNormal}>Normal</TextureToggle>
+                    <TextureToggle checked={texturePbrMetallic} onChange={setTexturePbrMetallic}>Metallic</TextureToggle>
                   </TextureOptionsGrid>
                 </Field>
 
                 <Field>
                   <FieldLabel>Controls <FieldHint>iteration settings</FieldHint></FieldLabel>
                   <TextureOptionsGrid>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
-                      Strength
-                      <input type="range" min={0} max={100} value={textureStrength} onChange={e => setTextureStrength(parseInt(e.target.value) || 0)} />
-                      <span style={{ color: 'inherit', opacity: 0.65 }}>{textureStrength}%</span>
-                    </label>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
-                      Variants
-                      <input type="number" min={1} max={4} value={textureVariants} onChange={e => setTextureVariants(Math.max(1, Math.min(4, parseInt(e.target.value) || 1)))} />
-                    </label>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.74rem' }}>
-                      Seed
-                      <input type="number" min={0} value={textureSeed} onChange={e => setTextureSeed(parseInt(e.target.value) || 0)} />
-                    </label>
-                    <ToggleRow>
-                      <input type="checkbox" checked={textureKeepShape} onChange={e => setTextureKeepShape(e.target.checked)} />
-                      Keep shape
-                    </ToggleRow>
+                    <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
+                    <TextureNumberField
+                      label="Variants"
+                      value={textureVariants}
+                      min={1}
+                      max={4}
+                      onChange={v => setTextureVariants(Math.max(1, Math.min(4, v)))}
+                    />
+                    <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
+                    <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
                   </TextureOptionsGrid>
                 </Field>
               </>
