@@ -971,201 +971,6 @@ const TextureEmptyState = styled.div`
   line-height: 1.45;
 `;
 
-const TextureModelControl = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-`;
-
-const TextureRecentStrip = styled.div`
-  position: relative;
-  display: flex;
-  gap: 0.4rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
-`;
-
-const TextureRecentThumb = styled.button<{ $active?: boolean }>`
-  flex: 0 0 46px;
-  width: 46px;
-  height: 46px;
-  border-radius: 8px;
-  border: 1.5px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
-  background: ${p => p.theme.colors.background};
-  overflow: hidden;
-  padding: 0;
-  cursor: pointer;
-  transition: border-color 0.12s, transform 0.12s;
-  &:hover {
-    border-color: ${p => p.theme.colors.violet};
-    transform: translateY(-1px);
-  }
-  img { width: 100%; height: 100%; object-fit: cover; display: block; }
-`;
-
-const TextureMoreThumb = styled.button`
-  position: sticky;
-  right: 0;
-  flex: 0 0 60px;
-  width: 60px;
-  height: 46px;
-  border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.borderHigh};
-  background:
-    linear-gradient(90deg, ${p => p.theme.colors.surface}00, ${p => p.theme.colors.surface} 14px),
-    linear-gradient(135deg, ${p => p.theme.colors.primary}30, ${p => p.theme.colors.violet}30),
-    ${p => p.theme.colors.surfaceHigh};
-  color: ${p => p.theme.colors.text};
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: -10px 0 16px ${p => p.theme.colors.surface};
-  &:hover {
-    border-color: ${p => p.theme.colors.violet};
-    color: white;
-  }
-`;
-
-const TextureModelPicker = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-height: min(560px, calc(100vh - 190px));
-  overflow-y: auto;
-  padding-right: 0.15rem;
-`;
-
-const TextureModelCard = styled.button<{ $active?: boolean }>`
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  min-height: 68px;
-  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
-  border-radius: 8px;
-  background: ${p => p.$active
-    ? `linear-gradient(135deg, ${p.theme.colors.primary}24, ${p.theme.colors.violet}24)`
-    : `${p.theme.colors.background}88`};
-  color: ${p => p.theme.colors.text};
-  padding: 0.45rem;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 0.12s, background 0.12s;
-  &:hover {
-    border-color: ${p => p.theme.colors.violet};
-  }
-`;
-
-const TextureModelThumb = styled.img`
-  width: 56px;
-  height: 56px;
-  border-radius: 7px;
-  object-fit: cover;
-  display: block;
-  border: 1px solid ${p => p.theme.colors.border};
-`;
-
-const TextureModelThumbPlaceholder = styled.div`
-  width: 56px;
-  height: 56px;
-  border-radius: 7px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.surfaceHigh};
-`;
-
-const TextureModelText = styled.span`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-`;
-
-const TextureModelName = styled.span`
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const TextureModelMeta = styled.span`
-  font-size: 0.68rem;
-  color: ${p => p.theme.colors.textMuted};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`;
-
-const TextureModelSearch = styled.input`
-  width: 100%;
-  padding: 0.5rem 0.65rem;
-  border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.background};
-  color: ${p => p.theme.colors.text};
-  font: inherit;
-  font-size: 0.78rem;
-  &:focus {
-    outline: none;
-    border-color: ${p => p.theme.colors.violet};
-    box-shadow: 0 0 0 3px ${p => p.theme.colors.violet}33;
-  }
-  &::placeholder { color: ${p => p.theme.colors.textMuted}; }
-`;
-
-const TexturePickerOverlay = styled.div`
-  position: absolute;
-  top: 0.9rem;
-  right: 0.9rem;
-  width: min(560px, calc(100% - 1.8rem));
-  max-height: calc(100% - 1.8rem);
-  z-index: 8;
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  padding: 0.8rem;
-  border: 1px solid ${p => p.theme.colors.borderHigh};
-  border-radius: 12px;
-  background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
-`;
-
-const TexturePickerHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-`;
-
-const TexturePickerTitle = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-`;
-
-const TexturePickerName = styled.div`
-  font-size: 0.86rem;
-  font-weight: 800;
-  color: ${p => p.theme.colors.text};
-`;
-
-const TexturePickerClose = styled.button`
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.background};
-  color: ${p => p.theme.colors.text};
-  cursor: pointer;
-  font: inherit;
-  font-weight: 800;
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
-`;
-
 const TextureReferenceButton = styled.button`
   display: flex;
   width: 100%;
@@ -1975,8 +1780,6 @@ const Workspace: React.FC = () => {
   const [doTexture, setDoTexture] = useState(false);
   const [texturePrompt, setTexturePrompt] = useState('');
   const [textureRes, setTextureRes] = useState<'1K' | '2K' | '4K'>('1K');
-  const [textureModelSearch, setTextureModelSearch] = useState('');
-  const [texturePickerOpen, setTexturePickerOpen] = useState(false);
   const [recentTextureModelIds, setRecentTextureModelIds] = useState<string[]>([]);
   const [texturePreset, setTexturePreset] = useState('Auto');
   const [textureSourceMode, setTextureSourceMode] = useState<TextureSourceMode>('prompt');
@@ -2495,23 +2298,12 @@ const Workspace: React.FC = () => {
           id: j.id,
           name: j.name || 'Untitled',
           model: j.model || 'hunyuan3d',
-          textureLabel: j.doTexture ? 'Textured' : 'Untextured',
           createdAt: j.createdAt,
           thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
         };
       }),
     [jobs],
   );
-
-  const filteredTextureModelChoices = useMemo(() => {
-    const q = textureModelSearch.trim().toLowerCase();
-    if (!q) return textureModelChoices;
-    return textureModelChoices.filter(item =>
-      item.name.toLowerCase().includes(q)
-      || item.model.toLowerCase().includes(q)
-      || item.id.toLowerCase().includes(q)
-    );
-  }, [textureModelChoices, textureModelSearch]);
 
   const recentTextureModelChoices = useMemo(() => {
     const selected = selectedJobId
@@ -2736,46 +2528,61 @@ const Workspace: React.FC = () => {
             >▶</FilmArrow>
           </FilmstripWrap>}
 
+          {activeTool === 'texture' && <FilmstripWrap>
+            <FilmArrow
+              className="film-arrow"
+              $dir="left"
+              onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft -= 160)}
+              title="Scroll left"
+            >◀</FilmArrow>
+            <Filmstrip ref={filmstripRef}>
+              {!isAuthenticated ? (
+                <FilmEmpty>Sign in to see your models</FilmEmpty>
+              ) : textureModelChoices.length === 0 ? (
+                <FilmEmpty>No finished models yet</FilmEmpty>
+              ) : recentTextureModelChoices.map(item => (
+                <FilmThumb
+                  key={item.id}
+                  title={item.name}
+                  onClick={() => selectTextureModel(item.id)}
+                >
+                  {item.thumb && <img src={item.thumb} alt={item.name} loading="lazy" decoding="async" />}
+                  <FilmThumbName>{item.name}</FilmThumbName>
+                </FilmThumb>
+              ))}
+            </Filmstrip>
+            <FilmArrow
+              className="film-arrow"
+              $dir="right"
+              onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft += 160)}
+              title="Scroll right"
+            >▶</FilmArrow>
+          </FilmstripWrap>}
+
           <PanelBody key={activeTool}>
             {activeTool === 'texture' ? (
               <>
                 <Field>
                   <FieldLabel>
-                    Pick model
-                    <FieldHint>{textureModelChoices.length} generated 3D asset{textureModelChoices.length === 1 ? '' : 's'}</FieldHint>
+                    Source model
+                    <FieldHint>{textureModelChoices.length} finished model{textureModelChoices.length === 1 ? '' : 's'}</FieldHint>
                   </FieldLabel>
                   {textureModelChoices.length > 0 ? (
-                    <TextureModelControl>
-                      <TextureRecentStrip>
-                        {recentTextureModelChoices.map(item => (
-                          <TextureRecentThumb
-                            key={item.id}
-                            type="button"
-                            $active={selectedJobId === item.id}
-                            onClick={() => selectTextureModel(item.id)}
-                            title={item.name}
-                          >
-                            {item.thumb && <img src={item.thumb} alt="" loading="lazy" decoding="async" />}
-                          </TextureRecentThumb>
-                        ))}
-                        <TextureMoreThumb type="button" onClick={() => setTexturePickerOpen(true)} title="Browse all models">
-                          More
-                        </TextureMoreThumb>
-                      </TextureRecentStrip>
-                      {selectedJob && selectedThumb ? (
-                        <TextureSource>
-                          <TextureSourceThumb src={selectedThumb} alt="" />
-                          <TextureSourceMeta>
-                            <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
-                            <TextureNote>
-                              {selectedJob.doTexture ? 'Textured source' : 'Untextured source'} - texture variants will stay linked to this model.
-                            </TextureNote>
-                          </TextureSourceMeta>
-                        </TextureSource>
-                      ) : (
-                        <TextureNote>Choose a finished model to texture.</TextureNote>
-                      )}
-                    </TextureModelControl>
+                    selectedJob && selectedThumb ? (
+                      <TextureSource>
+                        <TextureSourceThumb src={selectedThumb} alt="" />
+                        <TextureSourceMeta>
+                          <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
+                          <TextureNote>
+                            {selectedJob.doTexture ? 'Textured source' : 'Untextured source'} - choose another model from the strip above or My assets.
+                          </TextureNote>
+                        </TextureSourceMeta>
+                      </TextureSource>
+                    ) : (
+                      <TextureEmptyState>
+                        Choose a finished model from the strip above or My assets.
+                      </TextureEmptyState>
+                    )
                   ) : (
                     <TextureEmptyState>
                       No finished 3D assets yet. Generate a model first; finished models will appear here as texture inputs.
@@ -3142,45 +2949,6 @@ const Workspace: React.FC = () => {
         {/* ──────── Central viewport ──────── */}
         <Viewport>
           <GridBg />
-          {activeTool === 'texture' && texturePickerOpen && (
-            <TexturePickerOverlay>
-              <TexturePickerHeader>
-                <TexturePickerTitle>
-                  <TexturePickerName>Pick model</TexturePickerName>
-                  <TextureModelMeta>{textureModelChoices.length} generated 3D asset{textureModelChoices.length === 1 ? '' : 's'}</TextureModelMeta>
-                </TexturePickerTitle>
-                <TexturePickerClose type="button" onClick={() => setTexturePickerOpen(false)} title="Close">
-                  x
-                </TexturePickerClose>
-              </TexturePickerHeader>
-              <TextureModelSearch
-                value={textureModelSearch}
-                onChange={e => setTextureModelSearch(e.target.value)}
-                placeholder="Search models..."
-              />
-              <TextureModelPicker>
-                {filteredTextureModelChoices.length > 0 ? filteredTextureModelChoices.map(item => (
-                  <TextureModelCard
-                    key={item.id}
-                    type="button"
-                    $active={selectedJobId === item.id}
-                    onClick={() => selectTextureModel(item.id)}
-                    title={item.name}
-                  >
-                    {item.thumb ? <TextureModelThumb src={item.thumb} alt="" loading="lazy" decoding="async" /> : <TextureModelThumbPlaceholder />}
-                    <TextureModelText>
-                      <TextureModelName>{item.name}</TextureModelName>
-                      <TextureModelMeta>
-                        {item.textureLabel} - {item.model} - {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : 'saved model'}
-                      </TextureModelMeta>
-                    </TextureModelText>
-                  </TextureModelCard>
-                )) : (
-                  <TextureEmptyState>No matching models.</TextureEmptyState>
-                )}
-              </TextureModelPicker>
-            </TexturePickerOverlay>
-          )}
           {hoveredJobOverlay && activeTool !== 'texture' && (
             <DetailOverlay
               visible
