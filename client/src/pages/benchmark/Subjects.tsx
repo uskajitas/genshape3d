@@ -122,16 +122,20 @@ const Btn = styled.button<{ $primary?: boolean; $danger?: boolean; $active?: boo
 `;
 
 const FilterBar = styled.div`
-  display: flex; gap: 0.5rem; flex-wrap: wrap;
+  display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;
 `;
 
-const FilterChip = styled.button<{ $active?: boolean }>`
-  font: inherit; font-size: 0.75rem; font-weight: 600;
-  padding: 0.3rem 0.75rem; border-radius: 999px; cursor: pointer;
+const FilterChip = styled.button<{ $active?: boolean; $sub?: boolean }>`
+  font: inherit; font-size: ${p => p.$sub ? '0.7rem' : '0.75rem'}; font-weight: 600;
+  padding: ${p => p.$sub ? '0.2rem 0.6rem' : '0.3rem 0.75rem'}; border-radius: 999px; cursor: pointer;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   background: ${p => p.$active ? `${p.theme.colors.violet}22` : 'transparent'};
   color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.textMuted};
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
+  &:hover { border-color: ${p => p.theme.colors.violet}; color: ${p => p.theme.colors.violet}; }
+`;
+
+const FilterDivider = styled.div`
+  width: 1px; height: 16px; background: ${p => p.theme.colors.border}; flex-shrink: 0;
 `;
 
 const Grid = styled.div`
@@ -338,7 +342,8 @@ export const BenchmarkSubjects: React.FC = () => {
 
   const [subjects, setSubjects] = useState<BenchmarkSubject[]>([]);
   const [categories, setCategories] = useState<BenchmarkCategory[]>([]);
-  const [filterCat, setFilterCat] = useState<string>('');
+  const [filterTop, setFilterTop] = useState<string>('');   // top-level category id
+  const [filterSub, setFilterSub] = useState<string>('');   // sub-category id
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -452,11 +457,22 @@ export const BenchmarkSubjects: React.FC = () => {
     await load();
   };
 
-  const allCats = categories;
   const topCats = categories.filter(c => !c.parentId);
-  const filtered = filterCat
-    ? subjects.filter(s => s.categoryId === filterCat || categories.find(c => c.id === s.categoryId)?.parentId === filterCat)
-    : subjects;
+  const subCats = filterTop ? categories.filter(c => c.parentId === filterTop) : [];
+
+  const selectTop = (id: string) => {
+    if (filterTop === id) { setFilterTop(''); setFilterSub(''); }
+    else { setFilterTop(id); setFilterSub(''); }
+  };
+
+  const filtered = (() => {
+    if (filterSub) return subjects.filter(s => s.categoryId === filterSub);
+    if (filterTop) return subjects.filter(s =>
+      s.categoryId === filterTop ||
+      categories.find(c => c.id === s.categoryId)?.parentId === filterTop
+    );
+    return subjects;
+  })();
 
   return (
     <Page>
@@ -465,14 +481,28 @@ export const BenchmarkSubjects: React.FC = () => {
         <Btn $primary onClick={openNew}>+ New subject</Btn>
       </TopBar>
 
+      {/* Top-level category chips */}
       <FilterBar>
-        <FilterChip $active={!filterCat} onClick={() => setFilterCat('')}>All</FilterChip>
+        <FilterChip $active={!filterTop} onClick={() => { setFilterTop(''); setFilterSub(''); }}>All</FilterChip>
         {topCats.map(c => (
-          <FilterChip key={c.id} $active={filterCat === c.id} onClick={() => setFilterCat(filterCat === c.id ? '' : c.id)}>
+          <FilterChip key={c.id} $active={filterTop === c.id} onClick={() => selectTop(c.id)}>
             {c.name}
           </FilterChip>
         ))}
       </FilterBar>
+
+      {/* Sub-category chips — only when a top is selected */}
+      {subCats.length > 0 && (
+        <FilterBar style={{ marginTop: '-0.75rem' }}>
+          <FilterDivider />
+          <FilterChip $sub $active={!filterSub} onClick={() => setFilterSub('')}>All {topCats.find(c => c.id === filterTop)?.name}</FilterChip>
+          {subCats.map(c => (
+            <FilterChip $sub key={c.id} $active={filterSub === c.id} onClick={() => setFilterSub(filterSub === c.id ? '' : c.id)}>
+              {c.name}
+            </FilterChip>
+          ))}
+        </FilterBar>
+      )}
 
       {loading ? (
         <div style={{ color: '#71717a', fontSize: '0.85rem' }}>Loading…</div>
