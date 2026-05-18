@@ -29,6 +29,7 @@ export const createMeshSelectionController = (
   let zoneOverlays: THREE.Mesh[] = [];
   let pointerDown: { x: number; y: number } | null = null;
   let currentHit: { mesh: THREE.Mesh; seedFaceIndex: number } | null = null;
+  let lastClearSignal = options.clearSignal || 0;
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -126,7 +127,10 @@ export const createMeshSelectionController = (
   };
 
   const onPointerDown = (event: PointerEvent) => {
+    if (!currentOptions.enabled) return;
     pointerDown = { x: event.clientX, y: event.clientY };
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const onPointerUp = (event: PointerEvent) => {
@@ -152,8 +156,8 @@ export const createMeshSelectionController = (
     setHighlight(hit.object as THREE.Mesh, hit.faceIndex);
   };
 
-  domElement.addEventListener('pointerdown', onPointerDown);
-  domElement.addEventListener('pointerup', onPointerUp);
+  domElement.addEventListener('pointerdown', onPointerDown, true);
+  domElement.addEventListener('pointerup', onPointerUp, true);
 
   return {
     setMeshes(nextMeshes) {
@@ -161,8 +165,14 @@ export const createMeshSelectionController = (
       renderZones();
     },
     updateOptions(nextOptions) {
+      const nextClearSignal = nextOptions.clearSignal || 0;
       currentOptions = { ...currentOptions, ...nextOptions };
       renderZones();
+      if (nextClearSignal !== lastClearSignal) {
+        lastClearSignal = nextClearSignal;
+        clear();
+        return;
+      }
       if (!currentOptions.enabled) {
         clear();
       } else if (currentHit) {
@@ -171,8 +181,8 @@ export const createMeshSelectionController = (
     },
     clear,
     dispose() {
-      domElement.removeEventListener('pointerdown', onPointerDown);
-      domElement.removeEventListener('pointerup', onPointerUp);
+      domElement.removeEventListener('pointerdown', onPointerDown, true);
+      domElement.removeEventListener('pointerup', onPointerUp, true);
       clear();
       disposeZoneOverlays();
       material.dispose();

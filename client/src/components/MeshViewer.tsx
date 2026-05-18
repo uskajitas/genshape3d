@@ -54,6 +54,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   const mountRef    = useRef<HTMLDivElement>(null);
   const gridRef     = useRef<THREE.GridHelper | null>(null);
   const meshesRef   = useRef<THREE.Mesh[]>([]);
+  const controlsRef = useRef<OrbitControls | null>(null);
   const selectionRef = useRef<ReturnType<typeof createMeshSelectionController> | null>(null);
   const selectionOptionsRef = useRef<MeshSelectionOptions>({
     enabled: false,
@@ -61,6 +62,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     range: 32,
     boundary: 70,
     feather: 12,
+    clearSignal: 0,
   });
   // Keep a ref that the async loader callback can read without stale closure issues
   const modeRef     = useRef<ViewMode>(effectiveMode);
@@ -71,6 +73,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     range: 32,
     boundary: 70,
     feather: 12,
+    clearSignal: 0,
   };
 
   // ── Main scene — only re-runs when URL changes ───────────────────────────
@@ -118,6 +121,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     controls.maxDistance    = 20;
     controls.autoRotate     = true;
     controls.autoRotateSpeed = 0.8;
+    controls.enabled = !selectionOptionsRef.current.enabled;
+    controlsRef.current = controls;
 
     const selection = createMeshSelectionController(
       scene,
@@ -175,6 +180,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
       cancelAnimationFrame(animId);
       ro.disconnect();
       controls.dispose();
+      controlsRef.current = null;
       selection.dispose();
       selectionRef.current = null;
       meshesRef.current.forEach(mesh => {
@@ -211,6 +217,14 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
 
   useEffect(() => {
     selectionRef.current?.updateOptions(selectionOptionsRef.current);
+  }, [meshSelection]);
+
+  useEffect(() => {
+    // Selection mode owns pointer clicks; view mode gives control back to orbit.
+    const selection = selectionOptionsRef.current;
+    if (controlsRef.current) controlsRef.current.enabled = !selection.enabled;
+    const canvas = mountRef.current?.querySelector('canvas');
+    if (canvas) canvas.style.cursor = selection.enabled ? 'crosshair' : '';
   }, [meshSelection]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;

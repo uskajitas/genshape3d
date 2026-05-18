@@ -23,6 +23,8 @@ interface TextureEditorPanelProps {
   onAddToZone: () => void;
   onSubtractFromZone: () => void;
   onSaveZone: () => void;
+  onClearSelection: () => void;
+  onDeleteZone: () => void;
 }
 
 const Panel = styled.section<{ $visible: boolean }>`
@@ -138,6 +140,10 @@ const ZoneStrip = styled.div`
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
+  max-width: 360px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
 `;
 
 const ZoneChip = styled.button<{ $active?: boolean; $color: string }>`
@@ -196,6 +202,12 @@ const Action = styled.button<{ $primary?: boolean }>`
   }
 `;
 
+const IconAction = styled(Action)`
+  min-width: 30px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+`;
+
 export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
   visible,
   sourceName,
@@ -208,6 +220,8 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
   onAddToZone,
   onSubtractFromZone,
   onSaveZone,
+  onClearSelection,
+  onDeleteZone,
 }) => {
   const update = (patch: Partial<TextureEditorSettings>) => {
     onSettingsChange({ ...settings, ...patch });
@@ -259,9 +273,11 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
         <SelectionMeta title={selection ? `${selection.meshName}, seed face ${selection.seedFaceIndex}` : 'Click the model in Select or Paint mode.'}>
           {selection ? `${selection.faceCount} faces` : 'No selection'}
         </SelectionMeta>
+        <IconAction title="Clear current selection." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
         <Action title="Add the current selection to the active zone." disabled={!selection} onClick={onAddToZone}>Add</Action>
         <Action title="Remove the current selection from the active zone." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Subtract</Action>
         <Action $primary title="Save this selection as a texture zone." disabled={!selection} onClick={onSaveZone}>Save zone</Action>
+        <IconAction title="Delete active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Delete</IconAction>
       </Actions>
     </Panel>
   );

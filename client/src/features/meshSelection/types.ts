@@ -30,6 +30,7 @@ export interface MeshSelectionZone {
 
 export interface MeshSelectionOptions extends MeshSelectionSettings {
   zones?: MeshSelectionZone[];
+  clearSignal?: number;
   onChange?: (selection: MeshSelectionSummary | null) => void;
 }
 

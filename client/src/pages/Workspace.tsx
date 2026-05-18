@@ -1911,6 +1911,7 @@ const Workspace: React.FC = () => {
   const [textureSelection, setTextureSelection] = useState<MeshSelectionSummary | null>(null);
   const [textureZones, setTextureZones] = useState<MeshSelectionZone[]>([]);
   const [activeTextureZoneId, setActiveTextureZoneId] = useState<string | null>(null);
+  const [textureClearSignal, setTextureClearSignal] = useState(0);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -2493,14 +2494,25 @@ const Workspace: React.FC = () => {
   const subtractSelectionFromTextureZone = useCallback(() => {
     if (!textureSelection || !activeTextureZoneId) return;
     const remove = new Set(textureSelection.faceIndices);
-    setTextureZones(prev => prev.map(zone => {
-      if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
-      return {
-        ...zone,
-        faceIndices: zone.faceIndices.filter(face => !remove.has(face)),
-      };
-    }));
+    setTextureZones(prev => {
+      const next = prev
+        .map(zone => {
+          if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+          return {
+            ...zone,
+            faceIndices: zone.faceIndices.filter(face => !remove.has(face)),
+          };
+        })
+        .filter(zone => zone.faceIndices.length > 0);
+      return next;
+    });
   }, [activeTextureZoneId, textureSelection]);
+
+  useEffect(() => {
+    if (activeTextureZoneId && !textureZones.some(zone => zone.id === activeTextureZoneId)) {
+      setActiveTextureZoneId(null);
+    }
+  }, [activeTextureZoneId, textureZones]);
 
   const saveTextureZone = useCallback(() => {
     if (!textureSelection) return;
@@ -2509,6 +2521,17 @@ const Workspace: React.FC = () => {
     setActiveTextureZoneId(zone.id);
   }, [createTextureZone, textureSelection]);
 
+  const clearTextureSelection = useCallback(() => {
+    setTextureSelection(null);
+    setTextureClearSignal(v => v + 1);
+  }, []);
+
+  const deleteActiveTextureZone = useCallback(() => {
+    if (!activeTextureZoneId) return;
+    setTextureZones(prev => prev.filter(zone => zone.id !== activeTextureZoneId));
+    setActiveTextureZoneId(null);
+  }, [activeTextureZoneId]);
+
   const textureMeshSelection = useMemo(() => ({
     enabled: activeTool === 'texture' && textureEditorSettings.mode !== 'view',
     mode: textureEditorSettings.mode === 'paint' ? 'paint' as const : 'select' as const,
@@ -2516,8 +2539,9 @@ const Workspace: React.FC = () => {
     boundary: textureEditorSettings.boundary,
     feather: textureEditorSettings.feather,
     zones: textureZones,
+    clearSignal: textureClearSignal,
     onChange: setTextureSelection,
-  }), [activeTool, textureEditorSettings, textureZones]);
+  }), [activeTool, textureEditorSettings, textureZones, textureClearSignal]);
 
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
@@ -3266,6 +3290,8 @@ const Workspace: React.FC = () => {
                 onAddToZone={addSelectionToTextureZone}
                 onSubtractFromZone={subtractSelectionFromTextureZone}
                 onSaveZone={saveTextureZone}
+                onClearSelection={clearTextureSelection}
+                onDeleteZone={deleteActiveTextureZone}
               />
             </ViewerWrap>
           ) : (
