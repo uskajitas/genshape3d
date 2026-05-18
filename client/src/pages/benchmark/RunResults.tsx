@@ -305,6 +305,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
   const [bgIssue, setBgIssue] = useState<boolean>(!!(item.ratings as any)?.bgIssue);
+  const [axisIssue, setAxisIssue] = useState<boolean>(!!(item.ratings as any)?.axisIssue);
   const [flagging, setFlagging] = useState(false);
 
   // Reset draft when item changes
@@ -313,6 +314,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
     setNotes(item.ratingNotes || '');
     setSavedMsg('');
     setBgIssue(!!(item.ratings as any)?.bgIssue);
+    setAxisIssue(!!(item.ratings as any)?.axisIssue);
   }, [idx]);
 
   // Keyboard nav
@@ -331,7 +333,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   const handleSave = async () => {
     setSaving(true);
     try {
-      const ratingsWithFlag = { ...draft, ...(bgIssue ? { bgIssue: 1 } : {}) };
+      const ratingsWithFlag = { ...draft, ...(bgIssue ? { bgIssue: 1 } : {}), ...(axisIssue ? { axisIssue: 1 } : {}) };
       await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
       onSaved(item.id, ratingsWithFlag, notes);
       setSavedMsg('Saved ✓');
@@ -339,14 +341,26 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
     } finally { setSaving(false); }
   };
 
-  // Auto-save flag immediately on toggle — no need to fill ratings first
+  // Auto-save flags immediately on toggle — no need to fill ratings first
   const toggleBgIssue = async () => {
     const next = !bgIssue;
     setBgIssue(next);
     setFlagging(true);
     try {
       const existingRatings = item.ratings ?? {};
-      const ratingsWithFlag = { ...existingRatings, ...draft, ...(next ? { bgIssue: 1 } : { bgIssue: 0 }) };
+      const ratingsWithFlag = { ...existingRatings, ...draft, ...(next ? { bgIssue: 1 } : { bgIssue: 0 }), ...(axisIssue ? { axisIssue: 1 } : {}) };
+      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
+      onSaved(item.id, ratingsWithFlag, notes);
+    } finally { setFlagging(false); }
+  };
+
+  const toggleAxisIssue = async () => {
+    const next = !axisIssue;
+    setAxisIssue(next);
+    setFlagging(true);
+    try {
+      const existingRatings = item.ratings ?? {};
+      const ratingsWithFlag = { ...existingRatings, ...draft, ...(bgIssue ? { bgIssue: 1 } : {}), ...(next ? { axisIssue: 1 } : { axisIssue: 0 }) };
       await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
       onSaved(item.id, ratingsWithFlag, notes);
     } finally { setFlagging(false); }
@@ -425,21 +439,35 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
 
         <SubjectThumb $url={toProxiedUrl(item.subjectImageUrl)} />
 
-        {/* BG Issue flag — auto-saves, always visible regardless of job status */}
-        <div style={{ padding: '0.6rem 1.2rem', borderBottom: '1px solid #2a2740' }}>
+        {/* Issue flags — auto-save, always visible regardless of job status */}
+        <div style={{ padding: '0.6rem 1.2rem', borderBottom: '1px solid #2a2740', display: 'flex', gap: '0.5rem' }}>
           <button
             onClick={toggleBgIssue}
             disabled={flagging}
             style={{
-              width: '100%', font: 'inherit', fontSize: '0.82rem', fontWeight: 700,
-              padding: '0.5rem', borderRadius: 8, cursor: 'pointer',
+              flex: 1, font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+              padding: '0.45rem 0.5rem', borderRadius: 8, cursor: 'pointer',
               border: `2px solid ${bgIssue ? '#ef4444' : '#2a2740'}`,
               background: bgIssue ? '#ef444422' : 'transparent',
               color: bgIssue ? '#ef4444' : '#555',
               transition: 'all 0.15s',
             }}
           >
-            {bgIssue ? '🚩 BG issue flagged — click to unflag' : '🏳 Flag BG issue'}
+            {bgIssue ? '🚩 BG flagged' : '🏳 BG issue'}
+          </button>
+          <button
+            onClick={toggleAxisIssue}
+            disabled={flagging}
+            style={{
+              flex: 1, font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+              padding: '0.45rem 0.5rem', borderRadius: 8, cursor: 'pointer',
+              border: `2px solid ${axisIssue ? '#f59e0b' : '#2a2740'}`,
+              background: axisIssue ? '#f59e0b22' : 'transparent',
+              color: axisIssue ? '#f59e0b' : '#555',
+              transition: 'all 0.15s',
+            }}
+          >
+            {axisIssue ? '🔄 Axis flagged' : '↕ Axis issue'}
           </button>
         </div>
 
@@ -540,6 +568,7 @@ const GridCell: React.FC<GridCellProps> = ({ item, onClick }) => {
       <CellMeta>
         <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
         {(item.ratings as any)?.bgIssue ? <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>🚩 BG</span> : null}
+        {(item.ratings as any)?.axisIssue ? <span style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>🔄 Axis</span> : null}
         {item.ratings && <RatedDot>★</RatedDot>}
         {durationLabel && <TimeBadge>{durationLabel}</TimeBadge>}
       </CellMeta>
