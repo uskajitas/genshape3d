@@ -430,35 +430,35 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             </div>
           )}
 
-          {/* ── PARAMS OVERLAY ── */}
+          {/* ── PARAMS OVERLAY — absolute, top-left, two-column key:value ── */}
           <div style={{
             position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: 'rgba(4,3,10,0.82)', backdropFilter: 'blur(12px)',
+            background: 'rgba(5,4,14,0.85)', backdropFilter: 'blur(12px)',
             border: '1px solid #2a2740', borderRadius: 10,
-            padding: '12px 16px', minWidth: 190,
+            padding: '14px 18px',
+            display: 'grid',
+            gridTemplateColumns: 'max-content 1fr max-content 1fr',
+            columnGap: 10, rowGap: 7,
+            alignItems: 'baseline',
           }}>
             {[
-              { k: 'Subject',  v: item.subjectName,                            c: '#ffffff' },
-              { k: 'Model',    v: item.model,                                  c: '#a78bfa' },
-              { k: 'Preset',   v: item.preset,                                 c: '#a78bfa' },
-              { k: 'Octree',   v: item.octree,                                 c: '#e0e0e0' },
-              { k: 'Steps',    v: item.steps,                                  c: '#e0e0e0' },
-              { k: 'Guidance', v: item.guidance,                               c: '#e0e0e0' },
-              { k: 'Faces',    v: item.faces?.toLocaleString() ?? '—',         c: '#e0e0e0' },
-              { k: 'Chunks',   v: item.chunks,                                 c: '#e0e0e0' },
-              { k: 'Seed',     v: item.seed === 0 ? 'random' : item.seed,      c: '#e0e0e0' },
-              ...(durationLabel ? [{ k: 'Time', v: durationLabel, c: '#7c3aed' }] : []),
-            ].map(({ k, v, c }) => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, padding: '3px 0', borderBottom: '1px solid #1a1830' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4a4870', whiteSpace: 'nowrap' }}>{k}</span>
-                <span style={{ fontSize: '0.92rem', fontWeight: 800, color: c, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
-              </div>
-            ))}
-            {(saving || savedMsg) && (
-              <div style={{ marginTop: 6, fontSize: '0.7rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e', textAlign: 'right' }}>
-                {saving ? 'saving…' : savedMsg}
-              </div>
-            )}
+              { k: 'Subject',  v: item.subjectName,                        c: '#ffffff' },
+              { k: 'Model',    v: item.model,                              c: '#a78bfa' },
+              { k: 'Preset',   v: item.preset,                             c: '#a78bfa' },
+              { k: 'Octree',   v: String(item.octree),                     c: '#e0e0e0' },
+              { k: 'Steps',    v: String(item.steps),                      c: '#e0e0e0' },
+              { k: 'Guidance', v: String(item.guidance),                   c: '#e0e0e0' },
+              { k: 'Faces',    v: item.faces?.toLocaleString() ?? '—',     c: '#e0e0e0' },
+              { k: 'Chunks',   v: String(item.chunks),                     c: '#e0e0e0' },
+              { k: 'Seed',     v: item.seed === 0 ? 'random' : String(item.seed), c: '#e0e0e0' },
+              { k: 'Time',     v: durationLabel ?? '—',                    c: '#7c3aed' },
+            ].flatMap(({ k, v, c }, i) => {
+              const isLeft = i % 2 === 0;
+              return [
+                <span key={k + '-k'} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#4a4870', whiteSpace: 'nowrap', paddingLeft: isLeft ? 0 : 12 }}>{k}</span>,
+                <span key={k + '-v'} style={{ fontSize: '0.9rem', fontWeight: 800, color: c, whiteSpace: 'nowrap' }}>{v}</span>,
+              ];
+            })}
           </div>
         </ModelArea>
 
