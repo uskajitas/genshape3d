@@ -122,13 +122,16 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
             const mesh = child as THREE.Mesh;
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            // Apply current wireframe state to newly loaded materials
-            const mat = mesh.material;
-            if (Array.isArray(mat)) {
-              mat.forEach(m => { (m as THREE.MeshStandardMaterial).wireframe = wireframe; });
-            } else if (mat) {
-              (mat as THREE.MeshStandardMaterial).wireframe = wireframe;
+            // Store original material immediately on load
+            (mesh as any).__origMaterial = mesh.material;
+            // Apply current view mode right away — effectiveMode effect already
+            // fired when meshesRef was empty, so we must apply it here too.
+            if (effectiveMode === 'wireframe') {
+              mesh.material = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true });
+            } else if (effectiveMode === 'clay') {
+              mesh.material = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.85, metalness: 0 });
             }
+            // 'solid' → leave original material as-is
             collectedMeshes.push(mesh);
           }
         });
