@@ -415,9 +415,9 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             )
           }
 
-          {/* View-mode buttons — top-left */}
+          {/* View-mode buttons — top-right */}
           {resultUrl && isDone && (
-            <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 10 }}>
+            <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6, zIndex: 10 }}>
               {([
                 { mode: 'clay',      label: '◑ Clay',      active: '#e0e0e0', bg: '#3a3a5c' },
                 { mode: 'wireframe', label: '◈ Wire',       active: '#00d2ff', bg: '#003a44' },
@@ -435,40 +435,63 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             </div>
           )}
 
-          {/* ── PARAMS OVERLAY — bottom-left of the viewport ── */}
+          {/* ── PARAMS OVERLAY — left side of the viewport ── */}
           <div style={{
-            position: 'absolute', bottom: 14, left: 14, zIndex: 10,
-            background: 'rgba(7,6,15,0.82)', backdropFilter: 'blur(8px)',
-            border: '1px solid #2a2740', borderRadius: 12,
-            padding: '10px 14px', maxWidth: 360,
+            position: 'absolute', top: 12, left: 12, zIndex: 10,
+            background: 'rgba(4,3,12,0.90)', backdropFilter: 'blur(10px)',
+            border: '1px solid #3a3560', borderRadius: 14,
+            padding: '14px 18px', width: 220,
           }}>
-            {/* row 1: subject + model + preset + timing */}
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#e0e0e0' }}>{item.subjectName}</span>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#a78bfa' }}>{item.model}</span>
-              <span style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 600 }}>{item.preset}</span>
-              {durationLabel && <span style={{ fontSize: '0.72rem', color: '#7c3aed', marginLeft: 'auto' }}>⏱ {durationLabel}</span>}
-              {saving && <span style={{ fontSize: '0.68rem', color: '#555' }}>saving…</span>}
-              {savedMsg && <span style={{ fontSize: '0.72rem', color: '#22c55e', fontWeight: 800 }}>{savedMsg}</span>}
+            {/* subject name */}
+            <div style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', marginBottom: 10, lineHeight: 1.2 }}>
+              {item.subjectName}
             </div>
-            {/* row 2: all numeric params side by side */}
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+
+            {/* model + preset — big */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 2 }}>MODEL</div>
+                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#a78bfa' }}>{item.model}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 2 }}>PRESET</div>
+                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#a78bfa' }}>{item.preset}</div>
+              </div>
+            </div>
+
+            {/* divider */}
+            <div style={{ borderTop: '1px solid #2a2740', marginBottom: 12 }} />
+
+            {/* all numeric params */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
               {[
-                { k: 'OCT',     v: item.octree },
-                { k: 'STEPS',   v: item.steps },
-                { k: 'GUID',    v: item.guidance },
-                { k: 'FACES',   v: item.faces != null ? (item.faces >= 1000 ? `${(item.faces/1000).toFixed(0)}K` : item.faces) : '—' },
-                { k: 'CHUNKS',  v: item.chunks },
-                { k: 'SEED',    v: item.seed === 0 ? 'rnd' : item.seed },
-              ].map(({ k, v }) => (
-                <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.56rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em' }}>{k}</span>
-                  <span style={{ fontSize: '1rem', fontWeight: 900, color: '#e0e0e0', lineHeight: 1.1 }}>{v}</span>
+                { label: 'OCTREE',    value: item.octree },
+                { label: 'STEPS',     value: item.steps },
+                { label: 'GUIDANCE',  value: item.guidance },
+                { label: 'FACES',     value: item.faces?.toLocaleString() ?? '—' },
+                { label: 'CHUNKS',    value: item.chunks },
+                { label: 'SEED',      value: item.seed === 0 ? 'random' : item.seed },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 1 }}>{label}</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#e0e0e0', lineHeight: 1.1 }}>{value}</div>
                 </div>
               ))}
             </div>
-            {/* row 3: nav position */}
-            <div style={{ marginTop: 6, fontSize: '0.65rem', color: '#444' }}>{idx + 1} / {items.length}</div>
+
+            {/* divider */}
+            <div style={{ borderTop: '1px solid #2a2740', margin: '12px 0 8px' }} />
+
+            {/* timing + position + save status */}
+            {durationLabel && (
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7c3aed', marginBottom: 4 }}>⏱ {durationLabel}</div>
+            )}
+            <div style={{ fontSize: '0.65rem', color: '#444' }}>{idx + 1} / {items.length}</div>
+            {(saving || savedMsg) && (
+              <div style={{ marginTop: 4, fontSize: '0.7rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
+                {saving ? 'saving…' : savedMsg}
+              </div>
+            )}
           </div>
         </ModelArea>
 
@@ -544,9 +567,6 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
               onChange={e => handleNotesChange(e.target.value)}
             />
 
-            <div style={{ fontSize: '0.65rem', color: saving ? '#7c3aed' : savedMsg ? '#22c55e' : '#333', fontWeight: 700, textAlign: 'center', minHeight: '1rem' }}>
-              {saving ? 'saving…' : savedMsg || ''}
-            </div>
           </RatingPanel>
         ) : (
           <RatingPanel>
