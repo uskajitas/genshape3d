@@ -304,12 +304,15 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   const [notes, setNotes] = useState(item.ratingNotes || '');
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
+  const [bgIssue, setBgIssue] = useState<boolean>(!!(item.ratings as any)?.bgIssue);
+  const [flagging, setFlagging] = useState(false);
 
   // Reset draft when item changes
   useEffect(() => {
     setDraft(initDraft(item));
     setNotes(item.ratingNotes || '');
     setSavedMsg('');
+    setBgIssue(!!(item.ratings as any)?.bgIssue);
   }, [idx]);
 
   // Keyboard nav
@@ -328,11 +331,25 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   const handleSave = async () => {
     setSaving(true);
     try {
-      await benchmarkApi.rateItem(email, item.id, draft, notes);
-      onSaved(item.id, draft, notes);
+      const ratingsWithFlag = { ...draft, ...(bgIssue ? { bgIssue: 1 } : {}) };
+      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
+      onSaved(item.id, ratingsWithFlag, notes);
       setSavedMsg('Saved ✓');
       setTimeout(() => setSavedMsg(''), 2000);
     } finally { setSaving(false); }
+  };
+
+  // Auto-save flag immediately on toggle — no need to fill ratings first
+  const toggleBgIssue = async () => {
+    const next = !bgIssue;
+    setBgIssue(next);
+    setFlagging(true);
+    try {
+      const existingRatings = item.ratings ?? {};
+      const ratingsWithFlag = { ...existingRatings, ...draft, ...(next ? { bgIssue: 1 } : { bgIssue: 0 }) };
+      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
+      onSaved(item.id, ratingsWithFlag, notes);
+    } finally { setFlagging(false); }
   };
 
   const durationSec = item.jobStartedAt && item.jobCompletedAt
@@ -407,6 +424,24 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
         </PanelHeader>
 
         <SubjectThumb $url={toProxiedUrl(item.subjectImageUrl)} />
+
+        {/* BG Issue flag — auto-saves, always visible regardless of job status */}
+        <div style={{ padding: '0.6rem 1.2rem', borderBottom: '1px solid #2a2740' }}>
+          <button
+            onClick={toggleBgIssue}
+            disabled={flagging}
+            style={{
+              width: '100%', font: 'inherit', fontSize: '0.82rem', fontWeight: 700,
+              padding: '0.5rem', borderRadius: 8, cursor: 'pointer',
+              border: `2px solid ${bgIssue ? '#ef4444' : '#2a2740'}`,
+              background: bgIssue ? '#ef444422' : 'transparent',
+              color: bgIssue ? '#ef4444' : '#555',
+              transition: 'all 0.15s',
+            }}
+          >
+            {bgIssue ? '🚩 BG issue flagged — click to unflag' : '🏳 Flag BG issue'}
+          </button>
+        </div>
 
         {isDone ? (
           <RatingPanel>
@@ -504,7 +539,8 @@ const GridCell: React.FC<GridCellProps> = ({ item, onClick }) => {
       </CellThumb>
       <CellMeta>
         <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
-        {item.ratings && <RatedDot>★ rated</RatedDot>}
+        {(item.ratings as any)?.bgIssue ? <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>🚩 BG</span> : null}
+        {item.ratings && <RatedDot>★</RatedDot>}
         {durationLabel && <TimeBadge>{durationLabel}</TimeBadge>}
       </CellMeta>
     </CellCard>
