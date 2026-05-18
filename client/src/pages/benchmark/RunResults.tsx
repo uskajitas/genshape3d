@@ -5,6 +5,21 @@ import { useAuth } from '../../context/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { benchmarkApi, BenchmarkRun, BenchmarkRunItem, RatingDimension } from './api';
 
+// Convert raw private R2 URLs to the /api/image proxy so the browser can load them.
+// Handles both raw r2.cloudflarestorage.com URLs and already-proxied /api/image URLs.
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+function toProxiedUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.includes('.r2.cloudflarestorage.com/')) {
+    // Extract everything after the bucket name segment
+    const match = url.match(/\.r2\.cloudflarestorage\.com\/[^/]+\/(.+)$/);
+    if (match) return `${API_BASE}/api/image?key=${encodeURIComponent(match[1])}`;
+  }
+  // Already a relative or absolute proxy URL — ensure API_BASE is prepended if relative
+  if (url.startsWith('/api/')) return `${API_BASE}${url}`;
+  return url;
+}
+
 // ─── Styled ───────────────────────────────────────────────────────────────────
 
 const Page = styled.div`
@@ -241,7 +256,7 @@ const RatingCell: React.FC<RatingCellProps> = ({ item, dimensions, onSaved, emai
     <CellCard $rated={!!item.ratings}>
       {/* Show the subject input image as visual reference — jobResultUrl is a GLB, not renderable as img */}
       <CellThumb
-        $url={item.subjectImageUrl || undefined}
+        $url={toProxiedUrl(item.subjectImageUrl)}
       >
         {!item.subjectImageUrl && (isDone ? '✓' : '⏳')}
       </CellThumb>
@@ -249,7 +264,7 @@ const RatingCell: React.FC<RatingCellProps> = ({ item, dimensions, onSaved, emai
       <CellMeta>
         <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
         {item.jobResultUrl && (
-          <ModelLink href={item.jobResultUrl} target="_blank" rel="noopener">View 3D ↗</ModelLink>
+          <ModelLink href={toProxiedUrl(item.jobResultUrl)} target="_blank" rel="noopener">View 3D ↗</ModelLink>
         )}
         {durationLabel && <TimeBadge>⏱ {durationLabel}</TimeBadge>}
       </CellMeta>
