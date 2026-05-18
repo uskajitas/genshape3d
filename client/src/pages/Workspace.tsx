@@ -27,6 +27,7 @@ import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
 import { Dropdown, type DropdownOption } from '../components/Dropdown';
+import { TextureEditorPanel } from '../components/textureEditor';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -972,6 +973,9 @@ const TextureEmptyState = styled.div`
 `;
 
 const TextureFilmMore = styled(FilmThumb)`
+  position: sticky;
+  right: -1rem;
+  z-index: 2;
   border-style: dashed;
   background:
     linear-gradient(135deg, ${p => p.theme.colors.primary}20, ${p => p.theme.colors.violet}20),
@@ -984,7 +988,8 @@ const TexturePickerOverlay = styled.div`
   position: absolute;
   top: 0.9rem;
   right: 0.9rem;
-  width: min(560px, calc(100% - 1.8rem));
+  bottom: 0.9rem;
+  width: min(680px, calc(100% - 1.8rem));
   max-height: calc(100% - 1.8rem);
   z-index: 8;
   display: flex;
@@ -1048,21 +1053,20 @@ const TextureModelSearch = styled.input`
 `;
 
 const TextureModelPicker = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  max-height: min(560px, calc(100vh - 190px));
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 0.55rem;
   overflow-y: auto;
   padding-right: 0.15rem;
+  min-height: 0;
 `;
 
 const TextureModelCard = styled.button<{ $active?: boolean }>`
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  align-items: center;
-  gap: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
   width: 100%;
-  min-height: 68px;
+  min-height: 142px;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
   background: ${p => p.$active
@@ -1072,13 +1076,17 @@ const TextureModelCard = styled.button<{ $active?: boolean }>`
   padding: 0.45rem;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.12s, background 0.12s;
-  &:hover { border-color: ${p => p.theme.colors.violet}; }
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+  &:hover {
+    border-color: ${p => p.theme.colors.violet};
+    transform: translateY(-1px);
+  }
 `;
 
 const TextureModelThumb = styled.img`
-  width: 56px;
-  height: 56px;
+  width: 100%;
+  aspect-ratio: 1;
+  height: auto;
   border-radius: 7px;
   object-fit: cover;
   display: block;
@@ -1086,8 +1094,8 @@ const TextureModelThumb = styled.img`
 `;
 
 const TextureModelThumbPlaceholder = styled.div`
-  width: 56px;
-  height: 56px;
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: 7px;
   border: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surfaceHigh};
@@ -2344,7 +2352,24 @@ const Workspace: React.FC = () => {
     });
   }, [jobs, search, assetTab, selectedGroupId]);
 
-  const railJobs = activeTool === 'texture' ? filteredJobs.filter(j => j.status === 'done' && j.resultUrl) : filteredJobs;
+  const textureFinishedJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return jobs
+      .filter(j => j.status === 'done' && j.resultUrl)
+      .filter(j => {
+        if (!q) return true;
+        return (j.name || '').toLowerCase().includes(q)
+          || (j.model || '').toLowerCase().includes(q)
+          || j.id.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      });
+  }, [jobs, search]);
+
+  const railJobs = activeTool === 'texture' ? textureFinishedJobs : filteredJobs;
 
   const meshUrl = selectedJob?.resultUrl
     ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
@@ -3137,6 +3162,10 @@ const Workspace: React.FC = () => {
               <Suspense fallback={<EmptyState><EmptySub>Loading viewer…</EmptySub></EmptyState>}>
                 <MeshViewer url={meshUrl} wireframe={false} showGrid />
               </Suspense>
+              <TextureEditorPanel
+                visible={activeTool === 'texture'}
+                sourceName={selectedJob?.name || 'Untitled asset'}
+              />
             </ViewerWrap>
           ) : (
             <EmptyState>
