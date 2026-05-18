@@ -3,8 +3,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+export type ViewMode = 'clay' | 'wireframe' | 'solid';
+
 interface MeshViewerProps {
   url: string;
+  viewMode?: ViewMode;
+  /** @deprecated use viewMode instead */
   wireframe?: boolean;
   showGrid?: boolean;
 }
@@ -21,7 +25,9 @@ const disposeMaterial = (m: THREE.Material): void => {
   m.dispose();
 };
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGrid = true }) => {
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true }) => {
+  // Resolve effective mode — viewMode takes precedence over legacy wireframe prop
+  const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
   const mountRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
   const meshesRef = useRef<THREE.Mesh[]>([]);
@@ -192,38 +198,40 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGri
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  // ── Wireframe toggle — swap to bright MeshBasicMaterial so lines are visible ──
+  // ── View mode: clay / wireframe / solid — swap materials on the fly ─────────
   useEffect(() => {
     meshesRef.current.forEach(mesh => {
-      if (wireframe) {
-        // Store original material so we can restore it
-        if (!(mesh as any).__origMaterial) {
-          (mesh as any).__origMaterial = mesh.material;
-        }
-        const wfMat = new THREE.MeshBasicMaterial({
-          color: 0x00d2ff,
-          wireframe: true,
+      // Save original once
+      if (!(mesh as any).__origMaterial) {
+        (mesh as any).__origMaterial = mesh.material;
+      }
+      // Dispose any previously injected override before replacing
+      const cur = mesh.material;
+      const orig = (mesh as any).__origMaterial;
+      if (cur !== orig) {
+        if (Array.isArray(cur)) cur.forEach(m => (m as THREE.Material).dispose());
+        else (cur as THREE.Material).dispose();
+      }
+
+      if (effectiveMode === 'wireframe') {
+        mesh.material = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true });
+      } else if (effectiveMode === 'clay') {
+        mesh.material = new THREE.MeshStandardMaterial({
+          color: 0xcccccc, roughness: 0.85, metalness: 0,
         });
-        mesh.material = wfMat;
       } else {
-        // Restore original material
-        if ((mesh as any).__origMaterial) {
-          // Dispose the wireframe material we created
-          if (mesh.material !== (mesh as any).__origMaterial) {
-            (mesh.material as THREE.Material).dispose();
-          }
-          mesh.material = (mesh as any).__origMaterial;
-        }
+        // solid — restore original
+        mesh.material = orig;
       }
     });
-  }, [wireframe]);
+  }, [effectiveMode]);
 
   // ── Grid / floor plane toggle — no mesh reload ──────────────────────────
   useEffect(() => {
     if (gridRef.current) {
-      gridRef.current.visible = showGrid;
+      gridRef.current.visible = showGrid && effectiveMode !== 'wireframe';
     }
-  }, [showGrid]);
+  }, [showGrid, effectiveMode]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;
 };

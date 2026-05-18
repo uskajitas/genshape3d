@@ -6,6 +6,7 @@ import { Tooltip } from '../../components/Tooltip';
 import { benchmarkApi, BenchmarkRun, BenchmarkRunItem, RatingDimension } from './api';
 
 const MeshViewer = lazy(() => import('../../components/MeshViewer'));
+type ViewMode = 'clay' | 'wireframe' | 'solid';
 
 // Convert raw private R2 URLs → proxied /api/image so the browser can load them.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
@@ -289,7 +290,7 @@ interface ViewerModalProps {
 
 const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions, email, onClose, onSaved }) => {
   const [idx, setIdx] = useState(startIndex);
-  const [wireframe, setWireframe] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('clay');
   const item = items[idx];
 
   const allKeys = ['overall', ...dimensions.map(d => d.key)];
@@ -351,7 +352,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
           {resultUrl && isDone
             ? (
               <Suspense fallback={<ModelStatus>Loading 3D viewer…</ModelStatus>}>
-                <MeshViewer url={resultUrl} showGrid={!wireframe} wireframe={wireframe} />
+                <MeshViewer url={resultUrl} showGrid={viewMode !== 'wireframe'} viewMode={viewMode} />
               </Suspense>
             )
             : (
@@ -363,29 +364,27 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
               </ModelStatus>
             )
           }
-          {/* Floating toggle — always visible on the viewer */}
+          {/* Floating view-mode buttons — always visible on the viewport */}
           {resultUrl && isDone && (
             <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 10 }}>
-              <button
-                onClick={() => setWireframe(false)}
-                style={{
-                  font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
-                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
-                  border: `1px solid ${!wireframe ? '#a78bfa' : '#2a2740'}`,
-                  background: !wireframe ? '#7c3aed' : '#12111e',
-                  color: !wireframe ? '#fff' : '#555',
-                }}
-              >◉ Solid</button>
-              <button
-                onClick={() => setWireframe(true)}
-                style={{
-                  font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
-                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
-                  border: `1px solid ${wireframe ? '#00d2ff' : '#2a2740'}`,
-                  background: wireframe ? '#00d2ff22' : '#12111e',
-                  color: wireframe ? '#00d2ff' : '#555',
-                }}
-              >◈ Wireframe</button>
+              {([
+                { mode: 'clay',      label: '◑ Clay',      active: '#e0e0e0', bg: '#3a3a5c' },
+                { mode: 'wireframe', label: '◈ Wireframe', active: '#00d2ff', bg: '#003a44' },
+                { mode: 'solid',     label: '◉ Solid',     active: '#a78bfa', bg: '#2a1a5c' },
+              ] as const).map(({ mode, label, active, bg }) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  style={{
+                    font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+                    padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                    border: `1px solid ${viewMode === mode ? active : '#2a2740'}`,
+                    background: viewMode === mode ? bg : '#0e0d1a',
+                    color: viewMode === mode ? active : '#555',
+                    transition: 'all 0.15s',
+                  }}
+                >{label}</button>
+              ))}
             </div>
           )}
         </ModelArea>
