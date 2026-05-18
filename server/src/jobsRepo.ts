@@ -112,6 +112,9 @@ export async function createJob(data: {
   /** Asset group this job belongs to (null = ungrouped). Used to organize
    *  stylistically-related batches like spaceship fleets / chess sets. */
   groupId?: string | null;
+  /** When true the job is a benchmark job and must not appear in the
+   *  normal user job list. */
+  isBenchmark?: boolean;
 }): Promise<Job> {
   const now = new Date().toISOString();
   const { rows } = await getDb().query(
@@ -119,8 +122,8 @@ export async function createJob(data: {
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
-       model, "preferredWorkerId", "auxImageUrls", "useMultiView", "groupId")
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23,$24) RETURNING *`,
+       model, "preferredWorkerId", "auxImageUrls", "useMultiView", "groupId", "isBenchmark")
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23,$24,$25) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -141,6 +144,7 @@ export async function createJob(data: {
       JSON.stringify(data.auxImageUrls || []),
       data.useMultiView ?? false,
       data.groupId       ?? null,
+      data.isBenchmark   ?? false,
     ]
   );
   return rows[0];
@@ -169,7 +173,7 @@ function routeWorker(model: string): string {
 export async function getJobsByUser(userEmail: string): Promise<Job[]> {
   const { rows } = await getDb().query(
     `SELECT * FROM genshape3d_jobs
-     WHERE "userEmail"=$1 AND deleted = false
+     WHERE "userEmail"=$1 AND deleted = false AND "isBenchmark" = false
      ORDER BY "createdAt" DESC`,
     [userEmail]
   );

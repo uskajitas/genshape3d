@@ -1052,11 +1052,70 @@ app.post('/api/textures', async (req, res) => {
       seed: parseInt(req.body?.seed) || 0,
       strength: parseInt(req.body?.strength) || 65,
       keepShape: req.body?.keepShape !== false,
+      sourceImageUrl: source.imageUrl,
     });
     res.json({ textureJob });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Worker polls for pending texture jobs
+app.get('/api/textures/pending', async (req, res) => {
+  const workerId = req.query.workerId as string;
+  if (!workerId) return res.status(400).json({ error: 'workerId required' });
+  try {
+    const { rows } = await getDb().query(
+      `UPDATE genshape3d_texture_jobs
+       SET status='processing', "assignedWorkerId"=$1, "startedAt"=NOW(), "updatedAt"=NOW()
+       WHERE id = (
+         SELECT id FROM genshape3d_texture_jobs
+         WHERE status='pending' AND deleted=false
+         ORDER BY "createdAt" ASC
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`,
+      [workerId]
+    );
+    res.json({ job: rows[0] || null });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Worker reports progress
+app.patch('/api/textures/:id/progress', async (req, res) => {
+  const { pct, phase } = req.body;
+  try {
+    await getDb().query(
+      `UPDATE genshape3d_texture_jobs SET "progressPct"=$1, "progressPhase"=$2, "updatedAt"=NOW() WHERE id=$3`,
+      [pct ?? 0, phase ?? '', req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Worker completes job
+app.patch('/api/textures/:id/complete', async (req, res) => {
+  const { resultUrl } = req.body;
+  try {
+    await getDb().query(
+      `UPDATE genshape3d_texture_jobs SET status='done', "resultUrl"=$1, "progressPct"=100, "progressPhase"='done', "completedAt"=NOW(), "updatedAt"=NOW() WHERE id=$2`,
+      [resultUrl, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Worker fails job
+app.patch('/api/textures/:id/fail', async (req, res) => {
+  const { error } = req.body;
+  try {
+    await getDb().query(
+      `UPDATE genshape3d_texture_jobs SET status='failed', "errorMessage"=$1, "completedAt"=NOW(), "updatedAt"=NOW() WHERE id=$2`,
+      [String(error || '').slice(0, 4000), req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
@@ -1754,6 +1813,7 @@ app.post('/api/benchmark/runs', async (req, res) => {
         targetFaceCount: it.faces,
         numChunks: it.chunks,
         seed: it.seed,
+        isBenchmark: true,
       });
 
       runItems.push({ ...it, jobId: job.id });

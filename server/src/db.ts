@@ -411,6 +411,9 @@ export async function initDb(): Promise<void> {
      )`,
     `CREATE INDEX IF NOT EXISTS idx_bench_items_run ON benchmark_run_items ("runId")`,
     `CREATE INDEX IF NOT EXISTS idx_bench_items_job ON benchmark_run_items ("jobId")`,
+    `ALTER TABLE genshape3d_texture_jobs ADD COLUMN IF NOT EXISTS "sourceImageUrl" TEXT NOT NULL DEFAULT ''`,
+    // Benchmark jobs must not appear in the normal user job list
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "isBenchmark" BOOLEAN NOT NULL DEFAULT false`,
   ];
   for (const sql of alterCols) await db.query(sql);
 
