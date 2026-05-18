@@ -13,8 +13,6 @@ interface MeshViewerProps {
   showGrid?: boolean;
 }
 
-// Dispose a material and any textures it references. Called from cleanup
-// so we don't leak GPU memory between mounts.
 const disposeMaterial = (m: THREE.Material): void => {
   for (const k of Object.keys(m) as (keyof THREE.Material)[]) {
     const v = (m as any)[k];
@@ -25,31 +23,50 @@ const disposeMaterial = (m: THREE.Material): void => {
   m.dispose();
 };
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true }) => {
-  // Resolve effective mode — viewMode takes precedence over legacy wireframe prop
-  const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
-  const mountRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<THREE.GridHelper | null>(null);
-  const meshesRef = useRef<THREE.Mesh[]>([]);
+// Apply a view mode to a single mesh. origMaterial must already be stored.
+function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
+  const orig = (mesh as any).__origMaterial;
+  const cur  = mesh.material;
 
-  // ── Main scene effect — only re-runs on URL change ──────────────────────
+  // Dispose injected override (anything that isn't the original)
+  if (cur !== orig) {
+    if (Array.isArray(cur)) cur.forEach(m => (m as THREE.Material).dispose());
+    else (cur as THREE.Material).dispose();
+  }
+
+  if (mode === 'wireframe') {
+    mesh.material = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true });
+  } else if (mode === 'clay') {
+    mesh.material = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.8, metalness: 0 });
+  } else {
+    mesh.material = orig;
+  }
+}
+
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true }) => {
+  const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
+
+  const mountRef    = useRef<HTMLDivElement>(null);
+  const gridRef     = useRef<THREE.GridHelper | null>(null);
+  const meshesRef   = useRef<THREE.Mesh[]>([]);
+  // Keep a ref that the async loader callback can read without stale closure issues
+  const modeRef     = useRef<ViewMode>(effectiveMode);
+  modeRef.current   = effectiveMode;
+
+  // ── Main scene — only re-runs when URL changes ───────────────────────────
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    // Reset mesh refs for new load
     meshesRef.current = [];
-    gridRef.current = null;
+    gridRef.current   = null;
 
-    // Scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07060f);
 
-    // Camera
     const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.01, 1000);
     camera.position.set(0, 1, 3);
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(mount.clientWidth, mount.clientHeight);
@@ -59,181 +76,106 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     renderer.shadowMap.enabled = true;
     mount.appendChild(renderer.domElement);
 
-    // Lights — three-point + hemisphere + extra fill so no part of the mesh
-    // sits in deep shadow regardless of orientation.
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x8b5cf6, 0.9);
-    scene.add(hemi);
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
-    scene.add(ambient);
-
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8b5cf6, 0.9));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.set(5, 8, 5);
-    key.castShadow = true;
-    scene.add(key);
-
+    key.position.set(5, 8, 5); key.castShadow = true; scene.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.9);
-    fill.position.set(-5, 2, -3);
-    scene.add(fill);
-
+    fill.position.set(-5, 2, -3); scene.add(fill);
     const rim = new THREE.DirectionalLight(0xffffff, 0.7);
-    rim.position.set(0, -3, -5);
-    scene.add(rim);
+    rim.position.set(0, -3, -5); scene.add(rim);
+    scene.add(Object.assign(new THREE.DirectionalLight(0xffffff, 0.5), { position: new THREE.Vector3(0, 10, 0) }));
 
-    const top = new THREE.DirectionalLight(0xffffff, 0.5);
-    top.position.set(0, 10, 0);
-    scene.add(top);
-
-    // Grid / floor plane
     const grid = new THREE.GridHelper(4, 20, 0x1e1b2e, 0x1e1b2e);
-    grid.visible = showGrid;
+    grid.visible = showGrid && modeRef.current !== 'wireframe';
     scene.add(grid);
     gridRef.current = grid;
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.minDistance = 0.5;
-    controls.maxDistance = 20;
-    controls.autoRotate = true;
+    controls.enableDamping  = true;
+    controls.dampingFactor  = 0.05;
+    controls.minDistance    = 0.5;
+    controls.maxDistance    = 20;
+    controls.autoRotate     = true;
     controls.autoRotateSpeed = 0.8;
 
-    // Load GLB
     const loader = new GLTFLoader();
-    loader.load(
-      url,
-      gltf => {
-        const model = gltf.scene;
+    loader.load(url, gltf => {
+      const model = gltf.scene;
+      const box    = new THREE.Box3().setFromObject(model);
+      const size   = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale  = 2 / maxDim;
+      model.scale.setScalar(scale);
+      model.position.sub(center.multiplyScalar(scale));
+      model.position.y += 0.05;
 
-        // Center and scale model to fit view
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 2 / maxDim;
-        model.scale.setScalar(scale);
-        model.position.sub(center.multiplyScalar(scale));
-        model.position.y += 0.05; // slightly above grid
+      const collected: THREE.Mesh[] = [];
+      model.traverse(child => {
+        if (!(child as THREE.Mesh).isMesh) return;
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = mesh.receiveShadow = true;
+        // Store original before any override
+        (mesh as any).__origMaterial = mesh.material;
+        // Apply the live mode via ref — avoids stale closure
+        applyMode(mesh, modeRef.current);
+        collected.push(mesh);
+      });
+      meshesRef.current = collected;
 
-        const collectedMeshes: THREE.Mesh[] = [];
-        model.traverse(child => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            // Store original material immediately on load
-            (mesh as any).__origMaterial = mesh.material;
-            // Apply current view mode right away — effectiveMode effect already
-            // fired when meshesRef was empty, so we must apply it here too.
-            if (effectiveMode === 'wireframe') {
-              mesh.material = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true });
-            } else if (effectiveMode === 'clay') {
-              mesh.material = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.85, metalness: 0 });
-            }
-            // 'solid' → leave original material as-is
-            collectedMeshes.push(mesh);
-          }
-        });
-        meshesRef.current = collectedMeshes;
+      scene.add(model);
+      camera.position.set(0, maxDim * scale * 0.6, maxDim * scale * 2);
+      controls.update();
+    }, undefined, err => console.error('GLB load error:', err));
 
-        scene.add(model);
-
-        // Adjust camera distance based on model size
-        camera.position.set(0, maxDim * scale * 0.6, maxDim * scale * 2);
-        controls.update();
-      },
-      undefined,
-      err => console.error('GLB load error:', err)
-    );
-
-    // Resize handler
     const handleResize = () => {
       if (!mount) return;
       camera.aspect = mount.clientWidth / mount.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
     };
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(mount);
+    const ro = new ResizeObserver(handleResize);
+    ro.observe(mount);
 
-    // Animation loop
     let animId: number;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
+    const animate = () => { animId = requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); };
     animate();
 
     return () => {
       cancelAnimationFrame(animId);
-      resizeObserver.disconnect();
+      ro.disconnect();
       controls.dispose();
-
-      // Dispose mesh geometry / materials / textures so the GPU memory is
-      // freed immediately (otherwise it lingers until the next GC pass).
       meshesRef.current.forEach(mesh => {
         mesh.geometry?.dispose();
-        // Dispose current material (may be the wireframe override)
-        const mat = mesh.material;
-        if (Array.isArray(mat)) mat.forEach(m => disposeMaterial(m as THREE.Material));
-        else if (mat) disposeMaterial(mat as THREE.Material);
-        // Dispose stored original if different
+        const cur  = mesh.material;
         const orig = (mesh as any).__origMaterial;
-        if (orig && orig !== mat) {
+        if (Array.isArray(cur))  cur.forEach(m => disposeMaterial(m as THREE.Material));
+        else if (cur)            disposeMaterial(cur as THREE.Material);
+        if (orig && orig !== cur) {
           if (Array.isArray(orig)) orig.forEach((m: THREE.Material) => disposeMaterial(m));
-          else disposeMaterial(orig as THREE.Material);
+          else                     disposeMaterial(orig as THREE.Material);
         }
       });
       meshesRef.current = [];
-
-      // Force the WebGL context to be released NOW. Browsers cap at ~16
-      // contexts; clicking through a few assets without this triggers
-      // "Too many active WebGL contexts" warnings.
       renderer.dispose();
       renderer.forceContextLoss();
-
-      if (mount.contains(renderer.domElement)) {
-        mount.removeChild(renderer.domElement);
-      }
+      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  // ── View mode: clay / wireframe / solid — swap materials on the fly ─────────
+  // ── Mode change — re-apply to already-loaded meshes ─────────────────────
   useEffect(() => {
     meshesRef.current.forEach(mesh => {
-      // Save original once
-      if (!(mesh as any).__origMaterial) {
-        (mesh as any).__origMaterial = mesh.material;
-      }
-      // Dispose any previously injected override before replacing
-      const cur = mesh.material;
-      const orig = (mesh as any).__origMaterial;
-      if (cur !== orig) {
-        if (Array.isArray(cur)) cur.forEach(m => (m as THREE.Material).dispose());
-        else (cur as THREE.Material).dispose();
-      }
-
-      if (effectiveMode === 'wireframe') {
-        mesh.material = new THREE.MeshBasicMaterial({ color: 0x00d2ff, wireframe: true });
-      } else if (effectiveMode === 'clay') {
-        mesh.material = new THREE.MeshStandardMaterial({
-          color: 0xcccccc, roughness: 0.85, metalness: 0,
-        });
-      } else {
-        // solid — restore original
-        mesh.material = orig;
-      }
+      if (!(mesh as any).__origMaterial) (mesh as any).__origMaterial = mesh.material;
+      applyMode(mesh, effectiveMode);
     });
   }, [effectiveMode]);
 
-  // ── Grid / floor plane toggle — no mesh reload ──────────────────────────
+  // ── Grid visibility ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (gridRef.current) {
-      gridRef.current.visible = showGrid && effectiveMode !== 'wireframe';
-    }
+    if (gridRef.current) gridRef.current.visible = showGrid && effectiveMode !== 'wireframe';
   }, [showGrid, effectiveMode]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;
