@@ -84,7 +84,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     fill.position.set(-5, 2, -3); scene.add(fill);
     const rim = new THREE.DirectionalLight(0xffffff, 0.7);
     rim.position.set(0, -3, -5); scene.add(rim);
-    scene.add(Object.assign(new THREE.DirectionalLight(0xffffff, 0.5), { position: new THREE.Vector3(0, 10, 0) }));
+    const top = new THREE.DirectionalLight(0xffffff, 0.5); top.position.set(0, 10, 0); scene.add(top);
 
     const grid = new THREE.GridHelper(4, 20, 0x1e1b2e, 0x1e1b2e);
     grid.visible = showGrid && modeRef.current !== 'wireframe';
