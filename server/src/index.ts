@@ -1704,6 +1704,20 @@ app.post('/api/benchmark/runs', async (req, res) => {
       configSnapshot: { items, createdBy: email },
     });
 
+    const bucket    = process.env.R2_BUCKET     || 'genshape3d';
+    const publicUrl = process.env.R2_PUBLIC_URL || `${process.env.R2_ENDPOINT}/${bucket}`;
+
+    // Resolve a subject imageUrl to a full public URL the worker can download.
+    // Quick Generate stores it as the relative /api/image?key=<key> form;
+    // uploaded images come in as full https URLs already.
+    const resolveImageUrl = (raw: string): string => {
+      if (!raw) return raw;
+      if (raw.startsWith('http')) return raw;                // already absolute
+      const match = raw.match(/[?&]key=([^&]+)/);           // extract ?key=…
+      if (match) return `${publicUrl}/${decodeURIComponent(match[1])}`;
+      return raw;                                            // fallback unchanged
+    };
+
     // For each item: fetch subject image, create a real job, create run item
     const runItems: any[] = [];
     for (const it of items) {
@@ -1712,7 +1726,7 @@ app.post('/api/benchmark/runs', async (req, res) => {
 
       const job = await createJob({
         userEmail: email,
-        imageUrl: subject.imageUrl,
+        imageUrl: resolveImageUrl(subject.imageUrl),
         name: `[BM] ${subject.name} · ${it.model} · ${it.preset || 'custom'}`,
         model: it.model,
         octreeResolution: it.octree,
