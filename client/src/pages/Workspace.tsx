@@ -27,7 +27,8 @@ import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
 import { Dropdown, type DropdownOption } from '../components/Dropdown';
-import { TextureEditorPanel } from '../components/textureEditor';
+import { TextureEditorPanel, type TextureEditorSettings } from '../components/textureEditor';
+import type { MeshSelectionSummary } from '../features/meshSelection';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -1892,6 +1893,13 @@ const Workspace: React.FC = () => {
   const [texturePbrRoughness, setTexturePbrRoughness] = useState(true);
   const [texturePbrNormal, setTexturePbrNormal] = useState(false);
   const [texturePbrMetallic, setTexturePbrMetallic] = useState(false);
+  const [textureEditorSettings, setTextureEditorSettings] = useState<TextureEditorSettings>({
+    mode: 'view',
+    range: 32,
+    boundary: 70,
+    feather: 12,
+  });
+  const [textureSelection, setTextureSelection] = useState<MeshSelectionSummary | null>(null);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -2433,6 +2441,15 @@ const Workspace: React.FC = () => {
     setSelectedJobId(id);
     setRecentTextureModelIds(prev => [id, ...prev.filter(existingId => existingId !== id)].slice(0, 12));
   }, []);
+
+  const textureMeshSelection = useMemo(() => ({
+    enabled: activeTool === 'texture' && textureEditorSettings.mode !== 'view',
+    mode: textureEditorSettings.mode === 'paint' ? 'paint' as const : 'select' as const,
+    range: textureEditorSettings.range,
+    boundary: textureEditorSettings.boundary,
+    feather: textureEditorSettings.feather,
+    onChange: setTextureSelection,
+  }), [activeTool, textureEditorSettings]);
 
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
@@ -3160,11 +3177,19 @@ const Workspace: React.FC = () => {
           {meshUrl ? (
             <ViewerWrap>
               <Suspense fallback={<EmptyState><EmptySub>Loading viewer…</EmptySub></EmptyState>}>
-                <MeshViewer url={meshUrl} wireframe={false} showGrid />
+                <MeshViewer
+                  url={meshUrl}
+                  wireframe={false}
+                  showGrid
+                  meshSelection={textureMeshSelection}
+                />
               </Suspense>
               <TextureEditorPanel
                 visible={activeTool === 'texture'}
                 sourceName={selectedJob?.name || 'Untitled asset'}
+                settings={textureEditorSettings}
+                selection={textureSelection}
+                onSettingsChange={setTextureEditorSettings}
               />
             </ViewerWrap>
           ) : (

@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
+import React from 'react';
 import styled from 'styled-components';
+import type { MeshSelectionSummary } from '../../features/meshSelection';
 
 type EditorMode = 'view' | 'select' | 'paint';
+
+export interface TextureEditorSettings {
+  mode: EditorMode;
+  range: number;
+  boundary: number;
+  feather: number;
+}
 
 interface TextureEditorPanelProps {
   visible: boolean;
   sourceName: string;
+  settings: TextureEditorSettings;
+  selection: MeshSelectionSummary | null;
+  onSettingsChange: (settings: TextureEditorSettings) => void;
 }
 
 const Panel = styled.section<{ $visible: boolean }>`
@@ -116,6 +127,14 @@ const Actions = styled.div`
   justify-content: flex-end;
 `;
 
+const SelectionMeta = styled.div`
+  min-width: 74px;
+  color: ${p => p.theme.colors.textMuted};
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: right;
+`;
+
 const Action = styled.button<{ $primary?: boolean }>`
   border: 1px solid ${p => p.$primary ? p.theme.colors.violet : p.theme.colors.border};
   border-radius: 8px;
@@ -132,11 +151,16 @@ const Action = styled.button<{ $primary?: boolean }>`
   }
 `;
 
-export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({ visible, sourceName }) => {
-  const [mode, setMode] = useState<EditorMode>('view');
-  const [range, setRange] = useState(32);
-  const [boundary, setBoundary] = useState(70);
-  const [feather, setFeather] = useState(12);
+export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
+  visible,
+  sourceName,
+  settings,
+  selection,
+  onSettingsChange,
+}) => {
+  const update = (patch: Partial<TextureEditorSettings>) => {
+    onSettingsChange({ ...settings, ...patch });
+  };
 
   return (
     <Panel $visible={visible}>
@@ -146,26 +170,29 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({ visible,
           <Subtitle title={sourceName}>{sourceName || 'No source selected'}</Subtitle>
         </TitleBlock>
         <Segmented title="Choose how to interact with the model before submitting a texture job.">
-          <Segment $active={mode === 'view'} onClick={() => setMode('view')}>View</Segment>
-          <Segment $active={mode === 'select'} onClick={() => setMode('select')}>Select</Segment>
-          <Segment $active={mode === 'paint'} onClick={() => setMode('paint')}>Paint</Segment>
+          <Segment $active={settings.mode === 'view'} onClick={() => update({ mode: 'view' })}>View</Segment>
+          <Segment $active={settings.mode === 'select'} onClick={() => update({ mode: 'select' })}>Select</Segment>
+          <Segment $active={settings.mode === 'paint'} onClick={() => update({ mode: 'paint' })}>Paint</Segment>
         </Segmented>
         <Controls>
           <SliderField title="Expansion radius for click-to-grow selection.">
             Range
-            <Range type="range" min={0} max={100} value={range} onChange={e => setRange(parseInt(e.target.value, 10) || 0)} />
+            <Range type="range" min={0} max={100} value={settings.range} onChange={e => update({ range: parseInt(e.target.value, 10) || 0 })} />
           </SliderField>
           <SliderField title="Higher values stop selection at stronger seams and edges.">
             Boundary
-            <Range type="range" min={0} max={100} value={boundary} onChange={e => setBoundary(parseInt(e.target.value, 10) || 0)} />
+            <Range type="range" min={0} max={100} value={settings.boundary} onChange={e => update({ boundary: parseInt(e.target.value, 10) || 0 })} />
           </SliderField>
           <SliderField title="Softens the edge of a saved texture zone.">
             Feather
-            <Range type="range" min={0} max={100} value={feather} onChange={e => setFeather(parseInt(e.target.value, 10) || 0)} />
+            <Range type="range" min={0} max={100} value={settings.feather} onChange={e => update({ feather: parseInt(e.target.value, 10) || 0 })} />
           </SliderField>
         </Controls>
       </Main>
       <Actions>
+        <SelectionMeta title={selection ? `${selection.meshName}, seed face ${selection.seedFaceIndex}` : 'Click the model in Select or Paint mode.'}>
+          {selection ? `${selection.faceCount} faces` : 'No selection'}
+        </SelectionMeta>
         <Action title="Add the current selection to the active zone." disabled>Add</Action>
         <Action title="Remove the current selection from the active zone." disabled>Subtract</Action>
         <Action $primary title="Save this selection as a texture zone." disabled>Save zone</Action>

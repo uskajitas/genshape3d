@@ -2,6 +2,10 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import {
+  createMeshSelectionController,
+  type MeshSelectionOptions,
+} from '../features/meshSelection';
 
 export type ViewMode = 'clay' | 'wireframe' | 'solid';
 
@@ -11,6 +15,7 @@ interface MeshViewerProps {
   /** @deprecated use viewMode instead */
   wireframe?: boolean;
   showGrid?: boolean;
+  meshSelection?: MeshSelectionOptions;
 }
 
 const disposeMaterial = (m: THREE.Material): void => {
@@ -43,15 +48,30 @@ function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
   }
 }
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true }) => {
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true, meshSelection }) => {
   const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
 
   const mountRef    = useRef<HTMLDivElement>(null);
   const gridRef     = useRef<THREE.GridHelper | null>(null);
   const meshesRef   = useRef<THREE.Mesh[]>([]);
+  const selectionRef = useRef<ReturnType<typeof createMeshSelectionController> | null>(null);
+  const selectionOptionsRef = useRef<MeshSelectionOptions>({
+    enabled: false,
+    mode: 'select',
+    range: 32,
+    boundary: 70,
+    feather: 12,
+  });
   // Keep a ref that the async loader callback can read without stale closure issues
   const modeRef     = useRef<ViewMode>(effectiveMode);
   modeRef.current   = effectiveMode;
+  selectionOptionsRef.current = meshSelection || {
+    enabled: false,
+    mode: 'select',
+    range: 32,
+    boundary: 70,
+    feather: 12,
+  };
 
   // ── Main scene — only re-runs when URL changes ───────────────────────────
   useEffect(() => {
@@ -99,6 +119,14 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     controls.autoRotate     = true;
     controls.autoRotateSpeed = 0.8;
 
+    const selection = createMeshSelectionController(
+      scene,
+      camera,
+      renderer.domElement,
+      selectionOptionsRef.current,
+    );
+    selectionRef.current = selection;
+
     const loader = new GLTFLoader();
     loader.load(url, gltf => {
       const model = gltf.scene;
@@ -123,6 +151,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
         collected.push(mesh);
       });
       meshesRef.current = collected;
+      selection.setMeshes(collected);
 
       scene.add(model);
       camera.position.set(0, maxDim * scale * 0.6, maxDim * scale * 2);
@@ -146,6 +175,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
       cancelAnimationFrame(animId);
       ro.disconnect();
       controls.dispose();
+      selection.dispose();
+      selectionRef.current = null;
       meshesRef.current.forEach(mesh => {
         mesh.geometry?.dispose();
         const cur  = mesh.material;
@@ -177,6 +208,10 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   useEffect(() => {
     if (gridRef.current) gridRef.current.visible = showGrid && effectiveMode !== 'wireframe';
   }, [showGrid, effectiveMode]);
+
+  useEffect(() => {
+    selectionRef.current?.updateOptions(selectionOptionsRef.current);
+  }, [meshSelection]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />;
 };
