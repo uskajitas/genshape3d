@@ -1,21 +1,20 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import styled from 'styled-components';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { benchmarkApi, BenchmarkRun, BenchmarkRunItem, RatingDimension } from './api';
 
-// Convert raw private R2 URLs to the /api/image proxy so the browser can load them.
-// Handles both raw r2.cloudflarestorage.com URLs and already-proxied /api/image URLs.
+const MeshViewer = lazy(() => import('../../components/MeshViewer'));
+
+// Convert raw private R2 URLs → proxied /api/image so the browser can load them.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 function toProxiedUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
   if (url.includes('.r2.cloudflarestorage.com/')) {
-    // Extract everything after the bucket name segment
     const match = url.match(/\.r2\.cloudflarestorage\.com\/[^/]+\/(.+)$/);
     if (match) return `${API_BASE}/api/image?key=${encodeURIComponent(match[1])}`;
   }
-  // Already a relative or absolute proxy URL — ensure API_BASE is prepended if relative
   if (url.startsWith('/api/')) return `${API_BASE}${url}`;
   return url;
 }
@@ -63,14 +62,11 @@ const Btn = styled.button<{ $primary?: boolean }>`
   &:hover { opacity: 0.85; }
 `;
 
-// Grid layout — rows = subjects, columns = model/preset combos
-const GridWrap = styled.div`
-  overflow-x: auto;
-`;
+// Grid
+const GridWrap = styled.div` overflow-x: auto; `;
 
 const GridTable = styled.table`
-  border-collapse: separate; border-spacing: 0;
-  min-width: 100%;
+  border-collapse: separate; border-spacing: 0; min-width: 100%;
 `;
 
 const ColHeader = styled.th`
@@ -100,24 +96,37 @@ const Cell = styled.td`
   padding: 0.5rem;
   border-bottom: 1px solid ${p => p.theme.colors.border};
   border-right: 1px solid ${p => p.theme.colors.border};
-  vertical-align: top; min-width: 180px;
+  vertical-align: top; min-width: 160px;
 `;
 
-const CellCard = styled.div<{ $rated?: boolean }>`
-  display: flex; flex-direction: column; gap: 0.4rem;
+const CellCard = styled.div<{ $rated?: boolean; $clickable?: boolean }>`
   border-radius: 10px; overflow: hidden;
-  border: 1px solid ${p => p.$rated ? p.theme.colors.violet : p.theme.colors.border};
+  border: 2px solid ${p => p.$rated ? p.theme.colors.violet : p.theme.colors.border};
   background: ${p => p.theme.colors.surface};
   font-size: 0.72rem;
+  cursor: ${p => p.$clickable ? 'pointer' : 'default'};
+  transition: border-color 0.15s, transform 0.1s;
+  ${p => p.$clickable && `
+    &:hover { border-color: ${p.theme.colors.violet}88; transform: scale(1.01); }
+  `}
 `;
 
 const CellThumb = styled.div<{ $url?: string }>`
-  width: 100%; aspect-ratio: 4/3;
+  width: 100%; aspect-ratio: 1;
   background: ${p => p.theme.colors.surfaceHigh};
   ${p => p.$url ? `background-image: url(${p.$url}); background-size: cover; background-position: center;` : ''}
   display: flex; align-items: center; justify-content: center;
-  color: ${p => p.theme.colors.textMuted}; font-size: 1.5rem;
-  cursor: ${p => p.$url ? 'pointer' : 'default'};
+  color: ${p => p.theme.colors.textMuted}; font-size: 1.8rem;
+  position: relative;
+`;
+
+const ViewHint = styled.div`
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; opacity: 0; transition: opacity 0.15s;
+  color: #fff; font-size: 0.75rem; font-weight: 700;
+  ${CellCard}:hover & { opacity: 1; }
 `;
 
 const StatusBadge = styled.span<{ $status?: string }>`
@@ -140,105 +149,177 @@ const CellMeta = styled.div`
   display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
 `;
 
-const ModelLink = styled.a`
-  display: inline-block;
-  font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;
-  background: #16a34a22; color: #16a34a; text-decoration: none;
-  border: 1px solid #16a34a44;
-  &:hover { background: #16a34a44; }
-`;
-
 const TimeBadge = styled.span`
-  font-size: 0.64rem; color: ${p => p.theme.colors.textMuted};
-  margin-left: auto;
+  font-size: 0.64rem; color: ${p => p.theme.colors.textMuted}; margin-left: auto;
 `;
 
-// Rating panel inside cell
-const RateSection = styled.div`
-  padding: 0.5rem; border-top: 1px solid ${p => p.theme.colors.border};
-  display: flex; flex-direction: column; gap: 0.4rem;
+const RatedDot = styled.span`
+  font-size: 0.65rem; color: #a78bfa; font-weight: 700;
 `;
 
-const RateDimRow = styled.div`
-  display: flex; align-items: center; gap: 0.4rem;
+// ─── Viewer modal ─────────────────────────────────────────────────────────────
+
+const ModalBackdrop = styled.div`
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.88);
+  display: flex; align-items: stretch;
 `;
 
-const RateDimLabel = styled.span`
-  font-size: 0.64rem; color: ${p => p.theme.colors.textMuted};
-  width: 56px; flex-shrink: 0;
+const ModalLeft = styled.div`
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0;
 `;
 
-const StarRow = styled.div`
-  display: flex; gap: 1px; flex: 1;
+const ModelArea = styled.div`
+  flex: 1; position: relative; background: #07060f;
 `;
+
+const ModelNav = styled.div`
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background: #12111e; border-top: 1px solid #2a2740;
+`;
+
+const NavBtn = styled.button<{ $disabled?: boolean }>`
+  font: inherit; font-size: 0.85rem; font-weight: 700;
+  padding: 0.4rem 1rem; border-radius: 8px; cursor: ${p => p.$disabled ? 'default' : 'pointer'};
+  border: 1px solid ${p => p.$disabled ? '#2a2740' : '#7c3aed'};
+  background: ${p => p.$disabled ? 'transparent' : '#7c3aed22'};
+  color: ${p => p.$disabled ? '#444' : '#a78bfa'};
+  &:hover:not(:disabled) { background: #7c3aed44; }
+`;
+
+const NavInfo = styled.div`
+  font-size: 0.8rem; color: #888; text-align: center;
+`;
+
+const NavTitle = styled.div`
+  font-size: 0.95rem; font-weight: 700; color: #fff; text-align: center;
+`;
+
+const NavSub = styled.div`
+  font-size: 0.72rem; color: #7c3aed; text-align: center;
+`;
+
+const ModelStatus = styled.div`
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #555; font-size: 0.9rem; pointer-events: none;
+`;
+
+const ModalRight = styled.div`
+  width: 320px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  background: #0e0d1a; border-left: 1px solid #2a2740;
+  overflow-y: auto;
+`;
+
+const PanelHeader = styled.div`
+  padding: 1rem 1.2rem 0.75rem;
+  border-bottom: 1px solid #2a2740;
+  display: flex; align-items: center; justify-content: space-between;
+`;
+
+const PanelTitle = styled.div`
+  font-size: 0.85rem; font-weight: 800; color: #e0e0e0;
+`;
+
+const CloseBtn = styled.button`
+  font: inherit; font-size: 1.1rem; background: none; border: none;
+  color: #555; cursor: pointer; padding: 0 4px; line-height: 1;
+  &:hover { color: #e0e0e0; }
+`;
+
+const RatingPanel = styled.div`
+  padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.75rem; flex: 1;
+`;
+
+const DimRow = styled.div`
+  display: flex; flex-direction: column; gap: 4px;
+`;
+
+const DimLabel = styled.div`
+  font-size: 0.7rem; font-weight: 700; color: #aaa; letter-spacing: 0.03em;
+`;
+
+const StarRow = styled.div` display: flex; gap: 2px; `;
 
 const Star = styled.button<{ $on: boolean }>`
   background: none; border: none; padding: 0; cursor: pointer;
-  font-size: 0.9rem; line-height: 1;
-  color: ${p => p.$on ? '#f59e0b' : p.theme.colors.border};
+  font-size: 1.1rem; line-height: 1;
+  color: ${p => p.$on ? '#f59e0b' : '#2a2740'};
   transition: color 0.1s;
   &:hover { color: #f59e0b; }
 `;
 
-const RateNotes = styled.textarea`
-  font: inherit; font-size: 0.7rem;
-  padding: 0.3rem 0.5rem; border-radius: 6px; resize: vertical; min-height: 50px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.surfaceHigh};
-  color: ${p => p.theme.colors.text};
-  &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
+const NotesArea = styled.textarea`
+  font: inherit; font-size: 0.75rem;
+  padding: 0.4rem 0.6rem; border-radius: 6px; resize: vertical; min-height: 64px;
+  border: 1px solid #2a2740;
+  background: #12111e; color: #e0e0e0;
+  &:focus { outline: none; border-color: #7c3aed; }
 `;
 
-const SaveBtn = styled.button`
-  font: inherit; font-size: 0.72rem; font-weight: 600;
-  padding: 0.3rem 0.75rem; border-radius: 6px; cursor: pointer;
-  border: 1px solid ${p => p.theme.colors.violet};
-  background: ${p => p.theme.colors.violet}22;
-  color: ${p => p.theme.colors.violet};
-  align-self: flex-end;
-  &:hover { background: ${p => p.theme.colors.violet}44; }
+const SaveRatingBtn = styled.button`
+  font: inherit; font-size: 0.8rem; font-weight: 700;
+  padding: 0.5rem; border-radius: 8px; cursor: pointer;
+  border: 1px solid #7c3aed;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  &:hover { opacity: 0.85; }
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 `;
 
-const OverallRow = styled.div`
-  display: flex; align-items: center; gap: 0.5rem;
+const SubjectThumb = styled.div<{ $url?: string }>`
+  width: 100%; aspect-ratio: 4/3;
+  background: #12111e;
+  ${p => p.$url ? `background-image: url(${p.$url}); background-size: cover; background-position: center;` : ''}
+  border-bottom: 1px solid #2a2740;
 `;
 
-const OverallLabel = styled.span`
-  font-size: 0.64rem; font-weight: 700; color: ${p => p.theme.colors.text};
-  width: 56px; flex-shrink: 0;
-`;
+// ─── Viewer modal component ───────────────────────────────────────────────────
 
-// ─── Rating cell component ────────────────────────────────────────────────────
-
-interface RatingCellProps {
-  item: BenchmarkRunItem;
+interface ViewerModalProps {
+  items: BenchmarkRunItem[];
+  startIndex: number;
   dimensions: RatingDimension[];
-  onSaved: (id: string, ratings: Record<string, number>, notes: string) => void;
   email: string;
+  onClose: () => void;
+  onSaved: (id: string, ratings: Record<string, number>, notes: string) => void;
 }
 
-const RatingCell: React.FC<RatingCellProps> = ({ item, dimensions, onSaved, email }) => {
+const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions, email, onClose, onSaved }) => {
+  const [idx, setIdx] = useState(startIndex);
+  const item = items[idx];
+
   const allKeys = ['overall', ...dimensions.map(d => d.key)];
-  const initRatings = () => {
+  const initDraft = (it: BenchmarkRunItem) => {
     const r: Record<string, number> = {};
-    allKeys.forEach(k => { r[k] = item.ratings?.[k] ?? 0; });
+    allKeys.forEach(k => { r[k] = it.ratings?.[k] ?? 0; });
     return r;
   };
 
-  const [draft, setDraft] = useState<Record<string, number>>(initRatings);
+  const [draft, setDraft] = useState<Record<string, number>>(() => initDraft(item));
   const [notes, setNotes] = useState(item.ratingNotes || '');
   const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState('');
 
-  useEffect(() => { setDraft(initRatings()); setNotes(item.ratingNotes || ''); }, [item.id]);
+  // Reset draft when item changes
+  useEffect(() => {
+    setDraft(initDraft(item));
+    setNotes(item.ratingNotes || '');
+    setSavedMsg('');
+  }, [idx]);
 
-  const isDone = item.jobStatus === 'done';
-  const durationSec = item.jobStartedAt && item.jobCompletedAt
-    ? Math.round((new Date(item.jobCompletedAt).getTime() - new Date(item.jobStartedAt).getTime()) / 1000)
-    : null;
-  const durationLabel = durationSec != null
-    ? durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`
-    : null;
+  // Keyboard nav
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft' && idx > 0) setIdx(i => i - 1);
+      if (e.key === 'ArrowRight' && idx < items.length - 1) setIdx(i => i + 1);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [idx, items.length, onClose]);
 
   const setScore = (key: string, val: number) => setDraft(d => ({ ...d, [key]: val }));
 
@@ -247,76 +328,160 @@ const RatingCell: React.FC<RatingCellProps> = ({ item, dimensions, onSaved, emai
     try {
       await benchmarkApi.rateItem(email, item.id, draft, notes);
       onSaved(item.id, draft, notes);
+      setSavedMsg('Saved ✓');
+      setTimeout(() => setSavedMsg(''), 2000);
     } finally { setSaving(false); }
   };
 
-  const hasChanges = JSON.stringify(draft) !== JSON.stringify(initRatings()) || notes !== (item.ratingNotes || '');
+  const durationSec = item.jobStartedAt && item.jobCompletedAt
+    ? Math.round((new Date(item.jobCompletedAt).getTime() - new Date(item.jobStartedAt).getTime()) / 1000)
+    : null;
+  const durationLabel = durationSec != null
+    ? durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`
+    : null;
+
+  const resultUrl = toProxiedUrl(item.jobResultUrl);
+  const isDone = item.jobStatus === 'done';
 
   return (
-    <CellCard $rated={!!item.ratings}>
-      {/* Show the subject input image as visual reference — jobResultUrl is a GLB, not renderable as img */}
-      <CellThumb
-        $url={toProxiedUrl(item.subjectImageUrl)}
-      >
-        {!item.subjectImageUrl && (isDone ? '✓' : '⏳')}
-      </CellThumb>
+    <ModalBackdrop onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <ModalLeft>
+        <ModelArea>
+          {resultUrl && isDone
+            ? (
+              <Suspense fallback={<ModelStatus>Loading 3D viewer…</ModelStatus>}>
+                <MeshViewer url={resultUrl} showGrid={true} />
+              </Suspense>
+            )
+            : (
+              <ModelStatus>
+                {item.jobStatus === 'processing' ? '⏳ Generating…' :
+                 item.jobStatus === 'failed' ? '✗ Job failed' :
+                 item.jobStatus === 'pending' ? '⏳ Pending…' :
+                 '3D model not available'}
+              </ModelStatus>
+            )
+          }
+        </ModelArea>
 
-      <CellMeta>
-        <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
-        {item.jobResultUrl && (
-          <ModelLink href={toProxiedUrl(item.jobResultUrl)} target="_blank" rel="noopener">View 3D ↗</ModelLink>
-        )}
-        {durationLabel && <TimeBadge>⏱ {durationLabel}</TimeBadge>}
-      </CellMeta>
+        <ModelNav>
+          <NavBtn $disabled={idx === 0} onClick={() => idx > 0 && setIdx(i => i - 1)}>← Prev</NavBtn>
+          <div style={{ textAlign: 'center' }}>
+            <NavTitle>{item.subjectName}</NavTitle>
+            <NavSub>{item.model} · {item.preset}</NavSub>
+            <NavInfo>{idx + 1} / {items.length}{durationLabel ? ` · ⏱ ${durationLabel}` : ''}</NavInfo>
+          </div>
+          <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
+        </ModelNav>
+      </ModalLeft>
 
-      {isDone && (
-        <RateSection>
-          {/* Overall 1-10 */}
-          <OverallRow>
-            <Tooltip text="Overall gut feeling — is this a usable asset?" placement="left" multiline maxWidth={200}>
-              <OverallLabel>Overall</OverallLabel>
-            </Tooltip>
-            <StarRow>
-              {Array.from({ length: 10 }, (_, i) => (
-                <Star key={i} $on={(draft['overall'] ?? 0) > i} onClick={() => setScore('overall', i + 1)}>
-                  {(draft['overall'] ?? 0) > i ? '★' : '☆'}
-                </Star>
-              ))}
-            </StarRow>
-            <span style={{ fontSize: '0.7rem', color: '#a78bfa', fontWeight: 700, minWidth: 16 }}>
-              {draft['overall'] || ''}
-            </span>
-          </OverallRow>
+      <ModalRight>
+        <PanelHeader>
+          <PanelTitle>Rate this result</PanelTitle>
+          <CloseBtn onClick={onClose} title="Close (Esc)">✕</CloseBtn>
+        </PanelHeader>
 
-          {/* Per-dimension */}
-          {dimensions.map(dim => (
-            <RateDimRow key={dim.key}>
-              <Tooltip text={dim.description} placement="left" multiline maxWidth={220}>
-                <RateDimLabel>{dim.label}</RateDimLabel>
-              </Tooltip>
+        <SubjectThumb $url={toProxiedUrl(item.subjectImageUrl)} />
+
+        {isDone ? (
+          <RatingPanel>
+            <DimRow>
+              <DimLabel>OVERALL</DimLabel>
               <StarRow>
                 {Array.from({ length: 10 }, (_, i) => (
-                  <Star key={i} $on={(draft[dim.key] ?? 0) > i} onClick={() => setScore(dim.key, i + 1)}>
-                    {(draft[dim.key] ?? 0) > i ? '★' : '☆'}
+                  <Star key={i} $on={(draft['overall'] ?? 0) > i} onClick={() => setScore('overall', i + 1)}>
+                    {(draft['overall'] ?? 0) > i ? '★' : '☆'}
                   </Star>
                 ))}
+                <span style={{ marginLeft: 6, fontSize: '0.85rem', color: '#f59e0b', fontWeight: 700 }}>
+                  {draft['overall'] || ''}
+                </span>
               </StarRow>
-              <span style={{ fontSize: '0.7rem', color: '#71717a', minWidth: 16 }}>
-                {draft[dim.key] || ''}
-              </span>
-            </RateDimRow>
-          ))}
+            </DimRow>
 
-          <RateNotes
-            placeholder="Notes (optional)…"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-          />
-          <SaveBtn onClick={handleSave} disabled={saving || !hasChanges}>
-            {saving ? 'Saving…' : item.ratings ? 'Update rating' : 'Save rating'}
-          </SaveBtn>
-        </RateSection>
-      )}
+            {dimensions.map(dim => (
+              <DimRow key={dim.key}>
+                <Tooltip text={dim.description} placement="left" multiline maxWidth={220}>
+                  <DimLabel>{dim.label.toUpperCase()}</DimLabel>
+                </Tooltip>
+                <StarRow>
+                  {Array.from({ length: 10 }, (_, i) => (
+                    <Star key={i} $on={(draft[dim.key] ?? 0) > i} onClick={() => setScore(dim.key, i + 1)}>
+                      {(draft[dim.key] ?? 0) > i ? '★' : '☆'}
+                    </Star>
+                  ))}
+                  <span style={{ marginLeft: 6, fontSize: '0.8rem', color: '#a78bfa', fontWeight: 700 }}>
+                    {draft[dim.key] || ''}
+                  </span>
+                </StarRow>
+              </DimRow>
+            ))}
+
+            <NotesArea
+              placeholder="Notes (optional)…"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+
+            <SaveRatingBtn onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : savedMsg || (item.ratings ? 'Update rating' : 'Save rating')}
+            </SaveRatingBtn>
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+              {idx > 0 && (
+                <NavBtn style={{ flex: 1, textAlign: 'center' }} onClick={() => setIdx(i => i - 1)}>← Prev</NavBtn>
+              )}
+              {idx < items.length - 1 && (
+                <NavBtn style={{ flex: 1, textAlign: 'center' }} $disabled={false} onClick={() => setIdx(i => i + 1)}>Next →</NavBtn>
+              )}
+            </div>
+          </RatingPanel>
+        ) : (
+          <RatingPanel>
+            <div style={{ color: '#555', fontSize: '0.8rem' }}>
+              Rating available once the job is done.
+            </div>
+          </RatingPanel>
+        )}
+      </ModalRight>
+    </ModalBackdrop>
+  );
+};
+
+// ─── Compact cell card in the grid ───────────────────────────────────────────
+
+interface GridCellProps {
+  item: BenchmarkRunItem;
+  onClick: () => void;
+}
+
+const GridCell: React.FC<GridCellProps> = ({ item, onClick }) => {
+  const isDone = item.jobStatus === 'done';
+  const hasResult = isDone && !!item.jobResultUrl;
+
+  const durationSec = item.jobStartedAt && item.jobCompletedAt
+    ? Math.round((new Date(item.jobCompletedAt).getTime() - new Date(item.jobStartedAt).getTime()) / 1000)
+    : null;
+  const durationLabel = durationSec != null
+    ? durationSec >= 60 ? `${Math.floor(durationSec / 60)}m ${durationSec % 60}s` : `${durationSec}s`
+    : null;
+
+  return (
+    <CellCard $rated={!!item.ratings} $clickable={hasResult} onClick={hasResult ? onClick : undefined}>
+      <CellThumb $url={toProxiedUrl(item.subjectImageUrl)}>
+        {!item.subjectImageUrl && (isDone ? '✓' : '⏳')}
+        {hasResult && (
+          <ViewHint>
+            <span style={{ fontSize: '1.5rem' }}>🔲</span>
+            <span>View 3D &amp; Rate</span>
+          </ViewHint>
+        )}
+      </CellThumb>
+      <CellMeta>
+        <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
+        {item.ratings && <RatedDot>★ rated</RatedDot>}
+        {durationLabel && <TimeBadge>{durationLabel}</TimeBadge>}
+      </CellMeta>
     </CellCard>
   );
 };
@@ -332,6 +497,7 @@ export const BenchmarkRunResults: React.FC = () => {
   const [items, setItems] = useState<BenchmarkRunItem[]>([]);
   const [dimensions, setDimensions] = useState<RatingDimension[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalIdx, setModalIdx] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -348,11 +514,8 @@ export const BenchmarkRunResults: React.FC = () => {
     return itemsData;
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  // Poll while jobs are still running
   useEffect(() => {
     const poll = async () => {
       const latest = await load();
@@ -367,13 +530,13 @@ export const BenchmarkRunResults: React.FC = () => {
     setItems(prev => prev.map(i => i.id === itemId ? { ...i, ratings, ratingNotes: notes, ratedAt: new Date().toISOString() } : i));
   };
 
+  // Items that have a result — for modal navigation (only cycle through viewable ones)
+  const viewableItems = items.filter(i => i.jobStatus === 'done' && i.jobResultUrl);
+
   if (loading) return <Page><div style={{ color: '#71717a' }}>Loading…</div></Page>;
   if (!run) return <Page><div style={{ color: '#71717a' }}>Run not found.</div></Page>;
 
-  // Build column headers (unique model+preset combos)
   const combos = [...new Map(items.map(i => [`${i.model}|${i.preset}`, { model: i.model, preset: i.preset }])).values()];
-
-  // Group items by subject
   const subjectIds = [...new Set(items.map(i => i.subjectId))];
 
   const total = items.length;
@@ -382,6 +545,17 @@ export const BenchmarkRunResults: React.FC = () => {
 
   return (
     <Page>
+      {modalIdx !== null && viewableItems.length > 0 && (
+        <ViewerModal
+          items={viewableItems}
+          startIndex={modalIdx}
+          dimensions={dimensions}
+          email={email}
+          onClose={() => setModalIdx(null)}
+          onSaved={onSaved}
+        />
+      )}
+
       <TopBar>
         <PageTitle>{run.name}</PageTitle>
         <RunMeta>{new Date(run.createdAt).toLocaleDateString()}</RunMeta>
@@ -391,6 +565,14 @@ export const BenchmarkRunResults: React.FC = () => {
       <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.78rem', color: '#71717a' }}>
         <span>Jobs: <strong style={{ color: '#a78bfa' }}>{done}/{total}</strong> done</span>
         <span>Rated: <strong style={{ color: '#a78bfa' }}>{rated}/{total}</strong></span>
+        {viewableItems.length > 0 && (
+          <span
+            style={{ color: '#a78bfa', cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => setModalIdx(0)}
+          >
+            ▶ Start reviewing ({viewableItems.length} ready)
+          </span>
+        )}
         {run.completedAt && <span>Completed {new Date(run.completedAt).toLocaleString()}</span>}
       </div>
 
@@ -421,7 +603,7 @@ export const BenchmarkRunResults: React.FC = () => {
                     {first?.subjectImageUrl && (
                       <div style={{
                         width: 48, height: 48, borderRadius: 6, overflow: 'hidden',
-                        backgroundImage: `url(${first.subjectImageUrl})`,
+                        backgroundImage: `url(${toProxiedUrl(first.subjectImageUrl)})`,
                         backgroundSize: 'cover', backgroundPosition: 'center',
                         marginBottom: 6,
                       }} />
@@ -432,13 +614,12 @@ export const BenchmarkRunResults: React.FC = () => {
                   {combos.map(c => {
                     const item = subjectItems.find(i => i.model === c.model && i.preset === c.preset);
                     if (!item) return <Cell key={`${c.model}|${c.preset}`} />;
+                    const vIdx = viewableItems.findIndex(v => v.id === item.id);
                     return (
                       <Cell key={`${c.model}|${c.preset}`}>
-                        <RatingCell
+                        <GridCell
                           item={item}
-                          dimensions={dimensions}
-                          onSaved={onSaved}
-                          email={email}
+                          onClick={() => vIdx >= 0 && setModalIdx(vIdx)}
                         />
                       </Cell>
                     );
