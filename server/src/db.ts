@@ -417,5 +417,9 @@ export async function initDb(): Promise<void> {
   ];
   for (const sql of alterCols) await db.query(sql);
 
+  // Backfill: any job created by a benchmark run has name starting with '[BM]'
+  // but was inserted before the isBenchmark column existed, so it got DEFAULT false.
+  await db.query(`UPDATE genshape3d_jobs SET "isBenchmark" = true WHERE name LIKE '[BM]%' AND "isBenchmark" = false`);
+
   console.log('PostgreSQL tables ready');
 }
