@@ -4,4 +4,5 @@ export type {
   MeshSelectionOptions,
   MeshSelectionSettings,
   MeshSelectionSummary,
+  MeshSelectionZone,
 } from './types';

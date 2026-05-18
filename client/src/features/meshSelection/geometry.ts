@@ -103,7 +103,7 @@ export const growFaceSelection = (
 export const buildSelectionOverlayGeometry = (
   mesh: THREE.Mesh,
   graph: FaceGraph,
-  selectedFaces: Set<number>,
+  selectedFaces: Iterable<number>,
 ): THREE.BufferGeometry => {
   const sourcePosition = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
   const positions: number[] = [];

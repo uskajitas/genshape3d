@@ -11,13 +11,25 @@ export interface MeshSelectionSettings {
 }
 
 export interface MeshSelectionSummary {
+  meshId: string;
   meshName: string;
   seedFaceIndex: number;
   faceCount: number;
+  faceIndices: number[];
   mode: MeshSelectionMode;
 }
 
+export interface MeshSelectionZone {
+  id: string;
+  name: string;
+  meshId: string;
+  meshName: string;
+  faceIndices: number[];
+  color: string;
+}
+
 export interface MeshSelectionOptions extends MeshSelectionSettings {
+  zones?: MeshSelectionZone[];
   onChange?: (selection: MeshSelectionSummary | null) => void;
 }
 

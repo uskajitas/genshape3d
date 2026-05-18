@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import type { MeshSelectionSummary } from '../../features/meshSelection';
+import type { MeshSelectionSummary, MeshSelectionZone } from '../../features/meshSelection';
 
 type EditorMode = 'view' | 'select' | 'paint';
 
@@ -16,7 +16,13 @@ interface TextureEditorPanelProps {
   sourceName: string;
   settings: TextureEditorSettings;
   selection: MeshSelectionSummary | null;
+  zones: MeshSelectionZone[];
+  activeZoneId: string | null;
   onSettingsChange: (settings: TextureEditorSettings) => void;
+  onSelectZone: (id: string) => void;
+  onAddToZone: () => void;
+  onSubtractFromZone: () => void;
+  onSaveZone: () => void;
 }
 
 const Panel = styled.section<{ $visible: boolean }>`
@@ -127,6 +133,45 @@ const Actions = styled.div`
   justify-content: flex-end;
 `;
 
+const ZoneStrip = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+`;
+
+const ZoneChip = styled.button<{ $active?: boolean; $color: string }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  max-width: 92px;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  box-shadow: inset 3px 0 0 ${p => p.$color};
+  border-radius: 7px;
+  background: ${p => p.$active ? `${p.theme.colors.violet}22` : p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 0.36rem 0.45rem;
+  cursor: pointer;
+`;
+
+const ZoneDot = styled.span<{ $color: string }>`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: ${p => p.$color};
+`;
+
+const ZoneName = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+`;
+
 const SelectionMeta = styled.div`
   min-width: 74px;
   color: ${p => p.theme.colors.textMuted};
@@ -156,7 +201,13 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
   sourceName,
   settings,
   selection,
+  zones,
+  activeZoneId,
   onSettingsChange,
+  onSelectZone,
+  onAddToZone,
+  onSubtractFromZone,
+  onSaveZone,
 }) => {
   const update = (patch: Partial<TextureEditorSettings>) => {
     onSettingsChange({ ...settings, ...patch });
@@ -190,12 +241,27 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
         </Controls>
       </Main>
       <Actions>
+        <ZoneStrip>
+          {zones.slice(0, 4).map(zone => (
+            <ZoneChip
+              key={zone.id}
+              type="button"
+              $active={activeZoneId === zone.id}
+              $color={zone.color}
+              title={`${zone.name} - ${zone.faceIndices.length} faces`}
+              onClick={() => onSelectZone(zone.id)}
+            >
+              <ZoneDot $color={zone.color} />
+              <ZoneName>{zone.name}</ZoneName>
+            </ZoneChip>
+          ))}
+        </ZoneStrip>
         <SelectionMeta title={selection ? `${selection.meshName}, seed face ${selection.seedFaceIndex}` : 'Click the model in Select or Paint mode.'}>
           {selection ? `${selection.faceCount} faces` : 'No selection'}
         </SelectionMeta>
-        <Action title="Add the current selection to the active zone." disabled>Add</Action>
-        <Action title="Remove the current selection from the active zone." disabled>Subtract</Action>
-        <Action $primary title="Save this selection as a texture zone." disabled>Save zone</Action>
+        <Action title="Add the current selection to the active zone." disabled={!selection} onClick={onAddToZone}>Add</Action>
+        <Action title="Remove the current selection from the active zone." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Subtract</Action>
+        <Action $primary title="Save this selection as a texture zone." disabled={!selection} onClick={onSaveZone}>Save zone</Action>
       </Actions>
     </Panel>
   );

@@ -28,7 +28,7 @@ import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
 import { Dropdown, type DropdownOption } from '../components/Dropdown';
 import { TextureEditorPanel, type TextureEditorSettings } from '../components/textureEditor';
-import type { MeshSelectionSummary } from '../features/meshSelection';
+import type { MeshSelectionSummary, MeshSelectionZone } from '../features/meshSelection';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
 
@@ -193,6 +193,7 @@ const submitTextureJob = async (
     seed: number;
     strength: number;
     keepShape: boolean;
+    zones?: MeshSelectionZone[];
   },
 ): Promise<TextureSubmitResult> => {
   const r = await fetch('/api/textures', {
@@ -211,6 +212,12 @@ const submitTextureJob = async (
       seed: opts.seed,
       strength: opts.strength,
       keepShape: opts.keepShape,
+      zones: (opts.zones || []).map(zone => ({
+        id: zone.id,
+        name: zone.name,
+        meshName: zone.meshName,
+        faceIndices: zone.faceIndices,
+      })),
     }),
   });
   let data: any = null;
@@ -827,6 +834,8 @@ const TEXTURE_SOURCE_MODES: Array<{ label: string; value: TextureSourceMode; hin
   { label: 'Original', value: 'original', hint: 'reuse the model source image' },
   { label: 'Current', value: 'current', hint: 'start from the current texture' },
 ];
+
+const TEXTURE_ZONE_COLORS = ['#8B5CF6', '#10B981', '#F59E0B', '#38BDF8', '#EC4899', '#F97316'];
 
 
 const PromptArea = styled.textarea`
@@ -1900,6 +1909,8 @@ const Workspace: React.FC = () => {
     feather: 12,
   });
   const [textureSelection, setTextureSelection] = useState<MeshSelectionSummary | null>(null);
+  const [textureZones, setTextureZones] = useState<MeshSelectionZone[]>([]);
+  const [activeTextureZoneId, setActiveTextureZoneId] = useState<string | null>(null);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -2442,14 +2453,71 @@ const Workspace: React.FC = () => {
     setRecentTextureModelIds(prev => [id, ...prev.filter(existingId => existingId !== id)].slice(0, 12));
   }, []);
 
+  useEffect(() => {
+    setTextureSelection(null);
+    setTextureZones([]);
+    setActiveTextureZoneId(null);
+  }, [selectedJobId]);
+
+  const createTextureZone = useCallback((selection: MeshSelectionSummary): MeshSelectionZone => {
+    const nextIndex = textureZones.length + 1;
+    return {
+      id: `zone-${Date.now()}-${nextIndex}`,
+      name: `Zone ${nextIndex}`,
+      meshId: selection.meshId,
+      meshName: selection.meshName,
+      faceIndices: selection.faceIndices,
+      color: TEXTURE_ZONE_COLORS[(nextIndex - 1) % TEXTURE_ZONE_COLORS.length],
+    };
+  }, [textureZones.length]);
+
+  const addSelectionToTextureZone = useCallback(() => {
+    if (!textureSelection) return;
+    const activeZone = textureZones.find(zone => zone.id === activeTextureZoneId);
+    if (!activeZone || activeZone.meshId !== textureSelection.meshId) {
+      const zone = createTextureZone(textureSelection);
+      setTextureZones(prev => [...prev, zone]);
+      setActiveTextureZoneId(zone.id);
+      return;
+    }
+
+    setTextureZones(prev => prev.map(zone => {
+      if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+      return {
+        ...zone,
+        faceIndices: Array.from(new Set([...zone.faceIndices, ...textureSelection.faceIndices])),
+      };
+    }));
+  }, [activeTextureZoneId, createTextureZone, textureSelection, textureZones]);
+
+  const subtractSelectionFromTextureZone = useCallback(() => {
+    if (!textureSelection || !activeTextureZoneId) return;
+    const remove = new Set(textureSelection.faceIndices);
+    setTextureZones(prev => prev.map(zone => {
+      if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+      return {
+        ...zone,
+        faceIndices: zone.faceIndices.filter(face => !remove.has(face)),
+      };
+    }));
+  }, [activeTextureZoneId, textureSelection]);
+
+  const saveTextureZone = useCallback(() => {
+    if (!textureSelection) return;
+    const zone = createTextureZone(textureSelection);
+    setTextureZones(prev => [...prev, zone]);
+    setActiveTextureZoneId(zone.id);
+  }, [createTextureZone, textureSelection]);
+
   const textureMeshSelection = useMemo(() => ({
     enabled: activeTool === 'texture' && textureEditorSettings.mode !== 'view',
     mode: textureEditorSettings.mode === 'paint' ? 'paint' as const : 'select' as const,
     range: textureEditorSettings.range,
     boundary: textureEditorSettings.boundary,
     feather: textureEditorSettings.feather,
+    zones: textureZones,
     onChange: setTextureSelection,
-  }), [activeTool, textureEditorSettings]);
+  }), [activeTool, textureEditorSettings, textureZones]);
 
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
@@ -2480,6 +2548,7 @@ const Workspace: React.FC = () => {
       seed: textureSeed,
       strength: textureStrength,
       keepShape: textureKeepShape,
+      zones: textureZones,
     });
     setSubmitting(false);
     if (textureJob) {
@@ -2510,6 +2579,7 @@ const Workspace: React.FC = () => {
     textureSeed,
     textureStrength,
     textureKeepShape,
+    textureZones,
     textureReferenceName,
     model,
     isAdmin,
@@ -3189,7 +3259,13 @@ const Workspace: React.FC = () => {
                 sourceName={selectedJob?.name || 'Untitled asset'}
                 settings={textureEditorSettings}
                 selection={textureSelection}
+                zones={textureZones}
+                activeZoneId={activeTextureZoneId}
                 onSettingsChange={setTextureEditorSettings}
+                onSelectZone={setActiveTextureZoneId}
+                onAddToZone={addSelectionToTextureZone}
+                onSubtractFromZone={subtractSelectionFromTextureZone}
+                onSaveZone={saveTextureZone}
               />
             </ViewerWrap>
           ) : (

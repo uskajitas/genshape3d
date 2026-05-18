@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildSelectionOverlayGeometry, getFaceGraph, growFaceSelection } from './geometry';
-import type { MeshSelectionOptions } from './types';
+import type { MeshSelectionOptions, MeshSelectionZone } from './types';
 
 const DEFAULT_OPTIONS: MeshSelectionOptions = {
   enabled: false,
@@ -26,6 +26,7 @@ export const createMeshSelectionController = (
   let meshes: THREE.Mesh[] = [];
   let currentOptions = { ...DEFAULT_OPTIONS, ...options };
   let overlay: THREE.Mesh | null = null;
+  let zoneOverlays: THREE.Mesh[] = [];
   let pointerDown: { x: number; y: number } | null = null;
   let currentHit: { mesh: THREE.Mesh; seedFaceIndex: number } | null = null;
 
@@ -38,6 +39,47 @@ export const createMeshSelectionController = (
     depthTest: false,
     side: THREE.DoubleSide,
   });
+
+  const disposeZoneOverlays = () => {
+    zoneOverlays.forEach(item => {
+      scene.remove(item);
+      item.geometry.dispose();
+      if (Array.isArray(item.material)) item.material.forEach(m => m.dispose());
+      else item.material.dispose();
+    });
+    zoneOverlays = [];
+  };
+
+  const findZoneMesh = (zone: MeshSelectionZone): THREE.Mesh | null => (
+    meshes.find(mesh => mesh.uuid === zone.meshId)
+    || meshes.find(mesh => (mesh.name || 'mesh') === zone.meshName)
+    || null
+  );
+
+  const renderZones = () => {
+    disposeZoneOverlays();
+    for (const zone of currentOptions.zones || []) {
+      if (zone.faceIndices.length === 0) continue;
+      const mesh = findZoneMesh(zone);
+      if (!mesh) continue;
+      const graph = getFaceGraph(mesh.geometry);
+      if (!graph) continue;
+      const zoneMaterial = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(zone.color),
+        transparent: true,
+        opacity: 0.32,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      });
+      const zoneOverlay = new THREE.Mesh(
+        buildSelectionOverlayGeometry(mesh, graph, zone.faceIndices),
+        zoneMaterial,
+      );
+      zoneOverlay.renderOrder = 998;
+      zoneOverlays.push(zoneOverlay);
+      scene.add(zoneOverlay);
+    }
+  };
 
   const clear = () => {
     if (overlay) {
@@ -74,9 +116,11 @@ export const createMeshSelectionController = (
     currentHit = { mesh, seedFaceIndex };
 
     currentOptions.onChange?.({
+      meshId: mesh.uuid,
       meshName: mesh.name || 'mesh',
       seedFaceIndex,
       faceCount: selectedFaces.size,
+      faceIndices: Array.from(selectedFaces),
       mode: currentOptions.mode,
     });
   };
@@ -114,9 +158,11 @@ export const createMeshSelectionController = (
   return {
     setMeshes(nextMeshes) {
       meshes = nextMeshes;
+      renderZones();
     },
     updateOptions(nextOptions) {
       currentOptions = { ...currentOptions, ...nextOptions };
+      renderZones();
       if (!currentOptions.enabled) {
         clear();
       } else if (currentHit) {
@@ -128,6 +174,7 @@ export const createMeshSelectionController = (
       domElement.removeEventListener('pointerdown', onPointerDown);
       domElement.removeEventListener('pointerup', onPointerUp);
       clear();
+      disposeZoneOverlays();
       material.dispose();
     },
   };
