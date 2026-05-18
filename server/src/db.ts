@@ -414,6 +414,7 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE genshape3d_texture_jobs ADD COLUMN IF NOT EXISTS "sourceImageUrl" TEXT NOT NULL DEFAULT ''`,
     // Benchmark jobs must not appear in the normal user job list
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "isBenchmark" BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`,
   ];
   for (const sql of alterCols) await db.query(sql);
 

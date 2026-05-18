@@ -915,6 +915,33 @@ const AdminLink = styled(Link)`
   &:hover { color: ${p => p.theme.colors.violet}; }
 `;
 
+const AdminLinkBtn = styled.button`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  &:hover { color: ${p => p.theme.colors.violet}; }
+`;
+
+const ArchiveAllBtn = styled.button`
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: ${p => p.theme.colors.textMuted};
+  background: none;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  font-family: inherit;
+  align-self: flex-start;
+  &:hover { color: ${p => p.theme.colors.text}; border-color: ${p => p.theme.colors.borderHigh}; }
+`;
+
 const CostRow = styled.div`
   display: flex;
   align-items: center;
@@ -1951,6 +1978,8 @@ const Workspace: React.FC = () => {
   const [showManagePack, setShowManagePack] = useState(false);
   const [managePackName, setManagePackName] = useState('');
   const [showAdvModal, setShowAdvModal] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedJobs, setArchivedJobs] = useState<Job[]>([]);
 
   // Gallery images fetched from the text-to-image page — shown in the panel
   // so the user can pick one as the input without re-uploading.
@@ -2041,6 +2070,23 @@ const Workspace: React.FC = () => {
     const t = setInterval(tick, 15000);
     return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
+
+  // Fetch archived jobs when the archive panel is open (admin only). Refresh every 10s.
+  useEffect(() => {
+    if (!showArchived || !isAdmin || !email) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/jobs/archived?email=${encodeURIComponent(email)}`);
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        if (!cancelled) setArchivedJobs(d.jobs || []);
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const t = setInterval(tick, 10_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [showArchived, isAdmin, email]);
 
   const onCreateGroup = useCallback(async () => {
     const name = newGroupName.trim();
@@ -2264,6 +2310,42 @@ const Workspace: React.FC = () => {
     setJobs(prev => prev.filter(j => j.id !== id));
     setSelectedJobId(prev => (prev === id ? null : prev));
   }, []);
+
+  const onArchiveJob = useCallback(async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await fetch(`/api/jobs/${id}/archive`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setJobs(prev => prev.filter(j => j.id !== id));
+    if (selectedJobId === id) setSelectedJobId(null);
+  }, [email, selectedJobId]);
+
+  const onUnarchiveJob = useCallback(async (id: string) => {
+    await fetch(`/api/jobs/${id}/unarchive`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setArchivedJobs(prev => prev.filter(j => j.id !== id));
+  }, [email]);
+
+  const onArchiveAll = useCallback(async () => {
+    if (!jobs.length) return;
+    const ok = await confirm({
+      title: 'Archive all?',
+      message: `Archive ${jobs.length} generation${jobs.length !== 1 ? 's' : ''}? They\'ll be in the Archive section.`,
+    });
+    if (!ok) return;
+    await fetch('/api/jobs/archive-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    setJobs([]);
+    setSelectedJobId(null);
+  }, [email, jobs.length]);
 
   const onSignOut = async () => {
     await signOutUser();
@@ -3174,6 +3256,9 @@ const Workspace: React.FC = () => {
               <AdminLinks>
                 <AdminLink to="/admin/stats">📊 Stats</AdminLink>
                 <AdminLink to="/benchmark">🧪 Benchmark</AdminLink>
+                <AdminLinkBtn type="button" onClick={() => setShowArchived(v => !v)}>
+                  📦 {showArchived ? 'Back' : 'Archive'}
+                </AdminLinkBtn>
               </AdminLinks>
             )}
           </PanelFooter>
@@ -3370,18 +3455,68 @@ const Workspace: React.FC = () => {
                 Sign in to see your generations.
               </EmptyAssets>
             )}
-            {isAuthenticated && railJobs.length === 0 && (
-              <EmptyAssets>
-                <span style={{ fontSize: '1.4rem' }}>{activeTool === 'texture' ? '🎨' : '📭'}</span>
-                {activeTool === 'texture'
-                  ? <>No finished assets yet.</>
-                  : selectedGroupId
-                  ? <>No assets in this pack yet. Submit a job with this pack selected to add some.</>
-                  : <>No assets yet. Generate your first model to see it here.</>
-                }
-              </EmptyAssets>
+            {/* ── Archive view ── */}
+            {isAuthenticated && isAdmin && showArchived && (
+              <>
+                <div style={{ padding: '0.6rem 0.75rem 0.25rem', fontSize: '0.78rem', fontWeight: 700, color: '#A4A4AC', letterSpacing: '0.04em' }}>
+                  📦 Archived generations
+                </div>
+                {archivedJobs.length === 0 && (
+                  <EmptyAssets>
+                    <span style={{ fontSize: '1.4rem' }}>📦</span>
+                    No archived jobs yet.
+                  </EmptyAssets>
+                )}
+                {archivedJobs.map(job => {
+                  const thumbKey = job.imageUrl?.includes('/uploads/')
+                    ? `uploads/${job.imageUrl.split('/uploads/')[1]}`
+                    : job.imageUrl;
+                  const thumb = thumbKey ? `/api/image?key=${encodeURIComponent(thumbKey)}` : null;
+                  return (
+                    <AssetItem key={job.id}>
+                      <AssetCard $active={false} onClick={() => {}}>
+                        {thumb
+                          ? <AssetThumb src={thumb} alt="" loading="lazy" decoding="async" style={{ filter: 'grayscale(0.6) brightness(0.8)' }} />
+                          : <AssetPlaceholder>⬡</AssetPlaceholder>}
+                        <AssetBadge $color="#6B7280">archived</AssetBadge>
+                        <DeleteJobBtn
+                          className="delete-btn"
+                          aria-label="Restore job"
+                          title="Restore to active"
+                          onClick={e => { e.stopPropagation(); onUnarchiveJob(job.id); }}
+                          style={{ background: 'rgba(16,185,129,0.18)', color: '#10B981' }}
+                        >
+                          ↩
+                        </DeleteJobBtn>
+                      </AssetCard>
+                      <AssetName $empty={!job.name}>{job.name || 'Untitled'}</AssetName>
+                    </AssetItem>
+                  );
+                })}
+              </>
             )}
-            {railJobs.map(job => {
+            {/* ── Normal view ── */}
+            {isAuthenticated && !showArchived && (
+              <>
+                {isAdmin && !showArchived && jobs.length > 0 && (
+                  <div style={{ padding: '0.4rem 0.75rem 0' }}>
+                    <ArchiveAllBtn type="button" onClick={onArchiveAll}>📦 Archive all</ArchiveAllBtn>
+                  </div>
+                )}
+                {railJobs.length === 0 && (
+                  <EmptyAssets>
+                    <span style={{ fontSize: '1.4rem' }}>{activeTool === 'texture' ? '🎨' : '📭'}</span>
+                    {activeTool === 'texture'
+                      ? <>No finished assets yet.</>
+                      : selectedGroupId
+                      ? <>No assets in this pack yet. Submit a job with this pack selected to add some.</>
+                      : <>No assets yet. Generate your first model to see it here.</>
+                    }
+                  </EmptyAssets>
+                )}
+              </>
+            )}
+            {!showArchived && railJobs.map(job => {
               const thumbKey = job.imageUrl?.includes('/uploads/')
                 ? `uploads/${job.imageUrl.split('/uploads/')[1]}`
                 : job.imageUrl;
@@ -3457,13 +3592,26 @@ const Workspace: React.FC = () => {
                         </CancelJobBtn>
                       </Tooltip>
                     ) : activeTool !== 'texture' ? (
-                      <DeleteJobBtn
-                        className="delete-btn"
-                        aria-label="Delete asset"
-                        onClick={e => onDeleteJob(job.id, job.name || '', e)}
-                      >
-                        <IconTrash size={13} />
-                      </DeleteJobBtn>
+                      <>
+                        {isAdmin && (
+                          <DeleteJobBtn
+                            className="delete-btn"
+                            aria-label="Archive asset"
+                            title="Archive"
+                            onClick={e => onArchiveJob(job.id, e)}
+                            style={{ right: 28, background: 'rgba(168,85,247,0.18)', color: '#C084FC' }}
+                          >
+                            📦
+                          </DeleteJobBtn>
+                        )}
+                        <DeleteJobBtn
+                          className="delete-btn"
+                          aria-label="Delete asset"
+                          onClick={e => onDeleteJob(job.id, job.name || '', e)}
+                        >
+                          <IconTrash size={13} />
+                        </DeleteJobBtn>
+                      </>
                     ) : null}
                     <AssetOverlay className="asset-overlay">
                       {activeTool !== 'texture' && (

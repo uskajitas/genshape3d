@@ -47,7 +47,7 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince } from './jobsRepo';
+import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
@@ -1314,6 +1314,41 @@ app.get('/api/uploads', async (req, res) => {
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// List archived jobs (admin only) — MUST be before /api/jobs/:id so Express
+// doesn't treat "archived" as an ID parameter.
+app.get('/api/jobs/archived', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json({ jobs: await listArchivedJobs(email) }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Archive a single job (admin only)
+app.patch('/api/jobs/:id/archive', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  try { await archiveJob(req.params.id); res.json({ ok: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Unarchive a single job (admin only)
+app.patch('/api/jobs/:id/unarchive', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  try { await unarchiveJob(req.params.id); res.json({ ok: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Archive ALL current jobs for the user (admin only)
+app.post('/api/jobs/archive-all', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const count = await archiveAllJobs(email);
+    res.json({ ok: true, count });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/jobs/:id', async (req, res) => {

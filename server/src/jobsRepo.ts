@@ -173,9 +173,36 @@ function routeWorker(model: string): string {
 export async function getJobsByUser(userEmail: string): Promise<Job[]> {
   const { rows } = await getDb().query(
     `SELECT * FROM genshape3d_jobs
-     WHERE "userEmail"=$1 AND deleted = false AND "isBenchmark" = false
+     WHERE "userEmail"=$1 AND deleted = false AND "isBenchmark" = false AND archived = false
      ORDER BY "createdAt" DESC`,
     [userEmail]
+  );
+  return rows;
+}
+
+export async function archiveJob(id: string): Promise<void> {
+  await getDb().query(`UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW() WHERE id = $1`, [id]);
+}
+
+export async function unarchiveJob(id: string): Promise<void> {
+  await getDb().query(`UPDATE genshape3d_jobs SET archived = false, "updatedAt" = NOW() WHERE id = $1`, [id]);
+}
+
+export async function archiveAllJobs(userEmail: string): Promise<number> {
+  const r = await getDb().query(
+    `UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW()
+     WHERE "userEmail" = $1 AND deleted = false AND "isBenchmark" = false AND archived = false`,
+    [userEmail],
+  );
+  return r.rowCount ?? 0;
+}
+
+export async function listArchivedJobs(userEmail: string): Promise<Job[]> {
+  const { rows } = await getDb().query(
+    `SELECT * FROM genshape3d_jobs
+     WHERE "userEmail" = $1 AND deleted = false AND "isBenchmark" = false AND archived = true
+     ORDER BY "createdAt" DESC`,
+    [userEmail],
   );
   return rows;
 }
