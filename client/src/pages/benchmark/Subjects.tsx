@@ -584,6 +584,7 @@ export const BenchmarkSubjects: React.FC = () => {
         provider:      genParams.provider,
         strict_single: genParams.strictSingle ? '1' : '0',
         email,
+        benchmark:     '1',
       });
       if (genParams.negative.trim()) qs.set('negative', genParams.negative.trim());
 
@@ -721,6 +722,7 @@ export const BenchmarkSubjects: React.FC = () => {
         provider:      qgParams.provider,
         strict_single: qgParams.strictSingle ? '1' : '0',
         email,
+        benchmark:     '1',
       });
       if (qgParams.negative.trim()) qs.set('negative', qgParams.negative.trim());
       const r = await fetch(`/api/text2image?${qs}`);

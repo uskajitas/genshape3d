@@ -520,7 +520,12 @@ app.get('/api/text2image', async (req, res) => {
     // If the caller supplied an email, persist the image to R2 + DB so it
     // survives reloads. Without an email (e.g. anonymous tests, scripts) we
     // just stream the bytes back as before.
+    //
+    // benchmark=1 — image is for the benchmark section only. We still upload
+    // to R2 so the URL is permanent, but we skip the createAsset() call so the
+    // image never appears in the user's normal gallery.
     const email = String(req.query.email || '').trim();
+    const isBenchmark = req.query.benchmark === '1';
     let assetId = '';
     let imageKey = '';
     if (email) {
@@ -532,29 +537,31 @@ app.get('/api/text2image', async (req, res) => {
         // we keep that; the proxy /api/image?key=… already accepts any key.
         imageKey = uploaded.key;
 
-        const asset = await createAsset({
-          userEmail: email,
-          name: smartAssetName(String(req.query.prompt || '')),
-          prompt: String(req.query.prompt || ''),
-          finalPrompt,
-          params: {
-            bg: req.query.bg, view: req.query.view,
-            projection: req.query.projection || 'perspective',
-            scale: req.query.scale,
-            style: req.query.style, material: req.query.material,
-            aspect: req.query.aspect, w, h,
-            strict_single: req.query.strict_single,
-          },
-          provider,
-          imageKey,
-          seed,
-          parentAssetId: null,         // primary view — original generation
-          // The actual angle the user picked. Used downstream by the alt-views
-          // generator to skip THIS angle and only produce the missing ones.
-          viewLabel:     String(req.query.view || 'front'),
-          readyFor3D:    true,         // default ON — user can toggle off later
-        });
-        assetId = asset.id;
+        if (!isBenchmark) {
+          const asset = await createAsset({
+            userEmail: email,
+            name: smartAssetName(String(req.query.prompt || '')),
+            prompt: String(req.query.prompt || ''),
+            finalPrompt,
+            params: {
+              bg: req.query.bg, view: req.query.view,
+              projection: req.query.projection || 'perspective',
+              scale: req.query.scale,
+              style: req.query.style, material: req.query.material,
+              aspect: req.query.aspect, w, h,
+              strict_single: req.query.strict_single,
+            },
+            provider,
+            imageKey,
+            seed,
+            parentAssetId: null,         // primary view — original generation
+            // The actual angle the user picked. Used downstream by the alt-views
+            // generator to skip THIS angle and only produce the missing ones.
+            viewLabel:     String(req.query.view || 'front'),
+            readyFor3D:    true,         // default ON — user can toggle off later
+          });
+          assetId = asset.id;
+        }
       } catch (saveErr: any) {
         // Non-fatal: still return the image bytes so the user sees a result.
         console.error('[text2image] save failed:', saveErr.message);
