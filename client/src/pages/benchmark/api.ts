@@ -32,6 +32,7 @@ export interface BenchmarkRunItem {
   subjectName?: string; subjectImageUrl?: string; subjectCategoryId?: string;
   jobStatus?: string; jobResultUrl?: string;
   jobStartedAt?: string | null; jobCompletedAt?: string | null;
+  jobAuxImageUrls?: string[];
 }
 
 export interface CreateRunPayload {

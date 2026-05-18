@@ -455,10 +455,26 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             ].flatMap(({ k, v, c }, i) => {
               const isLeft = i % 2 === 0;
               return [
-                <span key={k + '-k'} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#4a4870', whiteSpace: 'nowrap', paddingLeft: isLeft ? 0 : 12 }}>{k}</span>,
-                <span key={k + '-v'} style={{ fontSize: '0.9rem', fontWeight: 800, color: c, whiteSpace: 'nowrap' }}>{v}</span>,
+                <span key={k + '-k'} style={{ fontSize: '0.82rem', fontWeight: 700, color: '#7c7aaa', whiteSpace: 'nowrap', paddingLeft: isLeft ? 0 : 16 }}>{k}</span>,
+                <span key={k + '-v'} style={{ fontSize: '0.95rem', fontWeight: 800, color: c, whiteSpace: 'nowrap' }}>{v}</span>,
               ];
             })}
+            {/* Angle reference images */}
+            {(item.jobAuxImageUrls ?? []).length > 0 && <>
+              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #2a2740', paddingTop: 8, marginTop: 2 }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#7c7aaa', marginBottom: 6 }}>Angle refs</div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {(item.jobAuxImageUrls ?? []).map((url, i) => (
+                    <div key={i} style={{
+                      width: 54, height: 54, borderRadius: 6, flexShrink: 0,
+                      backgroundImage: `url(${toProxiedUrl(url)})`,
+                      backgroundSize: 'cover', backgroundPosition: 'center',
+                      border: '1px solid #2a2740',
+                    }} />
+                  ))}
+                </div>
+              </div>
+            </>}
           </div>
         </ModelArea>
 

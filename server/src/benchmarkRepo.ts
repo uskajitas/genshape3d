@@ -261,7 +261,8 @@ export async function getRunItems(runId: string): Promise<BenchmarkRunItem[]> {
        j.status         AS "jobStatus",
        j."resultUrl"    AS "jobResultUrl",
        j."startedAt"    AS "jobStartedAt",
-       j."completedAt"  AS "jobCompletedAt"
+       j."completedAt"  AS "jobCompletedAt",
+       j."auxImageUrls" AS "jobAuxImageUrls"
      FROM benchmark_run_items i
      JOIN benchmark_subjects s ON s.id = i."subjectId"
      LEFT JOIN genshape3d_jobs j ON j.id = i."jobId"
