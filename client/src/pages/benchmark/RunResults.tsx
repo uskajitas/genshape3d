@@ -307,8 +307,14 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   const [bgIssue, setBgIssue] = useState<boolean>(!!(item.ratings as any)?.bgIssue);
   const [axisIssue, setAxisIssue] = useState<boolean>(!!(item.ratings as any)?.axisIssue);
   const [flagging, setFlagging] = useState(false);
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // refs so async callbacks always read live values
+  const bgIssueRef   = useRef(bgIssue);
+  const axisIssueRef = useRef(axisIssue);
+  bgIssueRef.current   = bgIssue;
+  axisIssueRef.current = axisIssue;
 
-  // Reset draft when item changes
+  // Reset when item changes
   useEffect(() => {
     setDraft(initDraft(item));
     setNotes(item.ratingNotes || '');
@@ -321,48 +327,61 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowLeft' && idx > 0) setIdx(i => i - 1);
+      if (e.key === 'ArrowLeft'  && idx > 0)               setIdx(i => i - 1);
       if (e.key === 'ArrowRight' && idx < items.length - 1) setIdx(i => i + 1);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [idx, items.length, onClose]);
 
-  const setScore = (key: string, val: number) => setDraft(d => ({ ...d, [key]: val }));
-
-  const handleSave = async () => {
+  // Core save — called automatically
+  const autoSave = async (d: Record<string, number>, n: string) => {
     setSaving(true);
     try {
-      const ratingsWithFlag = { ...draft, ...(bgIssue ? { bgIssue: 1 } : {}), ...(axisIssue ? { axisIssue: 1 } : {}) };
-      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
-      onSaved(item.id, ratingsWithFlag, notes);
-      setSavedMsg('Saved ✓');
-      setTimeout(() => setSavedMsg(''), 2000);
+      const r = { ...d, ...(bgIssueRef.current ? { bgIssue: 1 } : {}), ...(axisIssueRef.current ? { axisIssue: 1 } : {}) };
+      await benchmarkApi.rateItem(email, item.id, r, n);
+      onSaved(item.id, r, n);
+      setSavedMsg('✓');
+      setTimeout(() => setSavedMsg(''), 1500);
     } finally { setSaving(false); }
   };
 
-  // Auto-save flags immediately on toggle — no need to fill ratings first
+  // Star click → instant save
+  const setScore = (key: string, val: number) => {
+    const newDraft = { ...draft, [key]: val };
+    setDraft(newDraft);
+    autoSave(newDraft, notes);
+  };
+
+  // Notes → debounced save
+  const handleNotesChange = (val: string) => {
+    setNotes(val);
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    notesTimer.current = setTimeout(() => autoSave(draft, val), 900);
+  };
+
+  // Flag toggles
   const toggleBgIssue = async () => {
     const next = !bgIssue;
     setBgIssue(next);
+    bgIssueRef.current = next;
     setFlagging(true);
     try {
-      const existingRatings = item.ratings ?? {};
-      const ratingsWithFlag = { ...existingRatings, ...draft, ...(next ? { bgIssue: 1 } : { bgIssue: 0 }), ...(axisIssue ? { axisIssue: 1 } : {}) };
-      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
-      onSaved(item.id, ratingsWithFlag, notes);
+      const r = { ...(item.ratings ?? {}), ...draft, ...(next ? { bgIssue: 1 } : { bgIssue: 0 }), ...(axisIssueRef.current ? { axisIssue: 1 } : {}) };
+      await benchmarkApi.rateItem(email, item.id, r, notes);
+      onSaved(item.id, r, notes);
     } finally { setFlagging(false); }
   };
 
   const toggleAxisIssue = async () => {
     const next = !axisIssue;
     setAxisIssue(next);
+    axisIssueRef.current = next;
     setFlagging(true);
     try {
-      const existingRatings = item.ratings ?? {};
-      const ratingsWithFlag = { ...existingRatings, ...draft, ...(bgIssue ? { bgIssue: 1 } : {}), ...(next ? { axisIssue: 1 } : { axisIssue: 0 }) };
-      await benchmarkApi.rateItem(email, item.id, ratingsWithFlag, notes);
-      onSaved(item.id, ratingsWithFlag, notes);
+      const r = { ...(item.ratings ?? {}), ...draft, ...(bgIssueRef.current ? { bgIssue: 1 } : {}), ...(next ? { axisIssue: 1 } : { axisIssue: 0 }) };
+      await benchmarkApi.rateItem(email, item.id, r, notes);
+      onSaved(item.id, r, notes);
     } finally { setFlagging(false); }
   };
 
@@ -395,105 +414,94 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
               </ModelStatus>
             )
           }
-          {/* Floating view-mode buttons — always visible on the viewport */}
+
+          {/* View-mode buttons — top-left */}
           {resultUrl && isDone && (
             <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 10 }}>
               {([
                 { mode: 'clay',      label: '◑ Clay',      active: '#e0e0e0', bg: '#3a3a5c' },
-                { mode: 'wireframe', label: '◈ Wireframe', active: '#00d2ff', bg: '#003a44' },
+                { mode: 'wireframe', label: '◈ Wire',       active: '#00d2ff', bg: '#003a44' },
                 { mode: 'solid',     label: '◉ Solid',     active: '#a78bfa', bg: '#2a1a5c' },
               ] as const).map(({ mode, label, active, bg }) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  style={{
-                    font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
-                    padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
-                    border: `1px solid ${viewMode === mode ? active : '#2a2740'}`,
-                    background: viewMode === mode ? bg : '#0e0d1a',
-                    color: viewMode === mode ? active : '#555',
-                    transition: 'all 0.15s',
-                  }}
-                >{label}</button>
+                <button key={mode} onClick={() => setViewMode(mode)} style={{
+                  font: 'inherit', fontSize: '0.75rem', fontWeight: 700,
+                  padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
+                  border: `1px solid ${viewMode === mode ? active : '#2a2740'}`,
+                  background: viewMode === mode ? bg : 'rgba(7,6,15,0.7)',
+                  color: viewMode === mode ? active : '#555',
+                  transition: 'all 0.15s', backdropFilter: 'blur(4px)',
+                }}>{label}</button>
               ))}
             </div>
           )}
+
+          {/* ── PARAMS OVERLAY — bottom-left of the viewport ── */}
+          <div style={{
+            position: 'absolute', bottom: 14, left: 14, zIndex: 10,
+            background: 'rgba(7,6,15,0.82)', backdropFilter: 'blur(8px)',
+            border: '1px solid #2a2740', borderRadius: 12,
+            padding: '10px 14px', maxWidth: 360,
+          }}>
+            {/* row 1: subject + model + preset + timing */}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#e0e0e0' }}>{item.subjectName}</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#a78bfa' }}>{item.model}</span>
+              <span style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 600 }}>{item.preset}</span>
+              {durationLabel && <span style={{ fontSize: '0.72rem', color: '#7c3aed', marginLeft: 'auto' }}>⏱ {durationLabel}</span>}
+              {saving && <span style={{ fontSize: '0.68rem', color: '#555' }}>saving…</span>}
+              {savedMsg && <span style={{ fontSize: '0.72rem', color: '#22c55e', fontWeight: 800 }}>{savedMsg}</span>}
+            </div>
+            {/* row 2: all numeric params side by side */}
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              {[
+                { k: 'OCT',     v: item.octree },
+                { k: 'STEPS',   v: item.steps },
+                { k: 'GUID',    v: item.guidance },
+                { k: 'FACES',   v: item.faces != null ? (item.faces >= 1000 ? `${(item.faces/1000).toFixed(0)}K` : item.faces) : '—' },
+                { k: 'CHUNKS',  v: item.chunks },
+                { k: 'SEED',    v: item.seed === 0 ? 'rnd' : item.seed },
+              ].map(({ k, v }) => (
+                <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.56rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em' }}>{k}</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 900, color: '#e0e0e0', lineHeight: 1.1 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {/* row 3: nav position */}
+            <div style={{ marginTop: 6, fontSize: '0.65rem', color: '#444' }}>{idx + 1} / {items.length}</div>
+          </div>
         </ModelArea>
 
         <ModelNav>
           <NavBtn $disabled={idx === 0} onClick={() => idx > 0 && setIdx(i => i - 1)}>← Prev</NavBtn>
-          <div style={{ textAlign: 'center' }}>
-            <NavTitle>{item.subjectName}</NavTitle>
-            <NavSub>{item.model} · {item.preset} · {item.octree}oct · {item.steps}st · g{item.guidance}</NavSub>
-            <NavInfo>{idx + 1} / {items.length}</NavInfo>
-          </div>
           <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
         </ModelNav>
       </ModalLeft>
 
       <ModalRight>
         <PanelHeader>
-          <PanelTitle>Rate this result</PanelTitle>
+          <PanelTitle>{item.subjectName}</PanelTitle>
           <CloseBtn onClick={onClose} title="Close (Esc)">✕</CloseBtn>
         </PanelHeader>
 
         <SubjectThumb $url={toProxiedUrl(item.subjectImageUrl)} />
 
-        {/* Generation params — always in your face */}
-        <div style={{ padding: '0.7rem 1.2rem', borderBottom: '1px solid #2a2740', background: '#080712' }}>
-          <div style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.08em', color: '#555', marginBottom: '0.5rem' }}>GENERATION PARAMS</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.75rem' }}>
-            {[
-              { label: 'MODEL',    value: item.model },
-              { label: 'PRESET',   value: item.preset },
-              { label: 'OCTREE',   value: item.octree },
-              { label: 'STEPS',    value: item.steps },
-              { label: 'GUIDANCE', value: item.guidance },
-              { label: 'FACES',    value: item.faces?.toLocaleString() },
-              { label: 'CHUNKS',   value: item.chunks },
-              { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#555', letterSpacing: '0.06em' }}>{label}</div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#e0e0e0', lineHeight: 1.2, wordBreak: 'break-all' }}>{value ?? '—'}</div>
-              </div>
-            ))}
-          </div>
-          {durationLabel && (
-            <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: '#7c3aed', fontWeight: 700 }}>⏱ {durationLabel}</div>
-          )}
-        </div>
-
-        {/* Issue flags — auto-save, always visible regardless of job status */}
-        <div style={{ padding: '0.6rem 1.2rem', borderBottom: '1px solid #2a2740', display: 'flex', gap: '0.5rem' }}>
-          <button
-            onClick={toggleBgIssue}
-            disabled={flagging}
-            style={{
-              flex: 1, font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
-              padding: '0.45rem 0.5rem', borderRadius: 8, cursor: 'pointer',
-              border: `2px solid ${bgIssue ? '#ef4444' : '#2a2740'}`,
-              background: bgIssue ? '#ef444422' : 'transparent',
-              color: bgIssue ? '#ef4444' : '#555',
-              transition: 'all 0.15s',
-            }}
-          >
-            {bgIssue ? '🚩 BG flagged' : '🏳 BG issue'}
-          </button>
-          <button
-            onClick={toggleAxisIssue}
-            disabled={flagging}
-            style={{
-              flex: 1, font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
-              padding: '0.45rem 0.5rem', borderRadius: 8, cursor: 'pointer',
-              border: `2px solid ${axisIssue ? '#f59e0b' : '#2a2740'}`,
-              background: axisIssue ? '#f59e0b22' : 'transparent',
-              color: axisIssue ? '#f59e0b' : '#555',
-              transition: 'all 0.15s',
-            }}
-          >
-            {axisIssue ? '🔄 Axis flagged' : '↕ Axis issue'}
-          </button>
+        {/* Issue flags */}
+        <div style={{ padding: '0.5rem 0.8rem', borderBottom: '1px solid #2a2740', display: 'flex', gap: '0.4rem' }}>
+          <button onClick={toggleBgIssue} disabled={flagging} style={{
+            flex: 1, font: 'inherit', fontSize: '0.75rem', fontWeight: 700,
+            padding: '0.4rem 0.3rem', borderRadius: 7, cursor: 'pointer',
+            border: `2px solid ${bgIssue ? '#ef4444' : '#2a2740'}`,
+            background: bgIssue ? '#ef444422' : 'transparent',
+            color: bgIssue ? '#ef4444' : '#555', transition: 'all 0.15s',
+          }}>{bgIssue ? '🚩 BG' : '🏳 BG'}</button>
+          <button onClick={toggleAxisIssue} disabled={flagging} style={{
+            flex: 1, font: 'inherit', fontSize: '0.75rem', fontWeight: 700,
+            padding: '0.4rem 0.3rem', borderRadius: 7, cursor: 'pointer',
+            border: `2px solid ${axisIssue ? '#f59e0b' : '#2a2740'}`,
+            background: axisIssue ? '#f59e0b22' : 'transparent',
+            color: axisIssue ? '#f59e0b' : '#555', transition: 'all 0.15s',
+          }}>{axisIssue ? '🔄 Axis' : '↕ Axis'}</button>
         </div>
 
         {isDone ? (
@@ -506,7 +514,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
                     {(draft['overall'] ?? 0) > i ? '★' : '☆'}
                   </Star>
                 ))}
-                <span style={{ marginLeft: 6, fontSize: '0.85rem', color: '#f59e0b', fontWeight: 700 }}>
+                <span style={{ marginLeft: 4, fontSize: '0.85rem', color: '#f59e0b', fontWeight: 700 }}>
                   {draft['overall'] || ''}
                 </span>
               </StarRow>
@@ -523,7 +531,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
                       {(draft[dim.key] ?? 0) > i ? '★' : '☆'}
                     </Star>
                   ))}
-                  <span style={{ marginLeft: 6, fontSize: '0.8rem', color: '#a78bfa', fontWeight: 700 }}>
+                  <span style={{ marginLeft: 4, fontSize: '0.8rem', color: '#a78bfa', fontWeight: 700 }}>
                     {draft[dim.key] || ''}
                   </span>
                 </StarRow>
@@ -531,29 +539,18 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             ))}
 
             <NotesArea
-              placeholder="Notes (optional)…"
+              placeholder="Notes — auto-saved…"
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={e => handleNotesChange(e.target.value)}
             />
 
-            <SaveRatingBtn onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : savedMsg || (item.ratings ? 'Update rating' : 'Save rating')}
-            </SaveRatingBtn>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
-              {idx > 0 && (
-                <NavBtn style={{ flex: 1, textAlign: 'center' }} onClick={() => setIdx(i => i - 1)}>← Prev</NavBtn>
-              )}
-              {idx < items.length - 1 && (
-                <NavBtn style={{ flex: 1, textAlign: 'center' }} $disabled={false} onClick={() => setIdx(i => i + 1)}>Next →</NavBtn>
-              )}
+            <div style={{ fontSize: '0.65rem', color: saving ? '#7c3aed' : savedMsg ? '#22c55e' : '#333', fontWeight: 700, textAlign: 'center', minHeight: '1rem' }}>
+              {saving ? 'saving…' : savedMsg || ''}
             </div>
           </RatingPanel>
         ) : (
           <RatingPanel>
-            <div style={{ color: '#555', fontSize: '0.8rem' }}>
-              Rating available once the job is done.
-            </div>
+            <div style={{ color: '#555', fontSize: '0.8rem' }}>Rating available once the job is done.</div>
           </RatingPanel>
         )}
       </ModalRight>
