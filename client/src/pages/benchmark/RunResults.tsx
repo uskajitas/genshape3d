@@ -430,62 +430,35 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             </div>
           )}
 
-          {/* ── PARAMS OVERLAY — left strip, semi-transparent, full height ── */}
+          {/* ── PARAMS OVERLAY ── */}
           <div style={{
-            position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 10,
-            width: 260,
-            background: 'rgba(4,3,10,0.80)', backdropFilter: 'blur(14px)',
-            borderRight: '1px solid #1e1c35',
-            padding: '24px 22px',
-            display: 'flex', flexDirection: 'column',
-            overflowY: 'auto',
+            position: 'absolute', top: 12, left: 12, zIndex: 10,
+            background: 'rgba(4,3,10,0.82)', backdropFilter: 'blur(12px)',
+            border: '1px solid #2a2740', borderRadius: 10,
+            padding: '12px 16px', minWidth: 190,
           }}>
-            {/* subject name */}
-            <div style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', lineHeight: 1.3, marginBottom: 22 }}>
-              {item.subjectName}
-            </div>
-
-            {/* MODEL */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#3d3b60', letterSpacing: '0.12em', marginBottom: 4 }}>MODEL</div>
-              <div style={{ fontSize: '1.9rem', fontWeight: 900, color: '#a78bfa', lineHeight: 1, wordBreak: 'break-all' }}>{item.model}</div>
-            </div>
-
-            {/* PRESET */}
-            <div style={{ marginBottom: 22 }}>
-              <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#3d3b60', letterSpacing: '0.12em', marginBottom: 4 }}>PRESET</div>
-              <div style={{ fontSize: '1.9rem', fontWeight: 900, color: '#a78bfa', lineHeight: 1 }}>{item.preset}</div>
-            </div>
-
-            <div style={{ borderTop: '1px solid #1e1c35', marginBottom: 22 }} />
-
-            {/* numeric params — 2 per row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 10px', flex: 1 }}>
-              {[
-                { label: 'OCTREE',   value: item.octree },
-                { label: 'STEPS',    value: item.steps },
-                { label: 'GUIDANCE', value: item.guidance },
-                { label: 'FACES',    value: item.faces?.toLocaleString() ?? '—' },
-                { label: 'CHUNKS',   value: item.chunks },
-                { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <div style={{ fontSize: '0.56rem', fontWeight: 800, color: '#3d3b60', letterSpacing: '0.12em', marginBottom: 4 }}>{label}</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 900, color: '#ffffff', lineHeight: 1, wordBreak: 'break-all' }}>{value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* timing at bottom */}
-            <div style={{ borderTop: '1px solid #1e1c35', paddingTop: 14, marginTop: 16 }}>
-              {durationLabel && <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#7c3aed', marginBottom: 4 }}>⏱ {durationLabel}</div>}
-              <div style={{ fontSize: '0.65rem', color: '#2a2740' }}>{idx + 1} / {items.length}</div>
-              {(saving || savedMsg) && (
-                <div style={{ marginTop: 4, fontSize: '0.75rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
-                  {saving ? 'saving…' : savedMsg}
-                </div>
-              )}
-            </div>
+            {[
+              { k: 'Subject',  v: item.subjectName,                            c: '#ffffff' },
+              { k: 'Model',    v: item.model,                                  c: '#a78bfa' },
+              { k: 'Preset',   v: item.preset,                                 c: '#a78bfa' },
+              { k: 'Octree',   v: item.octree,                                 c: '#e0e0e0' },
+              { k: 'Steps',    v: item.steps,                                  c: '#e0e0e0' },
+              { k: 'Guidance', v: item.guidance,                               c: '#e0e0e0' },
+              { k: 'Faces',    v: item.faces?.toLocaleString() ?? '—',         c: '#e0e0e0' },
+              { k: 'Chunks',   v: item.chunks,                                 c: '#e0e0e0' },
+              { k: 'Seed',     v: item.seed === 0 ? 'random' : item.seed,      c: '#e0e0e0' },
+              ...(durationLabel ? [{ k: 'Time', v: durationLabel, c: '#7c3aed' }] : []),
+            ].map(({ k, v, c }) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, padding: '3px 0', borderBottom: '1px solid #1a1830' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#4a4870', whiteSpace: 'nowrap' }}>{k}</span>
+                <span style={{ fontSize: '0.92rem', fontWeight: 800, color: c, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
+              </div>
+            ))}
+            {(saving || savedMsg) && (
+              <div style={{ marginTop: 6, fontSize: '0.7rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e', textAlign: 'right' }}>
+                {saving ? 'saving…' : savedMsg}
+              </div>
+            )}
           </div>
         </ModelArea>
 
