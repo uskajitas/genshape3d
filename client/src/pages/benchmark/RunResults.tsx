@@ -125,6 +125,14 @@ const CellMeta = styled.div`
   display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
 `;
 
+const ModelLink = styled.a`
+  display: inline-block;
+  font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+  background: #16a34a22; color: #16a34a; text-decoration: none;
+  border: 1px solid #16a34a44;
+  &:hover { background: #16a34a44; }
+`;
+
 const TimeBadge = styled.span`
   font-size: 0.64rem; color: ${p => p.theme.colors.textMuted};
   margin-left: auto;
@@ -231,15 +239,18 @@ const RatingCell: React.FC<RatingCellProps> = ({ item, dimensions, onSaved, emai
 
   return (
     <CellCard $rated={!!item.ratings}>
+      {/* Show the subject input image as visual reference — jobResultUrl is a GLB, not renderable as img */}
       <CellThumb
-        $url={item.jobResultUrl || undefined}
-        onClick={() => item.jobResultUrl && window.open(item.jobResultUrl, '_blank')}
+        $url={item.subjectImageUrl || undefined}
       >
-        {!item.jobResultUrl && (isDone ? '✓' : '⏳')}
+        {!item.subjectImageUrl && (isDone ? '✓' : '⏳')}
       </CellThumb>
 
       <CellMeta>
         <StatusBadge $status={item.jobStatus}>{item.jobStatus || 'pending'}</StatusBadge>
+        {item.jobResultUrl && (
+          <ModelLink href={item.jobResultUrl} target="_blank" rel="noopener">View 3D ↗</ModelLink>
+        )}
         {durationLabel && <TimeBadge>⏱ {durationLabel}</TimeBadge>}
       </CellMeta>
 

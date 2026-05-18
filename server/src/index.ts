@@ -1662,8 +1662,20 @@ app.get('/api/benchmark/runs/:id', async (req, res) => {
 });
 
 app.get('/api/benchmark/runs/:id/items', async (req, res) => {
-  try { res.json(await getRunItems(req.params.id)); }
-  catch (e: any) { res.status(500).json({ error: e.message }); }
+  try {
+    const items = await getRunItems(req.params.id);
+    const bucket = process.env.R2_BUCKET || 'genshape3d';
+    // jobResultUrl is a raw private R2 URL — convert to proxied /api/image so the
+    // browser can actually fetch it (and "View 3D" links open correctly).
+    const proxied = items.map(item => {
+      if (item.jobResultUrl && item.jobResultUrl.includes(`.r2.cloudflarestorage.com/${bucket}/`)) {
+        const key = item.jobResultUrl.split(`/${bucket}/`)[1];
+        return { ...item, jobResultUrl: `/api/image?key=${encodeURIComponent(key)}` };
+      }
+      return item;
+    });
+    res.json(proxied);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/benchmark/runs/:id/export', async (req, res) => {
