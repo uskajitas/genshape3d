@@ -289,6 +289,7 @@ interface ViewerModalProps {
 
 const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions, email, onClose, onSaved }) => {
   const [idx, setIdx] = useState(startIndex);
+  const [wireframe, setWireframe] = useState(false);
   const item = items[idx];
 
   const allKeys = ['overall', ...dimensions.map(d => d.key)];
@@ -350,7 +351,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
           {resultUrl && isDone
             ? (
               <Suspense fallback={<ModelStatus>Loading 3D viewer…</ModelStatus>}>
-                <MeshViewer url={resultUrl} showGrid={true} />
+                <MeshViewer url={resultUrl} showGrid={!wireframe} wireframe={wireframe} />
               </Suspense>
             )
             : (
@@ -370,6 +371,18 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             <NavTitle>{item.subjectName}</NavTitle>
             <NavSub>{item.model} · {item.preset}</NavSub>
             <NavInfo>{idx + 1} / {items.length}{durationLabel ? ` · ⏱ ${durationLabel}` : ''}</NavInfo>
+            <button
+              onClick={() => setWireframe(w => !w)}
+              style={{
+                marginTop: 6, font: 'inherit', fontSize: '0.72rem', fontWeight: 700,
+                padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
+                border: `1px solid ${wireframe ? '#00d2ff' : '#2a2740'}`,
+                background: wireframe ? '#00d2ff22' : 'transparent',
+                color: wireframe ? '#00d2ff' : '#666',
+              }}
+            >
+              {wireframe ? '◈ Mesh' : '◉ Solid'}
+            </button>
           </div>
           <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
         </ModelNav>
