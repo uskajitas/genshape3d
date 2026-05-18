@@ -1528,10 +1528,11 @@ app.get('/api/admin/stats', async (req, res) => {
     const { getDb } = require('./db');
     const db = getDb();
 
-    // Totals + status breakdown
+    // Totals + status breakdown (benchmark jobs excluded throughout)
     const totals = await db.query(`
       SELECT status, COUNT(*)::int AS count
       FROM genshape3d_jobs
+      WHERE "isBenchmark" = false
       GROUP BY status
     `);
 
@@ -1544,6 +1545,7 @@ app.get('/api/admin/stats', async (req, res) => {
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)::int AS failed
       FROM genshape3d_jobs
       WHERE "createdAt"::timestamptz > NOW() - INTERVAL '14 days'
+        AND "isBenchmark" = false
       GROUP BY day
       ORDER BY day DESC
     `);
@@ -1559,6 +1561,7 @@ app.get('/api/admin/stats', async (req, res) => {
           AND "completedAt" IS NOT NULL
           AND "startedAt" IS NOT NULL
           AND "completedAt" > NOW() - INTERVAL '30 days'
+          AND "isBenchmark" = false
       )
       SELECT
         COUNT(*)::int AS n,
@@ -1587,6 +1590,7 @@ app.get('/api/admin/stats', async (req, res) => {
         COUNT(DISTINCT "userEmail") FILTER (WHERE "createdAt"::timestamptz > NOW() - INTERVAL '7 days')::int  AS active_7d,
         COUNT(DISTINCT "userEmail") FILTER (WHERE "createdAt"::timestamptz > NOW() - INTERVAL '24 hours')::int AS active_24h
       FROM genshape3d_jobs
+      WHERE "isBenchmark" = false
     `);
 
     // Current queue depth (jobs not yet finished)
@@ -1595,6 +1599,7 @@ app.get('/api/admin/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'pending')::int    AS pending,
         COUNT(*) FILTER (WHERE status = 'processing')::int AS processing
       FROM genshape3d_jobs
+      WHERE "isBenchmark" = false
     `);
 
     // Recent generations — who, when, what (last 30 days, up to 500 rows).
@@ -1621,6 +1626,7 @@ app.get('/api/admin/stats', async (req, res) => {
       FROM genshape3d_jobs
       WHERE "createdAt"::timestamptz > NOW() - INTERVAL '30 days'
         AND deleted = false
+        AND "isBenchmark" = false
       ORDER BY "createdAt" DESC
       LIMIT 500
     `);

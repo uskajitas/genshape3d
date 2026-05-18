@@ -190,7 +190,7 @@ export async function getJobById(id: string): Promise<Job | null> {
 
 export async function listAllJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
-    `SELECT * FROM genshape3d_jobs WHERE deleted = false ORDER BY "createdAt" DESC`
+    `SELECT * FROM genshape3d_jobs WHERE deleted = false AND "isBenchmark" = false ORDER BY "createdAt" DESC`
   );
   return rows;
 }
@@ -198,7 +198,7 @@ export async function listAllJobs(): Promise<Job[]> {
 export async function listPendingJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
     `SELECT * FROM genshape3d_jobs
-     WHERE status='pending' AND deleted = false
+     WHERE status='pending' AND deleted = false AND "isBenchmark" = false
      ORDER BY "createdAt" ASC`
   );
   return rows;
@@ -207,7 +207,7 @@ export async function listPendingJobs(): Promise<Job[]> {
 export async function listCancelledJobs(): Promise<Job[]> {
   const { rows } = await getDb().query(
     `SELECT * FROM genshape3d_jobs
-     WHERE status='cancelled' AND deleted = false
+     WHERE status='cancelled' AND deleted = false AND "isBenchmark" = false
      ORDER BY "completedAt" DESC`
   );
   return rows;
