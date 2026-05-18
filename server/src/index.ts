@@ -1808,6 +1808,10 @@ app.post('/api/benchmark/runs', async (req, res) => {
       const subject = await getSubject(it.subjectId);
       if (!subject) continue;
 
+      // Explicit worker routing for benchmark jobs — never rely on defaults.
+      // hunyuan3d (v2.0) runs only on the i7-1080; everything else on the 3090.
+      const benchmarkWorker = it.model === 'hunyuan3d' ? 'i7-1080' : 'win-3090';
+
       const job = await createJob({
         userEmail: email,
         imageUrl: resolveImageUrl(subject.imageUrl),
@@ -1820,6 +1824,7 @@ app.post('/api/benchmark/runs', async (req, res) => {
         numChunks: it.chunks,
         seed: it.seed,
         isBenchmark: true,
+        preferredWorkerId: benchmarkWorker,
       });
 
       runItems.push({ ...it, jobId: job.id });
