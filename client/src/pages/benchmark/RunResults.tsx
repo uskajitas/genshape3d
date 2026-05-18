@@ -436,33 +436,29 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             background: 'rgba(5,4,14,0.85)', backdropFilter: 'blur(12px)',
             border: '1px solid #2a2740', borderRadius: 10,
             padding: '14px 18px',
-            display: 'grid',
-            gridTemplateColumns: 'max-content 1fr max-content 1fr',
-            columnGap: 10, rowGap: 7,
-            alignItems: 'baseline',
+            display: 'flex', flexDirection: 'column', gap: 6,
           }}>
             {[
-              { k: 'Subject',  v: item.subjectName,                        c: '#ffffff' },
-              { k: 'Model',    v: item.model,                              c: '#a78bfa' },
-              { k: 'Preset',   v: item.preset,                             c: '#a78bfa' },
-              { k: 'Octree',   v: String(item.octree),                     c: '#e0e0e0' },
-              { k: 'Steps',    v: String(item.steps),                      c: '#e0e0e0' },
-              { k: 'Guidance', v: String(item.guidance),                   c: '#e0e0e0' },
-              { k: 'Faces',    v: item.faces?.toLocaleString() ?? '—',     c: '#e0e0e0' },
-              { k: 'Chunks',   v: String(item.chunks),                     c: '#e0e0e0' },
+              { k: 'Subject',  v: item.subjectName,                              c: '#ffffff' },
+              { k: 'Model',    v: item.model,                                    c: '#a78bfa' },
+              { k: 'Preset',   v: item.preset,                                   c: '#a78bfa' },
+              { k: 'Octree',   v: String(item.octree),                           c: '#e0e0e0' },
+              { k: 'Steps',    v: String(item.steps),                            c: '#e0e0e0' },
+              { k: 'Guidance', v: String(item.guidance),                         c: '#e0e0e0' },
+              { k: 'Faces',    v: item.faces?.toLocaleString() ?? '—',           c: '#e0e0e0' },
+              { k: 'Chunks',   v: String(item.chunks),                           c: '#e0e0e0' },
               { k: 'Seed',     v: item.seed === 0 ? 'random' : String(item.seed), c: '#e0e0e0' },
-              { k: 'Time',     v: durationLabel ?? '—',                    c: '#7c3aed' },
-            ].flatMap(({ k, v, c }, i) => {
-              const isLeft = i % 2 === 0;
-              return [
-                <span key={k + '-k'} style={{ fontSize: '0.82rem', fontWeight: 700, color: '#7c7aaa', whiteSpace: 'nowrap', paddingLeft: isLeft ? 0 : 16 }}>{k}</span>,
-                <span key={k + '-v'} style={{ fontSize: '0.95rem', fontWeight: 800, color: c, whiteSpace: 'nowrap' }}>{v}</span>,
-              ];
-            })}
+              { k: 'Time',     v: durationLabel ?? '—',                          c: '#7c3aed' },
+            ].map(({ k, v, c }) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <span style={{ fontSize: '15px', fontWeight: 700, color: '#7c7aaa', whiteSpace: 'nowrap' }}>{k}</span>
+                <span style={{ fontSize: '15px', fontWeight: 800, color: c, whiteSpace: 'nowrap' }}>{v}</span>
+              </div>
+            ))}
             {/* Angle reference images */}
-            {(item.jobAuxImageUrls ?? []).length > 0 && <>
-              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #2a2740', paddingTop: 8, marginTop: 2 }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#7c7aaa', marginBottom: 6 }}>Angle refs</div>
+            {(item.jobAuxImageUrls ?? []).length > 0 && (
+              <div style={{ borderTop: '1px solid #2a2740', paddingTop: 8, marginTop: 2 }}>
+                <div style={{ fontSize: '15px', fontWeight: 700, color: '#7c7aaa', marginBottom: 6 }}>Angle refs</div>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {(item.jobAuxImageUrls ?? []).map((url, i) => (
                     <div key={i} style={{
@@ -474,7 +470,7 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
                   ))}
                 </div>
               </div>
-            </>}
+            )}
           </div>
         </ModelArea>
 
