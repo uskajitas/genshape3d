@@ -167,8 +167,22 @@ const ModalBackdrop = styled.div`
 `;
 
 const ModalLeft = styled.div`
-  flex: 1; display: flex; flex-direction: column;
+  flex: 1; display: flex; flex-direction: row;
   min-width: 0;
+`;
+
+const ParamsSidebar = styled.div`
+  width: 300px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  background: #06050f;
+  border-right: 2px solid #1a1830;
+  overflow-y: auto;
+  padding: 20px 24px;
+  gap: 0;
+`;
+
+const ModelColumn = styled.div`
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
 `;
 
 const ModelArea = styled.div`
@@ -398,106 +412,115 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
   return (
     <ModalBackdrop onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <ModalLeft>
-        <ModelArea>
-          {resultUrl && isDone
-            ? (
-              <Suspense fallback={<ModelStatus>Loading 3D viewer…</ModelStatus>}>
-                <MeshViewer url={resultUrl} showGrid={viewMode !== 'wireframe'} viewMode={viewMode} />
-              </Suspense>
-            )
-            : (
-              <ModelStatus>
-                {item.jobStatus === 'processing' ? '⏳ Generating…' :
-                 item.jobStatus === 'failed' ? '✗ Job failed' :
-                 item.jobStatus === 'pending' ? '⏳ Pending…' :
-                 '3D model not available'}
-              </ModelStatus>
-            )
-          }
 
-          {/* View-mode buttons — top-right */}
-          {resultUrl && isDone && (
-            <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 6, zIndex: 10 }}>
-              {([
-                { mode: 'clay',      label: '◑ Clay',      active: '#e0e0e0', bg: '#3a3a5c' },
-                { mode: 'wireframe', label: '◈ Wire',       active: '#00d2ff', bg: '#003a44' },
-                { mode: 'solid',     label: '◉ Solid',     active: '#a78bfa', bg: '#2a1a5c' },
-              ] as const).map(({ mode, label, active, bg }) => (
-                <button key={mode} onClick={() => setViewMode(mode)} style={{
-                  font: 'inherit', fontSize: '0.75rem', fontWeight: 700,
-                  padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
-                  border: `1px solid ${viewMode === mode ? active : '#2a2740'}`,
-                  background: viewMode === mode ? bg : 'rgba(7,6,15,0.7)',
-                  color: viewMode === mode ? active : '#555',
-                  transition: 'all 0.15s', backdropFilter: 'blur(4px)',
-                }}>{label}</button>
-              ))}
-            </div>
+        {/* ── LEFT SIDEBAR: all generation info ── */}
+        <ParamsSidebar>
+          {/* reference image */}
+          {item.subjectImageUrl && (
+            <div style={{
+              width: '100%', aspectRatio: '1', borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+              backgroundImage: `url(${toProxiedUrl(item.subjectImageUrl)})`,
+              backgroundSize: 'cover', backgroundPosition: 'center',
+              border: '1px solid #2a2740', marginBottom: 16,
+            }} />
           )}
 
-          {/* ── PARAMS OVERLAY — full-height left strip ── */}
-          <div style={{
-            position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 10,
-            width: 260,
-            background: 'rgba(4,3,12,0.88)', backdropFilter: 'blur(12px)',
-            borderRight: '1px solid #2a2740',
-            padding: '20px 22px',
-            display: 'flex', flexDirection: 'column', gap: 0,
-            overflowY: 'auto',
-          }}>
-            {/* reference image */}
-            {item.subjectImageUrl && (
-              <div style={{
-                width: '100%', aspectRatio: '1', borderRadius: 10, overflow: 'hidden',
-                backgroundImage: `url(${toProxiedUrl(item.subjectImageUrl)})`,
-                backgroundSize: 'cover', backgroundPosition: 'center',
-                border: '1px solid #2a2740', marginBottom: 14, flexShrink: 0,
-              }} />
-            )}
+          {/* subject name */}
+          <div style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', lineHeight: 1.3, marginBottom: 20 }}>
+            {item.subjectName}
+          </div>
 
-            {/* subject name */}
-            <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', lineHeight: 1.25, marginBottom: 18 }}>
-              {item.subjectName}
-            </div>
+          {/* MODEL */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#4a4870', letterSpacing: '0.12em', marginBottom: 4 }}>MODEL</div>
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#a78bfa', lineHeight: 1, wordBreak: 'break-all' }}>{item.model}</div>
+          </div>
 
-            {/* each param as a full-width row */}
+          {/* PRESET */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: '0.6rem', fontWeight: 800, color: '#4a4870', letterSpacing: '0.12em', marginBottom: 4 }}>PRESET</div>
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#a78bfa', lineHeight: 1 }}>{item.preset}</div>
+          </div>
+
+          <div style={{ borderTop: '1px solid #1a1830', margin: '4px 0 20px' }} />
+
+          {/* numeric params — 2 per row, big */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px 12px' }}>
             {[
-              { label: 'MODEL',    value: item.model,    color: '#a78bfa' },
-              { label: 'PRESET',   value: item.preset,   color: '#a78bfa' },
-              { label: 'OCTREE',   value: item.octree,   color: '#e0e0e0' },
-              { label: 'STEPS',    value: item.steps,    color: '#e0e0e0' },
-              { label: 'GUIDANCE', value: item.guidance, color: '#e0e0e0' },
-              { label: 'FACES',    value: item.faces?.toLocaleString() ?? '—', color: '#e0e0e0' },
-              { label: 'CHUNKS',   value: item.chunks,   color: '#e0e0e0' },
-              { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed, color: '#e0e0e0' },
-            ].map(({ label, value, color }) => (
-              <div key={label} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#4a4870', letterSpacing: '0.1em', marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: '1.7rem', fontWeight: 900, color, lineHeight: 1, wordBreak: 'break-all' }}>{value}</div>
+              { label: 'OCTREE',   value: item.octree },
+              { label: 'STEPS',    value: item.steps },
+              { label: 'GUIDANCE', value: item.guidance },
+              { label: 'FACES',    value: item.faces?.toLocaleString() ?? '—' },
+              { label: 'CHUNKS',   value: item.chunks },
+              { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#4a4870', letterSpacing: '0.12em', marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#ffffff', lineHeight: 1, wordBreak: 'break-all' }}>{value}</div>
               </div>
             ))}
-
-            {/* spacer pushes timing to bottom */}
-            <div style={{ flex: 1 }} />
-
-            <div style={{ borderTop: '1px solid #2a2740', paddingTop: 12 }}>
-              {durationLabel && (
-                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed', marginBottom: 6 }}>⏱ {durationLabel}</div>
-              )}
-              <div style={{ fontSize: '0.7rem', color: '#333' }}>{idx + 1} / {items.length}</div>
-              {(saving || savedMsg) && (
-                <div style={{ marginTop: 6, fontSize: '0.75rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
-                  {saving ? 'saving…' : savedMsg}
-                </div>
-              )}
-            </div>
           </div>
-        </ModelArea>
 
-        <ModelNav>
-          <NavBtn $disabled={idx === 0} onClick={() => idx > 0 && setIdx(i => i - 1)}>← Prev</NavBtn>
-          <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
-        </ModelNav>
+          <div style={{ flex: 1 }} />
+
+          {/* timing + status */}
+          <div style={{ borderTop: '1px solid #1a1830', paddingTop: 14, marginTop: 20 }}>
+            {durationLabel && (
+              <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#7c3aed', marginBottom: 6 }}>⏱ {durationLabel}</div>
+            )}
+            <div style={{ fontSize: '0.7rem', color: '#333', marginBottom: 4 }}>{idx + 1} / {items.length}</div>
+            {(saving || savedMsg) && (
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
+                {saving ? 'saving…' : savedMsg}
+              </div>
+            )}
+          </div>
+        </ParamsSidebar>
+
+        {/* ── CENTER: 3D viewer ── */}
+        <ModelColumn>
+          <ModelArea>
+            {resultUrl && isDone
+              ? (
+                <Suspense fallback={<ModelStatus>Loading 3D viewer…</ModelStatus>}>
+                  <MeshViewer url={resultUrl} showGrid={viewMode !== 'wireframe'} viewMode={viewMode} />
+                </Suspense>
+              )
+              : (
+                <ModelStatus>
+                  {item.jobStatus === 'processing' ? '⏳ Generating…' :
+                   item.jobStatus === 'failed' ? '✗ Job failed' :
+                   item.jobStatus === 'pending' ? '⏳ Pending…' :
+                   '3D model not available'}
+                </ModelStatus>
+              )
+            }
+            {/* View-mode buttons */}
+            {resultUrl && isDone && (
+              <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 10 }}>
+                {([
+                  { mode: 'clay',      label: '◑ Clay',  active: '#e0e0e0', bg: '#3a3a5c' },
+                  { mode: 'wireframe', label: '◈ Wire',  active: '#00d2ff', bg: '#003a44' },
+                  { mode: 'solid',     label: '◉ Solid', active: '#a78bfa', bg: '#2a1a5c' },
+                ] as const).map(({ mode, label, active, bg }) => (
+                  <button key={mode} onClick={() => setViewMode(mode)} style={{
+                    font: 'inherit', fontSize: '0.75rem', fontWeight: 700,
+                    padding: '5px 12px', borderRadius: 7, cursor: 'pointer',
+                    border: `1px solid ${viewMode === mode ? active : '#2a2740'}`,
+                    background: viewMode === mode ? bg : 'rgba(7,6,15,0.8)',
+                    color: viewMode === mode ? active : '#555',
+                    transition: 'all 0.15s',
+                  }}>{label}</button>
+                ))}
+              </div>
+            )}
+          </ModelArea>
+          <ModelNav>
+            <NavBtn $disabled={idx === 0} onClick={() => idx > 0 && setIdx(i => i - 1)}>← Prev</NavBtn>
+            <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
+          </ModelNav>
+        </ModelColumn>
+
       </ModalLeft>
 
       <ModalRight>
