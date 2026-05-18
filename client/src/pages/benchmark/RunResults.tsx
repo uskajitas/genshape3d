@@ -424,8 +424,8 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
           <NavBtn $disabled={idx === 0} onClick={() => idx > 0 && setIdx(i => i - 1)}>← Prev</NavBtn>
           <div style={{ textAlign: 'center' }}>
             <NavTitle>{item.subjectName}</NavTitle>
-            <NavSub>{item.model} · {item.preset}</NavSub>
-            <NavInfo>{idx + 1} / {items.length}{durationLabel ? ` · ⏱ ${durationLabel}` : ''}</NavInfo>
+            <NavSub>{item.model} · {item.preset} · {item.octree}oct · {item.steps}st · g{item.guidance}</NavSub>
+            <NavInfo>{idx + 1} / {items.length}</NavInfo>
           </div>
           <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
         </ModelNav>
@@ -438,6 +438,31 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
         </PanelHeader>
 
         <SubjectThumb $url={toProxiedUrl(item.subjectImageUrl)} />
+
+        {/* Generation params — always in your face */}
+        <div style={{ padding: '0.7rem 1.2rem', borderBottom: '1px solid #2a2740', background: '#080712' }}>
+          <div style={{ fontSize: '0.62rem', fontWeight: 800, letterSpacing: '0.08em', color: '#555', marginBottom: '0.5rem' }}>GENERATION PARAMS</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.75rem' }}>
+            {[
+              { label: 'MODEL',    value: item.model },
+              { label: 'PRESET',   value: item.preset },
+              { label: 'OCTREE',   value: item.octree },
+              { label: 'STEPS',    value: item.steps },
+              { label: 'GUIDANCE', value: item.guidance },
+              { label: 'FACES',    value: item.faces?.toLocaleString() },
+              { label: 'CHUNKS',   value: item.chunks },
+              { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ fontSize: '0.6rem', fontWeight: 700, color: '#555', letterSpacing: '0.06em' }}>{label}</div>
+                <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#e0e0e0', lineHeight: 1.2, wordBreak: 'break-all' }}>{value ?? '—'}</div>
+              </div>
+            ))}
+          </div>
+          {durationLabel && (
+            <div style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: '#7c3aed', fontWeight: 700 }}>⏱ {durationLabel}</div>
+          )}
+        </div>
 
         {/* Issue flags — auto-save, always visible regardless of job status */}
         <div style={{ padding: '0.6rem 1.2rem', borderBottom: '1px solid #2a2740', display: 'flex', gap: '0.5rem' }}>
