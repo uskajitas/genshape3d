@@ -363,6 +363,31 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
               </ModelStatus>
             )
           }
+          {/* Floating toggle — always visible on the viewer */}
+          {resultUrl && isDone && (
+            <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 10 }}>
+              <button
+                onClick={() => setWireframe(false)}
+                style={{
+                  font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${!wireframe ? '#a78bfa' : '#2a2740'}`,
+                  background: !wireframe ? '#7c3aed' : '#12111e',
+                  color: !wireframe ? '#fff' : '#555',
+                }}
+              >◉ Solid</button>
+              <button
+                onClick={() => setWireframe(true)}
+                style={{
+                  font: 'inherit', fontSize: '0.78rem', fontWeight: 700,
+                  padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+                  border: `1px solid ${wireframe ? '#00d2ff' : '#2a2740'}`,
+                  background: wireframe ? '#00d2ff22' : '#12111e',
+                  color: wireframe ? '#00d2ff' : '#555',
+                }}
+              >◈ Wireframe</button>
+            </div>
+          )}
         </ModelArea>
 
         <ModelNav>
@@ -371,18 +396,6 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             <NavTitle>{item.subjectName}</NavTitle>
             <NavSub>{item.model} · {item.preset}</NavSub>
             <NavInfo>{idx + 1} / {items.length}{durationLabel ? ` · ⏱ ${durationLabel}` : ''}</NavInfo>
-            <button
-              onClick={() => setWireframe(w => !w)}
-              style={{
-                marginTop: 6, font: 'inherit', fontSize: '0.72rem', fontWeight: 700,
-                padding: '3px 10px', borderRadius: 6, cursor: 'pointer',
-                border: `1px solid ${wireframe ? '#00d2ff' : '#2a2740'}`,
-                background: wireframe ? '#00d2ff22' : 'transparent',
-                color: wireframe ? '#00d2ff' : '#666',
-              }}
-            >
-              {wireframe ? '◈ Mesh' : '◉ Solid'}
-            </button>
           </div>
           <NavBtn $disabled={idx === items.length - 1} onClick={() => idx < items.length - 1 && setIdx(i => i + 1)}>Next →</NavBtn>
         </ModelNav>
