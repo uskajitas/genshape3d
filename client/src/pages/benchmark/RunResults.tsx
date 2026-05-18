@@ -435,63 +435,62 @@ const ViewerModal: React.FC<ViewerModalProps> = ({ items, startIndex, dimensions
             </div>
           )}
 
-          {/* ── PARAMS OVERLAY — left side of the viewport ── */}
+          {/* ── PARAMS OVERLAY — full-height left strip ── */}
           <div style={{
-            position: 'absolute', top: 12, left: 12, zIndex: 10,
-            background: 'rgba(4,3,12,0.90)', backdropFilter: 'blur(10px)',
-            border: '1px solid #3a3560', borderRadius: 14,
-            padding: '14px 18px', width: 220,
+            position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 10,
+            width: 260,
+            background: 'rgba(4,3,12,0.88)', backdropFilter: 'blur(12px)',
+            borderRight: '1px solid #2a2740',
+            padding: '20px 22px',
+            display: 'flex', flexDirection: 'column', gap: 0,
+            overflowY: 'auto',
           }}>
+            {/* reference image */}
+            {item.subjectImageUrl && (
+              <div style={{
+                width: '100%', aspectRatio: '1', borderRadius: 10, overflow: 'hidden',
+                backgroundImage: `url(${toProxiedUrl(item.subjectImageUrl)})`,
+                backgroundSize: 'cover', backgroundPosition: 'center',
+                border: '1px solid #2a2740', marginBottom: 14, flexShrink: 0,
+              }} />
+            )}
+
             {/* subject name */}
-            <div style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', marginBottom: 10, lineHeight: 1.2 }}>
+            <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', lineHeight: 1.25, marginBottom: 18 }}>
               {item.subjectName}
             </div>
 
-            {/* model + preset — big */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 2 }}>MODEL</div>
-                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#a78bfa' }}>{item.model}</div>
+            {/* each param as a full-width row */}
+            {[
+              { label: 'MODEL',    value: item.model,    color: '#a78bfa' },
+              { label: 'PRESET',   value: item.preset,   color: '#a78bfa' },
+              { label: 'OCTREE',   value: item.octree,   color: '#e0e0e0' },
+              { label: 'STEPS',    value: item.steps,    color: '#e0e0e0' },
+              { label: 'GUIDANCE', value: item.guidance, color: '#e0e0e0' },
+              { label: 'FACES',    value: item.faces?.toLocaleString() ?? '—', color: '#e0e0e0' },
+              { label: 'CHUNKS',   value: item.chunks,   color: '#e0e0e0' },
+              { label: 'SEED',     value: item.seed === 0 ? 'random' : item.seed, color: '#e0e0e0' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#4a4870', letterSpacing: '0.1em', marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: '1.7rem', fontWeight: 900, color, lineHeight: 1, wordBreak: 'break-all' }}>{value}</div>
               </div>
-              <div>
-                <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 2 }}>PRESET</div>
-                <div style={{ fontSize: '1rem', fontWeight: 900, color: '#a78bfa' }}>{item.preset}</div>
-              </div>
-            </div>
+            ))}
 
-            {/* divider */}
-            <div style={{ borderTop: '1px solid #2a2740', marginBottom: 12 }} />
+            {/* spacer pushes timing to bottom */}
+            <div style={{ flex: 1 }} />
 
-            {/* all numeric params */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
-              {[
-                { label: 'OCTREE',    value: item.octree },
-                { label: 'STEPS',     value: item.steps },
-                { label: 'GUIDANCE',  value: item.guidance },
-                { label: 'FACES',     value: item.faces?.toLocaleString() ?? '—' },
-                { label: 'CHUNKS',    value: item.chunks },
-                { label: 'SEED',      value: item.seed === 0 ? 'random' : item.seed },
-              ].map(({ label, value }) => (
-                <div key={label}>
-                  <div style={{ fontSize: '0.58rem', fontWeight: 800, color: '#555', letterSpacing: '0.07em', marginBottom: 1 }}>{label}</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#e0e0e0', lineHeight: 1.1 }}>{value}</div>
+            <div style={{ borderTop: '1px solid #2a2740', paddingTop: 12 }}>
+              {durationLabel && (
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed', marginBottom: 6 }}>⏱ {durationLabel}</div>
+              )}
+              <div style={{ fontSize: '0.7rem', color: '#333' }}>{idx + 1} / {items.length}</div>
+              {(saving || savedMsg) && (
+                <div style={{ marginTop: 6, fontSize: '0.75rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
+                  {saving ? 'saving…' : savedMsg}
                 </div>
-              ))}
+              )}
             </div>
-
-            {/* divider */}
-            <div style={{ borderTop: '1px solid #2a2740', margin: '12px 0 8px' }} />
-
-            {/* timing + position + save status */}
-            {durationLabel && (
-              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#7c3aed', marginBottom: 4 }}>⏱ {durationLabel}</div>
-            )}
-            <div style={{ fontSize: '0.65rem', color: '#444' }}>{idx + 1} / {items.length}</div>
-            {(saving || savedMsg) && (
-              <div style={{ marginTop: 4, fontSize: '0.7rem', fontWeight: 700, color: saving ? '#7c3aed' : '#22c55e' }}>
-                {saving ? 'saving…' : savedMsg}
-              </div>
-            )}
           </div>
         </ModelArea>
 
