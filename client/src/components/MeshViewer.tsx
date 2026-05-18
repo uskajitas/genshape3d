@@ -166,9 +166,16 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGri
       // freed immediately (otherwise it lingers until the next GC pass).
       meshesRef.current.forEach(mesh => {
         mesh.geometry?.dispose();
+        // Dispose current material (may be the wireframe override)
         const mat = mesh.material;
         if (Array.isArray(mat)) mat.forEach(m => disposeMaterial(m as THREE.Material));
         else if (mat) disposeMaterial(mat as THREE.Material);
+        // Dispose stored original if different
+        const orig = (mesh as any).__origMaterial;
+        if (orig && orig !== mat) {
+          if (Array.isArray(orig)) orig.forEach((m: THREE.Material) => disposeMaterial(m));
+          else disposeMaterial(orig as THREE.Material);
+        }
       });
       meshesRef.current = [];
 
@@ -185,14 +192,28 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, wireframe = false, showGri
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  // ── Wireframe toggle — no mesh reload ───────────────────────────────────
+  // ── Wireframe toggle — swap to bright MeshBasicMaterial so lines are visible ──
   useEffect(() => {
     meshesRef.current.forEach(mesh => {
-      const mat = mesh.material;
-      if (Array.isArray(mat)) {
-        mat.forEach(m => { (m as THREE.MeshStandardMaterial).wireframe = wireframe; });
-      } else if (mat) {
-        (mat as THREE.MeshStandardMaterial).wireframe = wireframe;
+      if (wireframe) {
+        // Store original material so we can restore it
+        if (!(mesh as any).__origMaterial) {
+          (mesh as any).__origMaterial = mesh.material;
+        }
+        const wfMat = new THREE.MeshBasicMaterial({
+          color: 0x00d2ff,
+          wireframe: true,
+        });
+        mesh.material = wfMat;
+      } else {
+        // Restore original material
+        if ((mesh as any).__origMaterial) {
+          // Dispose the wireframe material we created
+          if (mesh.material !== (mesh as any).__origMaterial) {
+            (mesh.material as THREE.Material).dispose();
+          }
+          mesh.material = (mesh as any).__origMaterial;
+        }
       }
     });
   }, [wireframe]);
