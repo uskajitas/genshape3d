@@ -3498,11 +3498,6 @@ const Workspace: React.FC = () => {
             {/* ── Normal view ── */}
             {isAuthenticated && !showArchived && (
               <>
-                {isAdmin && !showArchived && jobs.length > 0 && (
-                  <div style={{ padding: '0.4rem 0.75rem 0' }}>
-                    <ArchiveAllBtn type="button" onClick={onArchiveAll}>📦 Archive all</ArchiveAllBtn>
-                  </div>
-                )}
                 {railJobs.length === 0 && (
                   <EmptyAssets>
                     <span style={{ fontSize: '1.4rem' }}>{activeTool === 'texture' ? '🎨' : '📭'}</span>
