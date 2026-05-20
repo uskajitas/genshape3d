@@ -2077,9 +2077,9 @@ const Workspace: React.FC = () => {
     return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
 
-  // Fetch archived jobs when the archive panel or Texture source picker needs them (admin only).
+  // Fetch archived jobs when the archive panel is open (admin only).
   useEffect(() => {
-    if ((!showArchived && activeTool !== 'texture') || !isAdmin || !email) return;
+    if (!showArchived || !isAdmin || !email) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -2092,7 +2092,7 @@ const Workspace: React.FC = () => {
     tick();
     const t = setInterval(tick, 10_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [showArchived, activeTool, isAdmin, email]);
+  }, [showArchived, isAdmin, email]);
 
   const onCreateGroup = useCallback(async () => {
     const name = newGroupName.trim();
@@ -2461,16 +2461,12 @@ const Workspace: React.FC = () => {
   }, [jobs, search, assetTab, selectedGroupId]);
 
   const textureSourceJobs = useMemo(() => {
-    const byId = new Map<string, Job>();
-    [...jobs, ...(isAdmin ? archivedJobs : [])].forEach(job => {
-      if (job.status === 'done' && job.resultUrl) byId.set(job.id, job);
-    });
-    return Array.from(byId.values()).sort((a, b) => {
+    return jobs.filter(job => job.status === 'done' && job.resultUrl).sort((a, b) => {
       const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bt - at;
     });
-  }, [archivedJobs, isAdmin, jobs]);
+  }, [jobs]);
 
   const textureFinishedJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
