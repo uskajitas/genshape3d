@@ -1907,7 +1907,13 @@ const Workspace: React.FC = () => {
 
   // ── State
   const [file, setFile] = useState<File | null>(null);
-  const [activeTool, setActiveTool] = useState<'image' | 'texture'>('image');
+  const [activeTool, setActiveTool] = useState<'image' | 'texture'>(() => {
+    try {
+      return localStorage.getItem('genshape3d.activeTool') === 'texture' ? 'texture' : 'image';
+    } catch {
+      return 'image';
+    }
+  });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [activePreset, setActivePreset] = useState<string | null>('prop');
@@ -2506,6 +2512,17 @@ const Workspace: React.FC = () => {
       }),
     [jobs],
   );
+
+  useEffect(() => {
+    try { localStorage.setItem('genshape3d.activeTool', activeTool); } catch { /* non-fatal */ }
+  }, [activeTool]);
+
+  useEffect(() => {
+    if (activeTool !== 'texture' || textureModelChoices.length === 0) return;
+    if (!selectedJobId || !textureModelChoices.some(item => item.id === selectedJobId)) {
+      setSelectedJobId(textureModelChoices[0].id);
+    }
+  }, [activeTool, selectedJobId, textureModelChoices]);
 
   const recentTextureModelChoices = useMemo(() => {
     const selected = selectedJobId
