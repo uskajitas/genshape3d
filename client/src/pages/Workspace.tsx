@@ -2721,9 +2721,7 @@ const Workspace: React.FC = () => {
             ? 'Select an asset first'
             : textureSourceJob.status !== 'done'
               ? 'Wait for this asset to finish'
-              : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
-                ? 'Daily limit reached - try again later'
-                : 'Generate texture')
+              : 'Generate texture')
     : (!isAuthenticated
         ? 'Sign in to generate'
         : submitting
@@ -3218,8 +3216,7 @@ const Workspace: React.FC = () => {
             <GenerateBtn
               $disabled={
                 activeTool === 'texture'
-                  ? (!isAuthenticated ? false : (!textureSourceJob || textureSourceJob.status !== 'done' || submitting ||
-                     (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)))
+                  ? (!isAuthenticated ? false : (!textureSourceJob || textureSourceJob.status !== 'done' || submitting))
                   : !isAuthenticated
                     ? false
                     : (!file || submitting ||
