@@ -2077,9 +2077,9 @@ const Workspace: React.FC = () => {
     return () => { cancelled = true; clearInterval(t); };
   }, [isAuthenticated, email]);
 
-  // Fetch archived jobs when the archive panel is open (admin only). Refresh every 10s.
+  // Fetch archived jobs when the archive panel or Texture source picker needs them (admin only).
   useEffect(() => {
-    if (!showArchived || !isAdmin || !email) return;
+    if ((!showArchived && activeTool !== 'texture') || !isAdmin || !email) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -2092,7 +2092,7 @@ const Workspace: React.FC = () => {
     tick();
     const t = setInterval(tick, 10_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [showArchived, isAdmin, email]);
+  }, [showArchived, activeTool, isAdmin, email]);
 
   const onCreateGroup = useCallback(async () => {
     const name = newGroupName.trim();
@@ -2460,44 +2460,50 @@ const Workspace: React.FC = () => {
     });
   }, [jobs, search, assetTab, selectedGroupId]);
 
+  const textureSourceJobs = useMemo(() => {
+    const byId = new Map<string, Job>();
+    [...jobs, ...(isAdmin ? archivedJobs : [])].forEach(job => {
+      if (job.status === 'done' && job.resultUrl) byId.set(job.id, job);
+    });
+    return Array.from(byId.values()).sort((a, b) => {
+      const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bt - at;
+    });
+  }, [archivedJobs, isAdmin, jobs]);
+
   const textureFinishedJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return jobs
-      .filter(j => j.status === 'done' && j.resultUrl)
+    return textureSourceJobs
       .filter(j => {
         if (!q) return true;
         return (j.name || '').toLowerCase().includes(q)
           || (j.model || '').toLowerCase().includes(q)
           || j.id.toLowerCase().includes(q);
-      })
-      .sort((a, b) => {
-        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bt - at;
       });
-  }, [jobs, search]);
+  }, [search, textureSourceJobs]);
 
   const railJobs = activeTool === 'texture' ? textureFinishedJobs : filteredJobs;
+  const selectedTextureJob = selectedJobId
+    ? textureSourceJobs.find(j => j.id === selectedJobId) ?? null
+    : null;
+  const textureSourceJob = activeTool === 'texture'
+    ? (selectedTextureJob ?? textureSourceJobs[0] ?? null)
+    : selectedJob;
 
-  const meshUrl = selectedJob?.resultUrl
-    ? `/api/mesh?key=${encodeURIComponent(selectedJob.resultUrl)}`
+  const meshUrl = textureSourceJob?.resultUrl
+    ? `/api/mesh?key=${encodeURIComponent(textureSourceJob.resultUrl)}`
     : null;
 
-  const selectedThumbKey = selectedJob?.imageUrl?.includes('/uploads/')
-    ? `uploads/${selectedJob.imageUrl.split('/uploads/')[1]}`
-    : selectedJob?.imageUrl;
+  const selectedThumbKey = textureSourceJob?.imageUrl?.includes('/uploads/')
+    ? `uploads/${textureSourceJob.imageUrl.split('/uploads/')[1]}`
+    : textureSourceJob?.imageUrl;
   const selectedThumb = selectedThumbKey
     ? `/api/image?key=${encodeURIComponent(selectedThumbKey)}`
     : null;
 
   const textureModelChoices = useMemo(
-    () => jobs
-      .filter(j => j.status === 'done' && j.resultUrl)
-      .sort((a, b) => {
-        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return bt - at;
-      })
+    () => textureSourceJobs
       .map(j => {
         const key = j.imageUrl?.includes('/uploads/')
           ? `uploads/${j.imageUrl.split('/uploads/')[1]}`
@@ -2510,7 +2516,7 @@ const Workspace: React.FC = () => {
           thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
         };
       }),
-    [jobs],
+    [textureSourceJobs],
   );
 
   useEffect(() => {
@@ -2647,7 +2653,8 @@ const Workspace: React.FC = () => {
       navigate('/login');
       return;
     }
-    if (!selectedJob || !email || submitting) return;
+    const sourceJob = textureSourceJob;
+    if (!sourceJob || !email || submitting) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitNotice(null);
@@ -2661,7 +2668,7 @@ const Workspace: React.FC = () => {
       texturePreset !== 'Auto' ? `Material: ${texturePreset}` : '',
       texturePrompt.trim(),
     ].filter(Boolean).join('. ');
-    const { textureJob, error } = await submitTextureJob(email, selectedJob, {
+    const { textureJob, error } = await submitTextureJob(email, sourceJob, {
       prompt: textureDirection,
       textureRes,
       materialPreset: texturePreset,
@@ -2687,7 +2694,7 @@ const Workspace: React.FC = () => {
   }, [
     isAuthenticated,
     navigate,
-    selectedJob,
+    textureSourceJob,
     email,
     submitting,
     texturePbrBase,
@@ -2714,9 +2721,9 @@ const Workspace: React.FC = () => {
         ? 'Sign in to texture'
         : submitting
           ? 'Submitting...'
-          : !selectedJob
+          : !textureSourceJob
             ? 'Select an asset first'
-            : selectedJob.status !== 'done'
+            : textureSourceJob.status !== 'done'
               ? 'Wait for this asset to finish'
               : (!isAdmin && limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)
                 ? 'Daily limit reached - try again later'
@@ -2900,13 +2907,13 @@ const Workspace: React.FC = () => {
                     <FieldHint>{textureModelChoices.length} finished model{textureModelChoices.length === 1 ? '' : 's'}</FieldHint>
                   </FieldLabel>
                   {textureModelChoices.length > 0 ? (
-                    selectedJob && selectedThumb ? (
+                    textureSourceJob && selectedThumb ? (
                       <TextureSource>
                         <TextureSourceThumb src={selectedThumb} alt="" />
                         <TextureSourceMeta>
-                          <TextureSourceName>{selectedJob.name || 'Untitled asset'}</TextureSourceName>
+                          <TextureSourceName>{textureSourceJob.name || 'Untitled asset'}</TextureSourceName>
                           <TextureNote title="Texture variants will stay linked to this source model.">
-                            {selectedJob.doTexture ? 'Textured' : 'Untextured'}
+                            {textureSourceJob.doTexture ? 'Textured' : 'Untextured'}
                           </TextureNote>
                         </TextureSourceMeta>
                       </TextureSource>
@@ -3215,7 +3222,7 @@ const Workspace: React.FC = () => {
             <GenerateBtn
               $disabled={
                 activeTool === 'texture'
-                  ? (!isAuthenticated ? false : (!selectedJob || selectedJob.status !== 'done' || submitting ||
+                  ? (!isAuthenticated ? false : (!textureSourceJob || textureSourceJob.status !== 'done' || submitting ||
                      (!isAdmin && !!limits && limits.limit24h !== null && limits.used24h >= limits.limit24h)))
                   : !isAuthenticated
                     ? false
@@ -3382,7 +3389,7 @@ const Workspace: React.FC = () => {
               </Suspense>
               <TextureEditorPanel
                 visible={activeTool === 'texture'}
-                sourceName={selectedJob?.name || 'Untitled asset'}
+                sourceName={textureSourceJob?.name || 'Untitled asset'}
                 settings={textureEditorSettings}
                 selection={textureSelection}
                 zones={textureZones}
