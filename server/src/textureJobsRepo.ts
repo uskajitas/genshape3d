@@ -20,6 +20,7 @@ export interface TextureJob {
   errorMessage: string;
   progressPct: number;
   progressPhase: string;
+  sourceImageUrl: string;
   assignedWorkerId: string;
   createdAt: string;
   updatedAt: string;
@@ -40,12 +41,13 @@ export async function createTextureJob(data: {
   seed?: number;
   strength?: number;
   keepShape?: boolean;
+  sourceImageUrl?: string;
 }): Promise<TextureJob> {
   const { rows } = await getDb().query(
     `INSERT INTO genshape3d_texture_jobs
       (id, "userEmail", "sourceJobId", "sourceModelUrl", prompt, "materialPreset",
-       "referenceImageKey", "textureRes", maps, variants, seed, strength, "keepShape")
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13)
+       "referenceImageKey", "textureRes", maps, variants, seed, strength, "keepShape", "sourceImageUrl")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14)
      RETURNING *`,
     [
       randomUUID(),
@@ -61,6 +63,7 @@ export async function createTextureJob(data: {
       data.seed || 0,
       Math.max(0, Math.min(100, data.strength ?? 65)),
       data.keepShape ?? true,
+      data.sourceImageUrl || '',
     ],
   );
   return rows[0];
