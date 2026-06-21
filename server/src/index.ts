@@ -1887,12 +1887,17 @@ mountWorkersApi(app);
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-initDb().then(() => {
-  app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
-  // Pre-load the rembg ONNX model so the first /api/upload doesn't pay the
-  // ~3s cold-start cost. Best-effort — failures are logged inside warmRembg.
-  warmRembg();
-}).catch(err => {
-  console.error('Failed to init DB:', err);
-  process.exit(1);
-});
+async function boot() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await initDb();
+      app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
+      warmRembg();
+      return;
+    } catch (err: any) {
+      console.error(`Boot attempt ${attempt} failed: ${err.message} — retrying in 5s`);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+boot();

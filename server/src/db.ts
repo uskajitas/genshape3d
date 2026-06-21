@@ -15,6 +15,18 @@ export function getDb(): Pool {
 
 export async function initDb(): Promise<void> {
   const db = getDb();
+  // Retry up to 10 times with 3s delay — handles WSL2 Postgres not yet
+  // accepting connections after a network hiccup or host resume.
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      await db.query('SELECT 1');
+      break;
+    } catch (err: any) {
+      if (attempt === 10) throw err;
+      console.warn(`DB not ready (attempt ${attempt}/10): ${err.code || err.message} — retrying in 3s`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
   await db.query(`
     CREATE TABLE IF NOT EXISTS genshape3d_users (
       id           TEXT PRIMARY KEY,
