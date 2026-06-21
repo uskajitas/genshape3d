@@ -1,12 +1,33 @@
 import { Pool } from 'pg';
+import { execSync } from 'node:child_process';
 
 let pool: Pool | null = null;
 
+// On Windows+WSL2, `localhost:5432` goes through a netsh port proxy whose
+// target IP changes every time WSL2 restarts. Resolve the live WSL2 IP and
+// connect directly, so the server never depends on the proxy being current.
+function resolveDbUrl(url: string): string {
+  if (!url || !/@(localhost|127\.0\.0\.1)/.test(url)) return url;
+  try {
+    const wslIp = execSync('wsl hostname -I', { timeout: 4000 })
+      .toString().trim().split(/\s+/)[0];
+    if (wslIp) {
+      const resolved = url.replace(/localhost|127\.0\.0\.1/, wslIp);
+      console.log(`[db] WSL2 IP resolved: ${wslIp} — using direct connection`);
+      return resolved;
+    }
+  } catch {
+    // Not on Windows/WSL2 or wsl not available — use URL as-is
+  }
+  return url;
+}
+
 export function getDb(): Pool {
   if (!pool) {
-    const isLocal = /@(localhost|127\.0\.0\.1)/.test(process.env.DATABASE_URL || '');
+    const url = resolveDbUrl(process.env.DATABASE_URL || '');
+    const isLocal = /@(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+)/.test(url);
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: url,
       ssl: isLocal ? false : { rejectUnauthorized: false },
     });
   }

@@ -6,8 +6,11 @@ export default defineConfig({
   server: {
     port: 3110,
     allowedHosts: ['genshape3d.com', 'localhost'],
-    proxy: {
-      '/api': 'http://localhost:8110',
-    },
+    proxy: { '/api': 'http://localhost:8110' },
+  },
+  preview: {
+    port: 3110,
+    allowedHosts: ['genshape3d.com', 'localhost'],
+    proxy: { '/api': 'http://localhost:8110' },
   },
 });
