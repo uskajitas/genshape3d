@@ -1,27 +1,7 @@
 import { Pool } from 'pg';
-import { execSync } from 'node:child_process';
 
 let pool: Pool | null = null;
 let resetPending = false;
-
-// On Windows+WSL2, `localhost:5432` goes through a netsh port proxy whose
-// target IP changes every time WSL2 restarts. Resolve the live WSL2 IP and
-// connect directly, so the server never depends on the proxy being current.
-function resolveDbUrl(url: string): string {
-  if (!url || !/@(localhost|127\.0\.0\.1)/.test(url)) return url;
-  try {
-    const wslIp = execSync('wsl hostname -I', { timeout: 4000 })
-      .toString().trim().split(/\s+/)[0];
-    if (wslIp) {
-      const resolved = url.replace(/localhost|127\.0\.0\.1/, wslIp);
-      console.log(`[db] WSL2 IP resolved: ${wslIp} — using direct connection`);
-      return resolved;
-    }
-  } catch {
-    // Not on Windows/WSL2 or wsl not available — use URL as-is
-  }
-  return url;
-}
 
 function scheduleReset() {
   if (resetPending) return;
@@ -48,7 +28,7 @@ function isConnErr(err: any): boolean {
 
 export function getDb(): Pool {
   if (!pool) {
-    const url = resolveDbUrl(process.env.DATABASE_URL || '');
+    const url = process.env.DATABASE_URL || '';
     const isLocal = /@(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+)/.test(url);
     pool = new Pool({
       connectionString: url,
@@ -67,18 +47,24 @@ export function getDb(): Pool {
   return pool;
 }
 
-// Drop-in replacement for getDb().query() that retries once on connection
-// errors. On the first ECONNRESET/ECONNREFUSED, the pool is destroyed so the
-// retry creates a fresh pool with a re-resolved WSL2 IP.
-export async function dbQuery(text: string, params?: any[]): Promise<import('pg').QueryResult> {
+// Drop-in replacement for getDb().query() with generic type support and one
+// retry on connection errors. Resets the pool synchronously before the retry
+// so the second attempt always gets a fresh connection with a re-resolved
+// WSL2 IP — not the same broken pool.
+export async function dbQuery<T extends import('pg').QueryResultRow = any>(text: string, params?: any[]): Promise<import('pg').QueryResult<T>> {
   for (let attempt = 0; attempt <= 1; attempt++) {
     try {
-      return await getDb().query(text, params as any);
+      return await getDb().query<T>(text, params as any);
     } catch (err: any) {
       if (attempt === 0 && isConnErr(err)) {
         console.warn(`[db] Connection error on query, resetting pool: ${err.code || err.message}`);
-        scheduleReset();
-        await new Promise(r => setTimeout(r, 1000));
+        // Reset synchronously — scheduleReset has a 2s delay which is longer
+        // than the retry wait, so the retry would hit the same broken pool.
+        const old = pool;
+        pool = null;
+        resetPending = false;
+        if (old) old.end().catch(() => {});
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
       throw err;
@@ -101,7 +87,7 @@ export async function initDb(): Promise<void> {
       await new Promise(r => setTimeout(r, 3000));
     }
   }
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_users (
       id           TEXT PRIMARY KEY,
       email        TEXT NOT NULL UNIQUE,
@@ -165,7 +151,7 @@ export async function initDb(): Promise<void> {
 
   // Text-to-image assets — persisted images generated via /api/text2image.
   // Survives reloads so the gallery is yours.
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_text2image_assets (
       id           UUID PRIMARY KEY,
       user_email   TEXT NOT NULL,
@@ -182,7 +168,7 @@ export async function initDb(): Promise<void> {
       ON genshape3d_text2image_assets (user_email, created_at DESC);
   `);
 
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_texture_jobs (
       id                   TEXT PRIMARY KEY,
       "userEmail"          TEXT NOT NULL,
@@ -501,12 +487,28 @@ export async function initDb(): Promise<void> {
     // Benchmark jobs must not appear in the normal user job list
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "isBenchmark" BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`,
+    // GPU telemetry written by the worker at job completion
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuMemPeakMB" INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuUtilAvg"   REAL    NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuUtilPeak"  REAL    NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuSamples"   INTEGER NOT NULL DEFAULT 0`,
+    // Credit ledger — append-only log of every credit grant/spend/refund.
+    // ref is UNIQUE so double-inserts (retry after crash) are safe.
+    `CREATE TABLE IF NOT EXISTS genshape3d_credit_ledger (
+       id         SERIAL PRIMARY KEY,
+       email      TEXT NOT NULL,
+       delta      INTEGER NOT NULL,
+       kind       TEXT NOT NULL,
+       ref        TEXT NOT NULL UNIQUE,
+       created_at TIMESTAMPTZ DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_credit_ledger_email ON genshape3d_credit_ledger (email, created_at DESC)`,
   ];
-  for (const sql of alterCols) await db.query(sql);
+  for (const sql of alterCols) await dbQuery(sql);
 
   // Backfill: any job created by a benchmark run has name starting with '[BM]'
   // but was inserted before the isBenchmark column existed, so it got DEFAULT false.
-  await db.query(`UPDATE genshape3d_jobs SET "isBenchmark" = true WHERE name LIKE '[BM]%' AND "isBenchmark" = false`);
+  await dbQuery(`UPDATE genshape3d_jobs SET "isBenchmark" = true WHERE name LIKE '[BM]%' AND "isBenchmark" = false`);
 
   console.log('PostgreSQL tables ready');
 }
