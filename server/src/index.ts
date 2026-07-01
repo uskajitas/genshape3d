@@ -1806,6 +1806,7 @@ app.post('/api/benchmark/runs', async (req, res) => {
       preset: string;
       octree: number; steps: number; guidance: number;
       faces: number; chunks: number; seed: number;
+      doTexture?: boolean;
     }>;
   };
   if (!await benchmarkAdminCheck(email, res)) return;
@@ -1847,10 +1848,16 @@ app.post('/api/benchmark/runs', async (req, res) => {
       // hunyuan3d (v2.0) runs only on the i7-1080; everything else on the 3090.
       const benchmarkWorker = it.model === 'hunyuan3d' ? 'i7-1080' : 'win-3090';
 
+      // Texture only for models with a real paint step (Hunyuan3D-2 / 2.1).
+      // Other models ignore doTexture at the runner, but we hard-gate here so
+      // a stray flag can never flip on for them.
+      const textureCapable = it.model === 'hunyuan3d' || it.model === 'hunyuan3d-2-1';
+      const doTexture = textureCapable && it.doTexture === true;
+
       const job = await createJob({
         userEmail: email,
         imageUrl: resolveImageUrl(subject.imageUrl),
-        name: `[BM] ${subject.name} · ${it.model} · ${it.preset || 'custom'}`,
+        name: `[BM] ${subject.name} · ${it.model} · ${it.preset || 'custom'}${doTexture ? ' · tex' : ''}`,
         model: it.model,
         octreeResolution: it.octree,
         inferenceSteps: it.steps,
@@ -1858,11 +1865,12 @@ app.post('/api/benchmark/runs', async (req, res) => {
         targetFaceCount: it.faces,
         numChunks: it.chunks,
         seed: it.seed,
+        doTexture,
         isBenchmark: true,
         preferredWorkerId: benchmarkWorker,
       });
 
-      runItems.push({ ...it, jobId: job.id });
+      runItems.push({ ...it, doTexture, jobId: job.id });
     }
 
     await createRunItems(run.id, runItems);

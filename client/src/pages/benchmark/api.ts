@@ -41,6 +41,7 @@ export interface CreateRunPayload {
     subjectId: string; model: string; preset: string;
     octree: number; steps: number; guidance: number;
     faces: number; chunks: number; seed: number;
+    doTexture?: boolean;
   }>;
 }
 

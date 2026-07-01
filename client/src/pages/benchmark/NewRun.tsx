@@ -157,6 +157,14 @@ interface ModelCombo {
   label: string;
   hint: string;
   octree: number; steps: number; guidance: number; faces: number; chunks: number;
+  // Whether a "generate texture" toggle applies to this model:
+  //   true  → real optional paint step (Hunyuan3D-2 / 2.1) → toggle is live.
+  //   false → toggle disabled. Either the runner has no texture path
+  //           (TripoSR, Hi3DGen: vertex-colours / geometry only, --do-texture
+  //           is a no-op) or texture is always-on and can't be turned off
+  //           (SF3D bakes a texture every run). See textureNote for the reason.
+  supportsTexture: boolean;
+  textureNote: string;
 }
 
 const MODEL_COMBOS: ModelCombo[] = [
@@ -166,6 +174,7 @@ const MODEL_COMBOS: ModelCombo[] = [
     label: `Hunyuan3D-2 · ${p.label}`,
     hint: `~${p.hint} · i7-1080`,
     octree: p.octree, steps: p.steps, guidance: p.guidance, faces: p.faces, chunks: p.chunks,
+    supportsTexture: true, textureNote: 'Optional paint pass (Hunyuan3D-2)',
   })),
   ...MESH_TYPE_PRESETS.map(p => ({
     id: `hunyuan3d-2-1-${p.id}`,
@@ -173,10 +182,14 @@ const MODEL_COMBOS: ModelCombo[] = [
     label: `Hunyuan3D-2.1 · ${p.label}`,
     hint: `PBR · 3090`,
     octree: p.octree, steps: p.steps, guidance: p.guidance, faces: p.faces, chunks: p.chunks,
+    supportsTexture: true, textureNote: 'Optional PBR paint (albedo / rough / normal)',
   })),
-  { id: 'triposr-draft', model: 'triposr', preset: 'draft', label: 'TripoSR', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000 },
-  { id: 'sf3d-draft', model: 'sf3d', preset: 'draft', label: 'Stable Fast 3D', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000 },
-  { id: 'hi3dgen-prop', model: 'hi3dgen', preset: 'prop', label: 'Hi3DGen', hint: 'high detail · 3090', octree: 384, steps: 10, guidance: 6, faces: 100000, chunks: 4000 },
+  { id: 'triposr-draft', model: 'triposr', preset: 'draft', label: 'TripoSR', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000,
+    supportsTexture: false, textureNote: 'No texture pass — vertex colours only' },
+  { id: 'sf3d-draft', model: 'sf3d', preset: 'draft', label: 'Stable Fast 3D', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000,
+    supportsTexture: false, textureNote: 'Always textured — SF3D bakes UVs every run' },
+  { id: 'hi3dgen-prop', model: 'hi3dgen', preset: 'prop', label: 'Hi3DGen', hint: 'high detail · 3090', octree: 384, steps: 10, guidance: 6, faces: 100000, chunks: 4000,
+    supportsTexture: false, textureNote: 'Geometry only — no texture pass' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -233,6 +246,17 @@ export const BenchmarkNewRun: React.FC = () => {
     });
   };
 
+  // Which selected combos should generate texture. Only ever holds ids of
+  // texture-capable combos (Hunyuan3D-2 / 2.1); the UI can't add others.
+  const [textureCombos, setTextureCombos] = useState<Set<string>>(new Set());
+  const toggleTexture = (id: string) => {
+    setTextureCombos(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
   const selectAllVisible = () => {
     setSelectedSubjects(prev => {
       const next = new Set(prev);
@@ -253,6 +277,7 @@ export const BenchmarkNewRun: React.FC = () => {
           subjectId, model: c.model, preset: c.preset,
           octree: c.octree, steps: c.steps, guidance: c.guidance,
           faces: c.faces, chunks: c.chunks, seed: 0,
+          doTexture: c.supportsTexture && textureCombos.has(c.id),
         }))
       );
       const run = await benchmarkApi.createRun({ email, name: runName.trim(), items });
@@ -341,7 +366,27 @@ export const BenchmarkNewRun: React.FC = () => {
                 {c.label}
               </ComboLabel>
               <ComboHint>{c.hint}</ComboHint>
-              <ComboHint style={{ marginLeft: 'auto', fontFamily: 'monospace', fontSize: '0.65rem' }}>
+              <label
+                title={c.supportsTexture
+                  ? c.textureNote
+                  : `Texture toggle unavailable — ${c.textureNote}`}
+                style={{
+                  marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
+                  gap: 4, fontSize: '0.68rem',
+                  color: c.supportsTexture ? undefined : '#6B7280',
+                  cursor: c.supportsTexture ? 'pointer' : 'not-allowed',
+                  opacity: c.supportsTexture ? 1 : 0.55,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  disabled={!c.supportsTexture || !selectedCombos.has(c.id)}
+                  checked={c.supportsTexture && textureCombos.has(c.id)}
+                  onChange={() => toggleTexture(c.id)}
+                />
+                🎨 texture
+              </label>
+              <ComboHint style={{ fontFamily: 'monospace', fontSize: '0.65rem' }}>
                 oct:{c.octree} · st:{c.steps} · g:{c.guidance}
               </ComboHint>
             </ComboRow>

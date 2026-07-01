@@ -82,6 +82,7 @@ export interface CreateRunItemInput {
   faces: number;
   chunks: number;
   seed: number;
+  doTexture?: boolean;
 }
 
 // ─── Rating dimensions ────────────────────────────────────────────────────────
@@ -291,10 +292,10 @@ export async function createRunItems(
   for (const it of items) {
     await dbQuery(
       `INSERT INTO benchmark_run_items
-         (id, "runId", "subjectId", "jobId", model, preset, octree, steps, guidance, faces, chunks, seed)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+         (id, "runId", "subjectId", "jobId", model, preset, octree, steps, guidance, faces, chunks, seed, "doTexture")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [randomUUID(), runId, it.subjectId, it.jobId, it.model, it.preset,
-       it.octree, it.steps, it.guidance, it.faces, it.chunks, it.seed],
+       it.octree, it.steps, it.guidance, it.faces, it.chunks, it.seed, it.doTexture === true],
     );
   }
 }
