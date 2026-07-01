@@ -124,6 +124,18 @@ const ComboHint = styled.span`
   font-size: 0.7rem; color: ${p => p.theme.colors.textMuted};
 `;
 
+// Texture opt-in for a combo. Uses the same styled checkbox (ComboCheck) as the
+// row select so the control stays visually consistent — never a raw <input>.
+const TexToggle = styled.label<{ $disabled?: boolean }>`
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.7rem; white-space: nowrap;
+  color: ${p => (p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text)};
+  opacity: ${p => (p.$disabled ? 0.5 : 1)};
+  cursor: ${p => (p.$disabled ? 'not-allowed' : 'pointer')};
+  user-select: none;
+`;
+
 const SummaryBox = styled.div`
   padding: 1rem 1.25rem;
   border-radius: 12px;
@@ -366,26 +378,20 @@ export const BenchmarkNewRun: React.FC = () => {
                 {c.label}
               </ComboLabel>
               <ComboHint>{c.hint}</ComboHint>
-              <label
+              <TexToggle
+                $disabled={!c.supportsTexture || !selectedCombos.has(c.id)}
                 title={c.supportsTexture
                   ? c.textureNote
                   : `Texture toggle unavailable — ${c.textureNote}`}
-                style={{
-                  marginLeft: 'auto', display: 'inline-flex', alignItems: 'center',
-                  gap: 4, fontSize: '0.68rem',
-                  color: c.supportsTexture ? undefined : '#6B7280',
-                  cursor: c.supportsTexture ? 'pointer' : 'not-allowed',
-                  opacity: c.supportsTexture ? 1 : 0.55,
-                }}
               >
-                <input
+                <ComboCheck
                   type="checkbox"
                   disabled={!c.supportsTexture || !selectedCombos.has(c.id)}
                   checked={c.supportsTexture && textureCombos.has(c.id)}
                   onChange={() => toggleTexture(c.id)}
                 />
                 🎨 texture
-              </label>
+              </TexToggle>
               <ComboHint style={{ fontFamily: 'monospace', fontSize: '0.65rem' }}>
                 oct:{c.octree} · st:{c.steps} · g:{c.guidance}
               </ComboHint>
