@@ -107,7 +107,7 @@ export async function initDb(): Promise<void> {
       await new Promise(r => setTimeout(r, 3000));
     }
   }
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_users (
       id           TEXT PRIMARY KEY,
       email        TEXT NOT NULL UNIQUE,
@@ -171,7 +171,7 @@ export async function initDb(): Promise<void> {
 
   // Text-to-image assets — persisted images generated via /api/text2image.
   // Survives reloads so the gallery is yours.
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_text2image_assets (
       id           UUID PRIMARY KEY,
       user_email   TEXT NOT NULL,
@@ -188,7 +188,7 @@ export async function initDb(): Promise<void> {
       ON genshape3d_text2image_assets (user_email, created_at DESC);
   `);
 
-  await db.query(`
+  await dbQuery(`
     CREATE TABLE IF NOT EXISTS genshape3d_texture_jobs (
       id                   TEXT PRIMARY KEY,
       "userEmail"          TEXT NOT NULL,
@@ -507,12 +507,28 @@ export async function initDb(): Promise<void> {
     // Benchmark jobs must not appear in the normal user job list
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "isBenchmark" BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`,
+    // GPU telemetry written by the worker at job completion
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuMemPeakMB" INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuUtilAvg"   REAL    NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuUtilPeak"  REAL    NOT NULL DEFAULT 0`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "gpuSamples"   INTEGER NOT NULL DEFAULT 0`,
+    // Credit ledger — append-only log of every credit grant/spend/refund.
+    // ref is UNIQUE so double-inserts (retry after crash) are safe.
+    `CREATE TABLE IF NOT EXISTS genshape3d_credit_ledger (
+       id         SERIAL PRIMARY KEY,
+       email      TEXT NOT NULL,
+       delta      INTEGER NOT NULL,
+       kind       TEXT NOT NULL,
+       ref        TEXT NOT NULL UNIQUE,
+       created_at TIMESTAMPTZ DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_credit_ledger_email ON genshape3d_credit_ledger (email, created_at DESC)`,
   ];
-  for (const sql of alterCols) await db.query(sql);
+  for (const sql of alterCols) await dbQuery(sql);
 
   // Backfill: any job created by a benchmark run has name starting with '[BM]'
   // but was inserted before the isBenchmark column existed, so it got DEFAULT false.
-  await db.query(`UPDATE genshape3d_jobs SET "isBenchmark" = true WHERE name LIKE '[BM]%' AND "isBenchmark" = false`);
+  await dbQuery(`UPDATE genshape3d_jobs SET "isBenchmark" = true WHERE name LIKE '[BM]%' AND "isBenchmark" = false`);
 
   console.log('PostgreSQL tables ready');
 }
