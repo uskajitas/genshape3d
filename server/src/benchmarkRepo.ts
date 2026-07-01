@@ -87,7 +87,7 @@ export interface CreateRunItemInput {
 // ─── Rating dimensions ────────────────────────────────────────────────────────
 
 export async function listRatingDimensions(): Promise<RatingDimension[]> {
-  const { rows } = await getDb().query<RatingDimension>(
+  const { rows } = await dbQuery<RatingDimension>(
     `SELECT * FROM benchmark_rating_dimensions WHERE active = true ORDER BY sort_order`,
   );
   return rows;
@@ -96,7 +96,7 @@ export async function listRatingDimensions(): Promise<RatingDimension[]> {
 export async function addRatingDimension(data: {
   key: string; label: string; description?: string;
 }): Promise<RatingDimension> {
-  const { rows } = await getDb().query<RatingDimension>(
+  const { rows } = await dbQuery<RatingDimension>(
     `INSERT INTO benchmark_rating_dimensions (key, label, description, sort_order)
      VALUES ($1, $2, $3, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM benchmark_rating_dimensions))
      RETURNING *`,
@@ -108,7 +108,7 @@ export async function addRatingDimension(data: {
 // ─── Categories ───────────────────────────────────────────────────────────────
 
 export async function listCategories(): Promise<BenchmarkCategory[]> {
-  const { rows } = await getDb().query<BenchmarkCategory>(
+  const { rows } = await dbQuery<BenchmarkCategory>(
     `SELECT id, name, "parentId", sort_order FROM benchmark_categories ORDER BY sort_order`,
   );
   return rows;
@@ -129,7 +129,7 @@ export async function getCategoryTree(): Promise<BenchmarkCategory[]> {
 // ─── Subjects ─────────────────────────────────────────────────────────────────
 
 export async function listSubjects(): Promise<BenchmarkSubject[]> {
-  const { rows } = await getDb().query<BenchmarkSubject>(
+  const { rows } = await dbQuery<BenchmarkSubject>(
     `SELECT
        s.*,
        c.name AS "categoryName",
@@ -145,7 +145,7 @@ export async function listSubjects(): Promise<BenchmarkSubject[]> {
 }
 
 export async function getSubject(id: string): Promise<BenchmarkSubject | null> {
-  const { rows } = await getDb().query<BenchmarkSubject>(
+  const { rows } = await dbQuery<BenchmarkSubject>(
     `SELECT s.*, c.name AS "categoryName", p.name AS "parentCategoryName"
      FROM benchmark_subjects s
      JOIN benchmark_categories c ON c.id = s."categoryId"
@@ -163,7 +163,7 @@ export async function createSubject(data: {
   imageUrl?: string;
   notes?: string;
 }): Promise<BenchmarkSubject> {
-  const { rows } = await getDb().query<BenchmarkSubject>(
+  const { rows } = await dbQuery<BenchmarkSubject>(
     `INSERT INTO benchmark_subjects ("categoryId", name, "generationPrompt", "imageUrl", notes)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
     [data.categoryId, data.name, data.generationPrompt || '', data.imageUrl || '', data.notes || ''],
@@ -198,7 +198,7 @@ export async function deleteSubject(id: string): Promise<void> {
 // ─── Runs ─────────────────────────────────────────────────────────────────────
 
 export async function listRuns(): Promise<BenchmarkRun[]> {
-  const { rows } = await getDb().query<BenchmarkRun>(
+  const { rows } = await dbQuery<BenchmarkRun>(
     `SELECT
        r.*,
        COUNT(i.id)::int                                              AS "totalItems",
@@ -214,7 +214,7 @@ export async function listRuns(): Promise<BenchmarkRun[]> {
 }
 
 export async function getRun(id: string): Promise<BenchmarkRun | null> {
-  const { rows } = await getDb().query<BenchmarkRun>(
+  const { rows } = await dbQuery<BenchmarkRun>(
     `SELECT
        r.*,
        COUNT(i.id)::int                                              AS "totalItems",
@@ -235,7 +235,7 @@ export async function createRun(data: {
   configSnapshot: Record<string, any>;
 }): Promise<BenchmarkRun> {
   const id = randomUUID();
-  const { rows } = await getDb().query<BenchmarkRun>(
+  const { rows } = await dbQuery<BenchmarkRun>(
     `INSERT INTO benchmark_runs (id, name, "configSnapshot") VALUES ($1, $2, $3) RETURNING *`,
     [id, data.name, JSON.stringify(data.configSnapshot)],
   );
@@ -252,7 +252,7 @@ export async function markRunComplete(id: string): Promise<void> {
 // ─── Run items ────────────────────────────────────────────────────────────────
 
 export async function getRunItems(runId: string): Promise<BenchmarkRunItem[]> {
-  const { rows } = await getDb().query<BenchmarkRunItem>(
+  const { rows } = await dbQuery<BenchmarkRunItem>(
     `SELECT
        i.*,
        s.name           AS "subjectName",

@@ -67,18 +67,24 @@ export function getDb(): Pool {
   return pool;
 }
 
-// Drop-in replacement for getDb().query() that retries once on connection
-// errors. On the first ECONNRESET/ECONNREFUSED, the pool is destroyed so the
-// retry creates a fresh pool with a re-resolved WSL2 IP.
-export async function dbQuery(text: string, params?: any[]): Promise<import('pg').QueryResult> {
+// Drop-in replacement for getDb().query() with generic type support and one
+// retry on connection errors. Resets the pool synchronously before the retry
+// so the second attempt always gets a fresh connection with a re-resolved
+// WSL2 IP — not the same broken pool.
+export async function dbQuery<T extends import('pg').QueryResultRow = any>(text: string, params?: any[]): Promise<import('pg').QueryResult<T>> {
   for (let attempt = 0; attempt <= 1; attempt++) {
     try {
-      return await getDb().query(text, params as any);
+      return await getDb().query<T>(text, params as any);
     } catch (err: any) {
       if (attempt === 0 && isConnErr(err)) {
         console.warn(`[db] Connection error on query, resetting pool: ${err.code || err.message}`);
-        scheduleReset();
-        await new Promise(r => setTimeout(r, 1000));
+        // Reset synchronously — scheduleReset has a 2s delay which is longer
+        // than the retry wait, so the retry would hit the same broken pool.
+        const old = pool;
+        pool = null;
+        resetPending = false;
+        if (old) old.end().catch(() => {});
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
       throw err;

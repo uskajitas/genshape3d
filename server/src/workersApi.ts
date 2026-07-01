@@ -195,7 +195,7 @@ export function mountWorkersApi(app: Express): void {
     ];
 
     // Live busy counts + last activity from Postgres.
-    const { rows: busyRows } = await getDb().query<{
+    const { rows: busyRows } = await dbQuery<{
       assignedWorkerId: string; n: string;
     }>(
       `SELECT "assignedWorkerId", COUNT(*)::text AS n
@@ -207,7 +207,7 @@ export function mountWorkersApi(app: Express): void {
     for (const r of busyRows) busyMap[r.assignedWorkerId] = parseInt(r.n, 10) || 0;
 
     // Last time each worker claimed or completed a job — best proxy for "online".
-    const { rows: activityRows } = await getDb().query<{
+    const { rows: activityRows } = await dbQuery<{
       assignedWorkerId: string; lastActivity: string;
     }>(
       `SELECT "assignedWorkerId", MAX("updatedAt")::text AS "lastActivity"

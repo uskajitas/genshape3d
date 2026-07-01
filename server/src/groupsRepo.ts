@@ -23,7 +23,7 @@ export async function createGroup(data: {
   styleAnchorUrl?: string;
   notes?: string;
 }): Promise<AssetGroup> {
-  const { rows } = await getDb().query<AssetGroup>(
+  const { rows } = await dbQuery<AssetGroup>(
     `INSERT INTO genshape3d_asset_groups
        (id, "userEmail", name, "styleAnchorUrl", notes)
      VALUES ($1, $2, $3, $4, $5)
@@ -34,7 +34,7 @@ export async function createGroup(data: {
 }
 
 export async function getGroup(id: string): Promise<AssetGroup | null> {
-  const { rows } = await getDb().query<AssetGroup>(
+  const { rows } = await dbQuery<AssetGroup>(
     `SELECT * FROM genshape3d_asset_groups WHERE id = $1 AND deleted = false`,
     [id],
   );
@@ -44,7 +44,7 @@ export async function getGroup(id: string): Promise<AssetGroup | null> {
 export async function listGroupsByUser(userEmail: string): Promise<AssetGroupSummary[]> {
   // For each group: count jobs, count done jobs, pick a thumbnail.
   // Thumbnail preference: first done resultUrl > first imageUrl > styleAnchorUrl.
-  const { rows } = await getDb().query<AssetGroupSummary>(
+  const { rows } = await dbQuery<AssetGroupSummary>(
     `SELECT
        g.*,
        COALESCE(j.cnt,        0)::int AS "jobCount",
