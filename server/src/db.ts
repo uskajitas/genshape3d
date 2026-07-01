@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import { execSync } from 'node:child_process';
 
 let pool: Pool | null = null;
+let resetPending = false;
 
 // On Windows+WSL2, `localhost:5432` goes through a netsh port proxy whose
 // target IP changes every time WSL2 restarts. Resolve the live WSL2 IP and
@@ -22,6 +23,29 @@ function resolveDbUrl(url: string): string {
   return url;
 }
 
+function scheduleReset() {
+  if (resetPending) return;
+  resetPending = true;
+  setTimeout(() => {
+    const old = pool;
+    pool = null;
+    resetPending = false;
+    if (old) old.end().catch(() => {});
+    console.log('[db] Pool destroyed — will reconnect on next query');
+  }, 2000);
+}
+
+function isConnErr(err: any): boolean {
+  return (
+    err.code === 'ECONNRESET' ||
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'ENOTFOUND' ||
+    (typeof err.message === 'string' &&
+      (err.message.includes('Connection terminated') ||
+       err.message.includes('socket hang up')))
+  );
+}
+
 export function getDb(): Pool {
   if (!pool) {
     const url = resolveDbUrl(process.env.DATABASE_URL || '');
@@ -29,9 +53,38 @@ export function getDb(): Pool {
     pool = new Pool({
       connectionString: url,
       ssl: isLocal ? false : { rejectUnauthorized: false },
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      max: 5,
+    });
+    pool.on('error', (err: any) => {
+      console.error('[db] Pool error:', err.code || err.message);
+      if (isConnErr(err)) scheduleReset();
     });
   }
   return pool;
+}
+
+// Drop-in replacement for getDb().query() that retries once on connection
+// errors. On the first ECONNRESET/ECONNREFUSED, the pool is destroyed so the
+// retry creates a fresh pool with a re-resolved WSL2 IP.
+export async function dbQuery(text: string, params?: any[]): Promise<import('pg').QueryResult> {
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      return await getDb().query(text, params as any);
+    } catch (err: any) {
+      if (attempt === 0 && isConnErr(err)) {
+        console.warn(`[db] Connection error on query, resetting pool: ${err.code || err.message}`);
+        scheduleReset();
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('[db] unreachable');
 }
 
 export async function initDb(): Promise<void> {

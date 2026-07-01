@@ -2,7 +2,7 @@
 // text2imageRepo — CRUD for text-to-image assets persisted in Postgres.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
 export interface T2IAsset {
@@ -52,7 +52,7 @@ export type CreateAssetInput =
 
 export async function createAsset(data: CreateAssetInput): Promise<T2IAsset> {
   const id = randomUUID();
-  const r = await getDb().query(
+  const r = await dbQuery(
     `INSERT INTO genshape3d_text2image_assets
        (id, user_email, name, prompt, final_prompt, params, provider, image_key, seed,
         "parentAssetId", "viewLabel", "readyFor3D")
@@ -81,7 +81,7 @@ export async function createAsset(data: CreateAssetInput): Promise<T2IAsset> {
  *  thrown away, the NEW ones take their place. The R2 key for the old
  *  bytes is left orphaned in storage.  */
 export async function replaceAssetImageKey(id: string, newImageKey: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets SET image_key = $1 WHERE id = $2`,
     [newImageKey, id],
   );
@@ -89,7 +89,7 @@ export async function replaceAssetImageKey(id: string, newImageKey: string): Pro
 
 /** Toggle the readyFor3D flag on a single asset. */
 export async function setAssetReadyFor3D(id: string, ready: boolean): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets SET "readyFor3D"=$1 WHERE id=$2`,
     [ready, id],
   );
@@ -99,7 +99,7 @@ export async function setAssetReadyFor3D(id: string, ready: boolean): Promise<vo
  *  the original (if not already preserved). Idempotent: re-edits don't
  *  overwrite originalImageKey. */
 export async function applyAssetEdit(id: string, newImageKey: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets
         SET "originalImageKey" = COALESCE("originalImageKey", image_key),
             image_key           = $1
@@ -111,7 +111,7 @@ export async function applyAssetEdit(id: string, newImageKey: string): Promise<v
 /** Revert: swap originalImageKey back to image_key, clear originalImageKey.
  *  No-op if no original is recorded. */
 export async function revertAssetEdit(id: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets
         SET image_key = "originalImageKey",
             "originalImageKey" = NULL
@@ -123,7 +123,7 @@ export async function revertAssetEdit(id: string): Promise<void> {
 /** Fetch a single asset by id (and verify ownership). Used by the alt-views
  *  endpoint to look up the front-view image before generating others. */
 export async function getAssetById(id: string, email: string): Promise<T2IAsset | null> {
-  const r = await getDb().query(
+  const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
      WHERE id = $1 AND user_email = $2 AND deleted = false LIMIT 1`,
     [id, email],
@@ -132,7 +132,7 @@ export async function getAssetById(id: string, email: string): Promise<T2IAsset 
 }
 
 export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
-  const r = await getDb().query(
+  const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
      WHERE user_email = $1 AND deleted = false
      ORDER BY created_at DESC LIMIT 200`,
@@ -142,7 +142,7 @@ export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
 }
 
 export async function renameAsset(id: string, name: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets SET name=$1 WHERE id=$2`,
     [name, id],
   );
@@ -150,7 +150,7 @@ export async function renameAsset(id: string, name: string): Promise<void> {
 
 // Soft-delete only. Generated images aren't free either — never drop the row.
 export async function deleteAsset(id: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_text2image_assets SET deleted = true WHERE id = $1`,
     [id],
   );

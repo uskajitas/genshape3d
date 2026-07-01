@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
 export interface Job {
@@ -43,7 +43,7 @@ export interface Job {
 // (pending, processing, done, failed, cancelled) so retry-storms still hit
 // the cap — people don't get to spam by cancelling.
 export async function countUserJobsSince(email: string, hours: number): Promise<number> {
-  const r = await getDb().query(
+  const r = await dbQuery(
     `SELECT COUNT(*)::int AS n
      FROM genshape3d_jobs
      WHERE "userEmail" = $1
@@ -56,14 +56,14 @@ export async function countUserJobsSince(email: string, hours: number): Promise<
 // Soft-delete: marks the row hidden but never drops it. GPU time is
 // expensive — hard deletion is never allowed at this layer.
 export async function deleteJob(id: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_jobs SET deleted = true, "updatedAt" = $1 WHERE id = $2`,
     [new Date().toISOString(), id],
   );
 }
 
 export async function renameJob(id: string, name: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_jobs SET name=$1, "updatedAt"=$2 WHERE id=$3`,
     [name, new Date().toISOString(), id]
   );
@@ -72,7 +72,7 @@ export async function renameJob(id: string, name: string): Promise<void> {
 export async function cancelJob(id: string): Promise<void> {
   // Pending jobs are cancelled immediately (worker hasn't touched them yet).
   // Processing jobs get requestCancel=true so the worker shuts down cleanly.
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_jobs
      SET "requestCancel" = true,
          status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END,
@@ -117,7 +117,7 @@ export async function createJob(data: {
   isBenchmark?: boolean;
 }): Promise<Job> {
   const now = new Date().toISOString();
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `INSERT INTO genshape3d_jobs
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
@@ -171,7 +171,7 @@ function routeWorker(model: string): string {
 }
 
 export async function getJobsByUser(userEmail: string): Promise<Job[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs
      WHERE "userEmail"=$1 AND deleted = false AND "isBenchmark" = false AND archived = false
      ORDER BY "createdAt" DESC`,
@@ -181,15 +181,15 @@ export async function getJobsByUser(userEmail: string): Promise<Job[]> {
 }
 
 export async function archiveJob(id: string): Promise<void> {
-  await getDb().query(`UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW() WHERE id = $1`, [id]);
+  await dbQuery(`UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW() WHERE id = $1`, [id]);
 }
 
 export async function unarchiveJob(id: string): Promise<void> {
-  await getDb().query(`UPDATE genshape3d_jobs SET archived = false, "updatedAt" = NOW() WHERE id = $1`, [id]);
+  await dbQuery(`UPDATE genshape3d_jobs SET archived = false, "updatedAt" = NOW() WHERE id = $1`, [id]);
 }
 
 export async function archiveAllJobs(userEmail: string): Promise<number> {
-  const r = await getDb().query(
+  const r = await dbQuery(
     `UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW()
      WHERE "userEmail" = $1 AND deleted = false AND "isBenchmark" = false AND archived = false`,
     [userEmail],
@@ -198,7 +198,7 @@ export async function archiveAllJobs(userEmail: string): Promise<number> {
 }
 
 export async function listArchivedJobs(userEmail: string): Promise<Job[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs
      WHERE "userEmail" = $1 AND deleted = false AND "isBenchmark" = false AND archived = true
      ORDER BY "createdAt" DESC`,
@@ -208,7 +208,7 @@ export async function listArchivedJobs(userEmail: string): Promise<Job[]> {
 }
 
 export async function getJobById(id: string): Promise<Job | null> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs WHERE id = $1 AND deleted = false LIMIT 1`,
     [id],
   );
@@ -216,14 +216,14 @@ export async function getJobById(id: string): Promise<Job | null> {
 }
 
 export async function listAllJobs(): Promise<Job[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs WHERE deleted = false AND "isBenchmark" = false ORDER BY "createdAt" DESC`
   );
   return rows;
 }
 
 export async function listPendingJobs(): Promise<Job[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs
      WHERE status='pending' AND deleted = false AND "isBenchmark" = false
      ORDER BY "createdAt" ASC`
@@ -232,7 +232,7 @@ export async function listPendingJobs(): Promise<Job[]> {
 }
 
 export async function listCancelledJobs(): Promise<Job[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs
      WHERE status='cancelled' AND deleted = false AND "isBenchmark" = false
      ORDER BY "completedAt" DESC`
@@ -241,7 +241,7 @@ export async function listCancelledJobs(): Promise<Job[]> {
 }
 
 export async function updateJobStatus(id: string, status: Job['status'], resultUrl = ''): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_jobs SET status=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
     [status, resultUrl, new Date().toISOString(), id]
   );
@@ -260,7 +260,7 @@ export async function claimNextPendingJob(workerId: string, models: string[]): P
   const now = new Date().toISOString();
   // Prefer jobs pinned to this worker first, then any unpinned job.
   // Jobs pinned to a *different* worker are never claimed here.
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `UPDATE genshape3d_jobs SET
        status = 'processing',
        "assignedWorkerId" = $1,
@@ -294,7 +294,7 @@ export async function completeJobByWorker(
   resultUrl = '',
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const r = await getDb().query(
+  const r = await dbQuery(
     `UPDATE genshape3d_jobs
      SET status = $1,
          "resultUrl" = $2,
@@ -312,7 +312,7 @@ export async function updateJobProgressByWorker(
   workerId: string,
   progress: { pct?: number; phase?: string; step?: number; total?: number },
 ): Promise<boolean> {
-  const r = await getDb().query(
+  const r = await dbQuery(
     `UPDATE genshape3d_jobs
      SET "progressPct"   = COALESCE($1, "progressPct"),
          "progressPhase" = COALESCE($2, "progressPhase"),
@@ -338,7 +338,7 @@ export async function updateJobProgressByWorker(
 // without each one needing direct DB access.
 export async function getCancelRequests(jobIds: string[]): Promise<string[]> {
   if (jobIds.length === 0) return [];
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT id FROM genshape3d_jobs WHERE id = ANY($1::text[]) AND "requestCancel" = true`,
     [jobIds],
   );

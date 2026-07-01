@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 
 export interface TextureJob {
   id: string;
@@ -43,7 +43,7 @@ export async function createTextureJob(data: {
   keepShape?: boolean;
   sourceImageUrl?: string;
 }): Promise<TextureJob> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `INSERT INTO genshape3d_texture_jobs
       (id, "userEmail", "sourceJobId", "sourceModelUrl", prompt, "materialPreset",
        "referenceImageKey", "textureRes", maps, variants, seed, strength, "keepShape", "sourceImageUrl")
@@ -70,7 +70,7 @@ export async function createTextureJob(data: {
 }
 
 export async function getTextureJobsByUser(userEmail: string): Promise<TextureJob[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_texture_jobs
      WHERE "userEmail" = $1 AND deleted = false
      ORDER BY "createdAt" DESC`,
@@ -80,7 +80,7 @@ export async function getTextureJobsByUser(userEmail: string): Promise<TextureJo
 }
 
 export async function getTextureJobsForSource(sourceJobId: string, userEmail: string): Promise<TextureJob[]> {
-  const { rows } = await getDb().query(
+  const { rows } = await dbQuery(
     `SELECT * FROM genshape3d_texture_jobs
      WHERE "sourceJobId" = $1 AND "userEmail" = $2 AND deleted = false
      ORDER BY "createdAt" DESC`,

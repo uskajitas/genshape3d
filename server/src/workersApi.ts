@@ -30,7 +30,7 @@ import {
   getCancelRequests,
 } from './jobsRepo';
 import { isAdmin } from './usersRepo';
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 
 // Short-poll: check the DB once and return immediately. Cloudflare tunnels
 // drop idle POST connections well before even a 10s hold, so long-polling
