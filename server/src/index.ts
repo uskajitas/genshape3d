@@ -39,7 +39,7 @@ import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import { initDb, getDb } from './db';
+import { initDb, getDb, dbQuery } from './db';
 import {
   upsertOnLogin, recordLoginEvent, getAppUser,
   listAppUsers, setUserRole, deductCredit,
@@ -1065,7 +1065,7 @@ app.get('/api/textures/pending', async (req, res) => {
   const workerId = req.query.workerId as string;
   if (!workerId) return res.status(400).json({ error: 'workerId required' });
   try {
-    const { rows } = await getDb().query(
+    const { rows } = await dbQuery(
       `UPDATE genshape3d_texture_jobs
        SET status='processing', "assignedWorkerId"=$1, "startedAt"=NOW(), "updatedAt"=NOW()
        WHERE id = (
@@ -1086,7 +1086,7 @@ app.get('/api/textures/pending', async (req, res) => {
 app.patch('/api/textures/:id/progress', async (req, res) => {
   const { pct, phase } = req.body;
   try {
-    await getDb().query(
+    await dbQuery(
       `UPDATE genshape3d_texture_jobs SET "progressPct"=$1, "progressPhase"=$2, "updatedAt"=NOW() WHERE id=$3`,
       [pct ?? 0, phase ?? '', req.params.id]
     );
@@ -1098,7 +1098,7 @@ app.patch('/api/textures/:id/progress', async (req, res) => {
 app.patch('/api/textures/:id/complete', async (req, res) => {
   const { resultUrl } = req.body;
   try {
-    await getDb().query(
+    await dbQuery(
       `UPDATE genshape3d_texture_jobs SET status='done', "resultUrl"=$1, "progressPct"=100, "progressPhase"='done', "completedAt"=NOW(), "updatedAt"=NOW() WHERE id=$2`,
       [resultUrl, req.params.id]
     );
@@ -1110,7 +1110,7 @@ app.patch('/api/textures/:id/complete', async (req, res) => {
 app.patch('/api/textures/:id/fail', async (req, res) => {
   const { error } = req.body;
   try {
-    await getDb().query(
+    await dbQuery(
       `UPDATE genshape3d_texture_jobs SET status='failed', "errorMessage"=$1, "completedAt"=NOW(), "updatedAt"=NOW() WHERE id=$2`,
       [String(error || '').slice(0, 4000), req.params.id]
     );
@@ -1203,14 +1203,14 @@ app.post('/api/jobs/from-key', async (req, res) => {
   let auxImageUrls: string[] = [];
   try {
     const { getDb } = require('./db');
-    const { rows: parents } = await getDb().query(
+    const { rows: parents } = await dbQuery(
       `SELECT id FROM genshape3d_text2image_assets
         WHERE image_key = $1 AND deleted = false LIMIT 1`,
       [key],
     );
     const parentId = parents[0]?.id as string | undefined;
     if (parentId) {
-      const { rows: kids } = await getDb().query(
+      const { rows: kids } = await dbQuery(
         `SELECT image_key FROM genshape3d_text2image_assets
           WHERE "parentAssetId" = $1 AND deleted = false
           ORDER BY created_at ASC`,
@@ -1265,7 +1265,7 @@ app.patch('/api/jobs/:id/image-url', async (req, res) => {
   if (typeof imageUrl !== 'string') return res.status(400).json({ error: 'imageUrl required' });
   try {
     const { getDb } = require('./db');
-    await getDb().query(
+    await dbQuery(
       `UPDATE genshape3d_jobs SET "imageUrl" = $1, "updatedAt" = $2 WHERE id = $3`,
       [imageUrl, new Date().toISOString(), req.params.id],
     );
@@ -1424,7 +1424,7 @@ app.get('/api/groups/:id', async (req, res) => {
     if (group.userEmail !== email && !(await isAdmin(email))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const { rows: jobs } = await getDb().query(
+    const { rows: jobs } = await dbQuery(
       `SELECT * FROM genshape3d_jobs
        WHERE "groupId" = $1 AND deleted = false
        ORDER BY "createdAt" DESC`,
@@ -1503,7 +1503,7 @@ app.get('/api/admin/jobs/:id', async (req, res) => {
   const caller = req.headers['x-user-email'] as string;
   if (!caller || !(await isAdmin(caller))) return res.status(403).json({ error: 'Forbidden' });
   const { getDb } = require('./db');
-  const { rows: jobRows } = await getDb().query(
+  const { rows: jobRows } = await dbQuery(
     `SELECT * FROM genshape3d_jobs WHERE id = $1 LIMIT 1`,
     [req.params.id],
   );
@@ -1522,14 +1522,14 @@ app.get('/api/admin/jobs/:id', async (req, res) => {
     const idx = u.pathname.indexOf(`/${bucket}/`);
     const key = idx >= 0 ? u.pathname.slice(idx + bucket.length + 2) : null;
     if (key) {
-      const { rows: pr } = await getDb().query(
+      const { rows: pr } = await dbQuery(
         `SELECT * FROM genshape3d_text2image_assets
           WHERE image_key = $1 AND deleted = false LIMIT 1`,
         [key],
       );
       parentAsset = pr[0] || null;
       if (parentAsset) {
-        const { rows: kids } = await getDb().query(
+        const { rows: kids } = await dbQuery(
           `SELECT id, image_key, "viewLabel", created_at
              FROM genshape3d_text2image_assets
             WHERE "parentAssetId" = $1 AND deleted = false
@@ -1887,12 +1887,17 @@ mountWorkersApi(app);
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-initDb().then(() => {
-  app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
-  // Pre-load the rembg ONNX model so the first /api/upload doesn't pay the
-  // ~3s cold-start cost. Best-effort — failures are logged inside warmRembg.
-  warmRembg();
-}).catch(err => {
-  console.error('Failed to init DB:', err);
-  process.exit(1);
-});
+async function boot() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await initDb();
+      app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
+      warmRembg();
+      return;
+    } catch (err: any) {
+      console.error(`Boot attempt ${attempt} failed: ${err.message} — retrying in 5s`);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+}
+boot();

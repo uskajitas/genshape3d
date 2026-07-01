@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -188,11 +188,11 @@ export async function updateSubject(id: string, data: {
   if (data.notes !== undefined)              { sets.push(`notes = $${i++}`);               vals.push(data.notes); }
   if (sets.length === 0) return;
   vals.push(id);
-  await getDb().query(`UPDATE benchmark_subjects SET ${sets.join(', ')} WHERE id = $${i}`, vals);
+  await dbQuery(`UPDATE benchmark_subjects SET ${sets.join(', ')} WHERE id = $${i}`, vals);
 }
 
 export async function deleteSubject(id: string): Promise<void> {
-  await getDb().query(`UPDATE benchmark_subjects SET deleted = true WHERE id = $1`, [id]);
+  await dbQuery(`UPDATE benchmark_subjects SET deleted = true WHERE id = $1`, [id]);
 }
 
 // ─── Runs ─────────────────────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ export async function createRun(data: {
 }
 
 export async function markRunComplete(id: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE benchmark_runs SET "completedAt" = NOW() WHERE id = $1 AND "completedAt" IS NULL`,
     [id],
   );
@@ -289,7 +289,7 @@ export async function createRunItems(
   ]);
   // chunks + seed need separate handling due to count — do individual inserts instead
   for (const it of items) {
-    await getDb().query(
+    await dbQuery(
       `INSERT INTO benchmark_run_items
          (id, "runId", "subjectId", "jobId", model, preset, octree, steps, guidance, faces, chunks, seed)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
@@ -304,7 +304,7 @@ export async function rateRunItem(
   ratings: Record<string, number>,
   notes: string,
 ): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE benchmark_run_items
      SET ratings = $1::jsonb, "ratingNotes" = $2, "ratedAt" = NOW()
      WHERE id = $3`,

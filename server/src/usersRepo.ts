@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
 export type UserRole = 'guest' | 'free' | 'pro' | 'admin';
@@ -42,7 +42,7 @@ export function isAdminEmail(email: string): boolean {
 export async function isAdmin(email: string): Promise<boolean> {
   if (isAdminEmail(email)) return true;
   try {
-    const { rows } = await getDb().query(
+    const { rows } = await dbQuery(
       'SELECT role FROM genshape3d_users WHERE email = $1',
       [email],
     );
@@ -79,24 +79,24 @@ export async function upsertOnLogin(email: string, name: string, picture: string
 }
 
 export async function recordLoginEvent(email: string, name: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     'INSERT INTO genshape3d_login_events (id, email, name, timestamp) VALUES ($1,$2,$3,$4)',
     [randomUUID(), email, name, new Date().toISOString()]
   );
 }
 
 export async function getAppUser(email: string): Promise<AppUser | undefined> {
-  const { rows } = await getDb().query('SELECT * FROM genshape3d_users WHERE email = $1', [email]);
+  const { rows } = await dbQuery('SELECT * FROM genshape3d_users WHERE email = $1', [email]);
   return rows[0];
 }
 
 export async function listAppUsers(): Promise<AppUser[]> {
-  const { rows } = await getDb().query('SELECT * FROM genshape3d_users ORDER BY "createdAt" DESC');
+  const { rows } = await dbQuery('SELECT * FROM genshape3d_users ORDER BY "createdAt" DESC');
   return rows;
 }
 
 export async function setUserRole(id: string, role: UserRole): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     'UPDATE genshape3d_users SET role=$1, credits=$2 WHERE id=$3',
     [role, CREDIT_DEFAULTS[role], id]
   );
@@ -105,7 +105,7 @@ export async function setUserRole(id: string, role: UserRole): Promise<void> {
 export async function deductCredit(email: string): Promise<boolean> {
   const user = await getAppUser(email);
   if (!user || user.credits <= 0) return false;
-  await getDb().query('UPDATE genshape3d_users SET credits = credits - 1 WHERE email = $1', [email]);
+  await dbQuery('UPDATE genshape3d_users SET credits = credits - 1 WHERE email = $1', [email]);
   return true;
 }
 

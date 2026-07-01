@@ -1,20 +1,106 @@
 import { Pool } from 'pg';
+import { execSync } from 'node:child_process';
 
 let pool: Pool | null = null;
+let resetPending = false;
+
+// On Windows+WSL2, `localhost:5432` goes through a netsh port proxy whose
+// target IP changes every time WSL2 restarts. Resolve the live WSL2 IP and
+// connect directly, so the server never depends on the proxy being current.
+function resolveDbUrl(url: string): string {
+  if (!url || !/@(localhost|127\.0\.0\.1)/.test(url)) return url;
+  try {
+    const wslIp = execSync('wsl hostname -I', { timeout: 4000 })
+      .toString().trim().split(/\s+/)[0];
+    if (wslIp) {
+      const resolved = url.replace(/localhost|127\.0\.0\.1/, wslIp);
+      console.log(`[db] WSL2 IP resolved: ${wslIp} — using direct connection`);
+      return resolved;
+    }
+  } catch {
+    // Not on Windows/WSL2 or wsl not available — use URL as-is
+  }
+  return url;
+}
+
+function scheduleReset() {
+  if (resetPending) return;
+  resetPending = true;
+  setTimeout(() => {
+    const old = pool;
+    pool = null;
+    resetPending = false;
+    if (old) old.end().catch(() => {});
+    console.log('[db] Pool destroyed — will reconnect on next query');
+  }, 2000);
+}
+
+function isConnErr(err: any): boolean {
+  return (
+    err.code === 'ECONNRESET' ||
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'ENOTFOUND' ||
+    (typeof err.message === 'string' &&
+      (err.message.includes('Connection terminated') ||
+       err.message.includes('socket hang up')))
+  );
+}
 
 export function getDb(): Pool {
   if (!pool) {
-    const isLocal = /@(localhost|127\.0\.0\.1)/.test(process.env.DATABASE_URL || '');
+    const url = resolveDbUrl(process.env.DATABASE_URL || '');
+    const isLocal = /@(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+)/.test(url);
     pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      connectionString: url,
       ssl: isLocal ? false : { rejectUnauthorized: false },
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      max: 5,
+    });
+    pool.on('error', (err: any) => {
+      console.error('[db] Pool error:', err.code || err.message);
+      if (isConnErr(err)) scheduleReset();
     });
   }
   return pool;
 }
 
+// Drop-in replacement for getDb().query() that retries once on connection
+// errors. On the first ECONNRESET/ECONNREFUSED, the pool is destroyed so the
+// retry creates a fresh pool with a re-resolved WSL2 IP.
+export async function dbQuery(text: string, params?: any[]): Promise<import('pg').QueryResult> {
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      return await getDb().query(text, params as any);
+    } catch (err: any) {
+      if (attempt === 0 && isConnErr(err)) {
+        console.warn(`[db] Connection error on query, resetting pool: ${err.code || err.message}`);
+        scheduleReset();
+        await new Promise(r => setTimeout(r, 1000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('[db] unreachable');
+}
+
 export async function initDb(): Promise<void> {
   const db = getDb();
+  // Retry up to 10 times with 3s delay — handles WSL2 Postgres not yet
+  // accepting connections after a network hiccup or host resume.
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      await db.query('SELECT 1');
+      break;
+    } catch (err: any) {
+      if (attempt === 10) throw err;
+      console.warn(`DB not ready (attempt ${attempt}/10): ${err.code || err.message} — retrying in 3s`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
   await db.query(`
     CREATE TABLE IF NOT EXISTS genshape3d_users (
       id           TEXT PRIMARY KEY,

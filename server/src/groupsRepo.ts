@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getDb, dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
 export interface AssetGroup {
@@ -76,14 +76,14 @@ export async function listGroupsByUser(userEmail: string): Promise<AssetGroupSum
 }
 
 export async function renameGroup(id: string, name: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_asset_groups SET name = $1, "updatedAt" = NOW() WHERE id = $2`,
     [name, id],
   );
 }
 
 export async function setGroupStyleAnchor(id: string, styleAnchorUrl: string): Promise<void> {
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_asset_groups SET "styleAnchorUrl" = $1, "updatedAt" = NOW() WHERE id = $2`,
     [styleAnchorUrl, id],
   );
@@ -92,7 +92,7 @@ export async function setGroupStyleAnchor(id: string, styleAnchorUrl: string): P
 export async function deleteGroup(id: string): Promise<void> {
   // Soft-delete the group; child jobs keep their groupId but the group
   // disappears from the sidebar. We do NOT touch the jobs themselves.
-  await getDb().query(
+  await dbQuery(
     `UPDATE genshape3d_asset_groups SET deleted = true, "updatedAt" = NOW() WHERE id = $1`,
     [id],
   );
