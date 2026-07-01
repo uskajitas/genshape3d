@@ -6,6 +6,44 @@ import App from './App';
 import { ThemeContext, ThemeMode } from './context/ThemeContext';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// API host routing.
+// The whole app calls the API same-origin (`fetch('/api/...')`) and relies on
+// the dev server proxying `/api → :8110`. When the deployed client is served
+// without that proxy (static build, or the Vite dev server on the host is down),
+// every `/api/*` call comes back as the SPA index.html → the app reads it as an
+// empty/failed response ("Free user", "No assets"). To make the client robust
+// regardless of how it's served, we send `/api/*` straight to the API host in
+// production. CORS already allows the genshape3d.com origin.
+// Override with VITE_API_BASE_URL when needed (e.g. staging).
+// ─────────────────────────────────────────────────────────────────────────────
+const API_ORIGIN: string =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  (/(^|\.)genshape3d\.com$/.test(location.hostname) ? 'https://api.genshape3d.com' : '');
+
+if (API_ORIGIN) {
+  const origFetch = window.fetch.bind(window);
+  const rewrite = (u: string) =>
+    u.startsWith('/api/') ? API_ORIGIN + u
+      : u.startsWith(location.origin + '/api/') ? API_ORIGIN + u.slice(location.origin.length)
+      : u;
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (typeof input === 'string') return origFetch(rewrite(input), init);
+    if (input instanceof URL) return origFetch(rewrite(input.href), init);
+    if (input instanceof Request && input.url.includes('/api/')) {
+      return origFetch(new Request(rewrite(input.url), input), init);
+    }
+    return origFetch(input as any, init);
+  }) as typeof window.fetch;
+}
+
+// Expose the API origin so components building non-fetch URLs (e.g. <img
+// src="/api/image?...">, the GLB loader) can prefix it. Read via
+// `(window as any).__API_ORIGIN__` or the apiUrl helper below.
+(window as any).__API_ORIGIN__ = API_ORIGIN;
+export const apiUrl = (path: string): string =>
+  API_ORIGIN && path.startsWith('/api/') ? API_ORIGIN + path : path;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Brand palette — purple + pink (token names preserved for existing components)
 //   primary       → vibrant purple (primary actions, brand hue)
 //   primaryLight  → soft purple (hover / muted brand uses)
