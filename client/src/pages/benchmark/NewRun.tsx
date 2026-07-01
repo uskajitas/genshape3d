@@ -124,16 +124,23 @@ const ComboHint = styled.span`
   font-size: 0.7rem; color: ${p => p.theme.colors.textMuted};
 `;
 
-// Texture opt-in for a combo. Uses the same styled checkbox (ComboCheck) as the
-// row select so the control stays visually consistent — never a raw <input>.
-const TexToggle = styled.label<{ $disabled?: boolean }>`
+// Per-combo texture mode selector (Shape / Texture / Both). Chip group styled to
+// match FilterChip — never a raw <button>/<input>. See client/CLAUDE.md.
+const TexGroup = styled.div<{ $disabled?: boolean }>`
   margin-left: auto;
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 0.7rem; white-space: nowrap;
-  color: ${p => (p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text)};
-  opacity: ${p => (p.$disabled ? 0.5 : 1)};
+  display: inline-flex; align-items: center; gap: 3px;
+  opacity: ${p => (p.$disabled ? 0.4 : 1)};
+`;
+
+const TexChip = styled.button<{ $active?: boolean; $disabled?: boolean }>`
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid ${p => (p.$active ? p.theme.colors.violet : p.theme.colors.border)};
+  background: ${p => (p.$active ? p.theme.colors.violet : 'transparent')};
+  color: ${p => (p.$active ? '#fff' : p.theme.colors.textMuted)};
   cursor: ${p => (p.$disabled ? 'not-allowed' : 'pointer')};
-  user-select: none;
+  white-space: nowrap;
+  &:hover { border-color: ${p => (p.$disabled ? p.theme.colors.border : p.theme.colors.violet)}; }
 `;
 
 const SummaryBox = styled.div`
@@ -258,16 +265,18 @@ export const BenchmarkNewRun: React.FC = () => {
     });
   };
 
-  // Which selected combos should generate texture. Only ever holds ids of
-  // texture-capable combos (Hunyuan3D-2 / 2.1); the UI can't add others.
-  const [textureCombos, setTextureCombos] = useState<Set<string>>(new Set());
-  const toggleTexture = (id: string) => {
-    setTextureCombos(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  // Per-combo texture mode. Only meaningful for texture-capable combos
+  // (Hunyuan3D-2 / 2.1); others are always 'off'.
+  //   'off'  → one job, shape only (no texture)
+  //   'on'   → one job, textured
+  //   'both' → TWO jobs (shape-only AND textured) so the run times both and
+  //            you can compare with-vs-without texture for the same model.
+  type TexMode = 'off' | 'on' | 'both';
+  const [textureMode, setTextureMode] = useState<Record<string, TexMode>>({});
+  const texModeFor = (c: ModelCombo): TexMode =>
+    c.supportsTexture ? (textureMode[c.id] || 'off') : 'off';
+  const setTexMode = (id: string, mode: TexMode) =>
+    setTextureMode(prev => ({ ...prev, [id]: mode }));
 
   const selectAllVisible = () => {
     setSelectedSubjects(prev => {
@@ -277,7 +286,11 @@ export const BenchmarkNewRun: React.FC = () => {
     });
   };
 
-  const totalJobs = selectedSubjects.size * selectedCombos.size;
+  // How many jobs each selected combo contributes ('both' = 2, else 1).
+  const jobsPerSubject = MODEL_COMBOS
+    .filter(c => selectedCombos.has(c.id))
+    .reduce((n, c) => n + (texModeFor(c) === 'both' ? 2 : 1), 0);
+  const totalJobs = selectedSubjects.size * jobsPerSubject;
 
   const handleSubmit = async () => {
     if (!runName.trim() || totalJobs === 0) return;
@@ -285,12 +298,16 @@ export const BenchmarkNewRun: React.FC = () => {
     try {
       const combos = MODEL_COMBOS.filter(c => selectedCombos.has(c.id));
       const items = [...selectedSubjects].flatMap(subjectId =>
-        combos.map(c => ({
-          subjectId, model: c.model, preset: c.preset,
-          octree: c.octree, steps: c.steps, guidance: c.guidance,
-          faces: c.faces, chunks: c.chunks, seed: 0,
-          doTexture: c.supportsTexture && textureCombos.has(c.id),
-        }))
+        combos.flatMap(c => {
+          const base = {
+            subjectId, model: c.model, preset: c.preset,
+            octree: c.octree, steps: c.steps, guidance: c.guidance,
+            faces: c.faces, chunks: c.chunks, seed: 0,
+          };
+          const mode = texModeFor(c);
+          if (mode === 'both') return [{ ...base, doTexture: false }, { ...base, doTexture: true }];
+          return [{ ...base, doTexture: mode === 'on' }];
+        })
       );
       const run = await benchmarkApi.createRun({ email, name: runName.trim(), items });
       navigate(`/benchmark/runs/${run.id}`);
@@ -378,20 +395,36 @@ export const BenchmarkNewRun: React.FC = () => {
                 {c.label}
               </ComboLabel>
               <ComboHint>{c.hint}</ComboHint>
-              <TexToggle
-                $disabled={!c.supportsTexture || !selectedCombos.has(c.id)}
-                title={c.supportsTexture
-                  ? c.textureNote
-                  : `Texture toggle unavailable — ${c.textureNote}`}
-              >
-                <ComboCheck
-                  type="checkbox"
-                  disabled={!c.supportsTexture || !selectedCombos.has(c.id)}
-                  checked={c.supportsTexture && textureCombos.has(c.id)}
-                  onChange={() => toggleTexture(c.id)}
-                />
-                🎨 texture
-              </TexToggle>
+              {(() => {
+                const rowDisabled = !c.supportsTexture || !selectedCombos.has(c.id);
+                const mode = texModeFor(c);
+                const opts: { key: 'off' | 'on' | 'both'; label: string }[] = [
+                  { key: 'off', label: 'Shape' },
+                  { key: 'on', label: '🎨 Texture' },
+                  { key: 'both', label: 'Both' },
+                ];
+                return (
+                  <TexGroup
+                    $disabled={rowDisabled}
+                    title={c.supportsTexture
+                      ? `${c.textureNote} · "Both" times shape-only AND textured`
+                      : `Texture unavailable — ${c.textureNote}`}
+                  >
+                    {opts.map(o => (
+                      <TexChip
+                        key={o.key}
+                        type="button"
+                        $active={!rowDisabled && mode === o.key}
+                        $disabled={rowDisabled}
+                        disabled={rowDisabled}
+                        onClick={() => !rowDisabled && setTexMode(c.id, o.key)}
+                      >
+                        {o.label}
+                      </TexChip>
+                    ))}
+                  </TexGroup>
+                );
+              })()}
               <ComboHint style={{ fontFamily: 'monospace', fontSize: '0.65rem' }}>
                 oct:{c.octree} · st:{c.steps} · g:{c.guidance}
               </ComboHint>
