@@ -195,13 +195,29 @@ const BG_CLAUSE: Record<string, string> = {
 // projection style lives in PROJECTION_CLAUSE below. Six cardinal-ish
 // options to support full multi-view 3D coverage (front/back/left/right
 // equivalents), plus 3/4 because it's the standard product-shot angle.
+// Flux Schnell (4 steps) treats camera-angle words as soft hints and, because
+// most subject prompts describe symmetric front-facing anatomy, drifts toward
+// front. So these clauses are deliberately forceful/unambiguous, and each view
+// also injects the COMPETING angles into the negative prompt (VIEW_NEGATIVE).
 const VIEW_CLAUSE: Record<string, string> = {
-  front:   'front-facing view, head-on, camera at subject eye level',
-  three_q: '3/4 front view, slight angle showing depth on one side',
-  side:    'side profile view, camera at 90° to the subject',
-  back:    'back view, camera directly behind the subject',
-  top:     'top-down view, camera looking straight down at the subject',
-  bottom:  'bottom-up view, camera looking straight up at the subject',
+  front:   'strict front view, the subject directly facing the camera head-on, fully frontal and symmetrical, camera at eye level',
+  three_q: 'strict three-quarter view (3/4 view), the subject rotated about 45 degrees away from the camera, clearly showing both the front and one side at once with obvious depth — NOT front-facing and NOT a flat side profile',
+  side:    'strict side profile view, the subject turned to face fully sideways (90 degrees), camera perpendicular to the subject so only one side is visible — NOT front-facing and NOT a 3/4 angle',
+  back:    'strict back view, camera directly behind the subject, only the back is visible',
+  top:     'strict top-down view, camera looking straight down from directly above the subject',
+  bottom:  'strict bottom-up view, camera looking straight up from directly below the subject',
+  none:    '',
+};
+
+// Competing angles to push OUT of frame for each selected view. Appended to the
+// negative prompt so the model doesn't fall back to its front-facing default.
+const VIEW_NEGATIVE: Record<string, string> = {
+  front:   'three-quarter view, 3/4 view, side profile, back view, top-down view',
+  three_q: 'front-facing, head-on frontal view, flat side profile, back view, top-down view',
+  side:    'front-facing, head-on frontal view, three-quarter view, 3/4 view, back view, top-down view',
+  back:    'front-facing, three-quarter view, side profile, top-down view',
+  top:     'front view, side view, eye-level view',
+  bottom:  'front view, side view, eye-level view',
   none:    '',
 };
 
@@ -261,11 +277,6 @@ const composeFinalPrompt = (q: Record<string, any>): string => {
   // "exactly one subject" line. Three near-synonyms for "exactly one" tend
   // to override the model's group bias for items that have a contextual
   // plural (chess pieces, a flock, a deck of cards).
-  const parts: string[] = [
-    strict ? `one single isolated ${userPrompt}, alone` : userPrompt,
-  ];
-  if (strict) parts.push('exactly one subject in frame, no other items');
-
   const bg     = BG_CLAUSE[String(q.bg || 'white')]                  ?? BG_CLAUSE.white;
   const view   = VIEW_CLAUSE[String(q.view || 'three_q')]            ?? VIEW_CLAUSE.three_q;
   const proj   = PROJECTION_CLAUSE[String(q.projection || 'perspective')] ?? PROJECTION_CLAUSE.perspective;
@@ -273,7 +284,17 @@ const composeFinalPrompt = (q: Record<string, any>): string => {
   const style  = STYLE_CLAUSE[String(q.style || 'photoreal')]        ?? STYLE_CLAUSE.photoreal;
   const mat    = MATERIAL_CLAUSE[String(q.material || 'auto')]       ?? '';
 
-  for (const c of [bg, view, proj, scale, style, mat]) {
+  // Order matters: Flux weights earlier tokens more, and Schnell ignores the
+  // negative prompt entirely — so the camera VIEW goes right after the subject
+  // line (before bg/style) to fight the front-facing default. It's also stated
+  // once up front as its own emphatic clause.
+  const parts: string[] = [
+    strict ? `one single isolated ${userPrompt}, alone` : userPrompt,
+  ];
+  if (strict) parts.push('exactly one subject in frame, no other items');
+  if (view) parts.push(view);
+
+  for (const c of [bg, proj, scale, style, mat]) {
     if (c) parts.push(c);
   }
   return parts.filter(Boolean).join(', ');
@@ -500,9 +521,14 @@ app.get('/api/text2image', async (req, res) => {
   const w = Math.max(256, Math.min(1536, parseInt(req.query.w as string) || 1024));
   const h = Math.max(256, Math.min(1536, parseInt(req.query.h as string) || 1024));
 
-  // Optional negative prompt — caller can add their own avoid-tokens.
+  // Optional negative prompt — caller can add their own avoid-tokens. We also
+  // inject the competing camera angles for the chosen view so the model is
+  // pushed away from its front-facing default (unless raw=1 bypasses composition).
   const userNegative = String(req.query.negative || '').trim();
-  const negative = [ALWAYS_NEGATIVE, userNegative].filter(Boolean).join(', ');
+  const viewNegative = req.query.raw === '1'
+    ? ''
+    : (VIEW_NEGATIVE[String(req.query.view || 'three_q')] ?? '');
+  const negative = [ALWAYS_NEGATIVE, viewNegative, userNegative].filter(Boolean).join(', ');
 
   const seed = Number.isFinite(Number(req.query.seed))
     ? Number(req.query.seed)
