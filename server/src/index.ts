@@ -220,11 +220,15 @@ const SCALE_CLAUSE: Record<string, string> = {
   none:    '',
 };
 
+// NOTE on colour: subject prompts often describe only shape (no colour or
+// material words). Without an explicit colour instruction the model fills the
+// vacuum with neutral grey. So the colour-bearing styles (photoreal, toon) say
+// "in full natural colour" outright. clay/neutral stay grey ON PURPOSE.
 const STYLE_CLAUSE: Record<string, string> = {
-  photoreal: 'studio product photography, photorealistic, tack sharp, crisp edges, high detail, 8k resolution',
+  photoreal: 'studio product photography, photorealistic, in full natural colour, richly coloured with realistic material colours and finishes, tack sharp, crisp edges, high detail, 8k resolution',
   clay:      'matte clay render, smooth neutral surface, even lighting, sharp edges, crisp',
   neutral:   'flat shaded neutral material, no textures, even lighting, sharp, crisp',
-  toon:      'toon-shaded 3D model render, clean cel shading, crisp outlines, sharp',
+  toon:      'toon-shaded 3D model render, clean cel shading, vibrant saturated colours, crisp outlines, sharp',
   none:      '',
 };
 

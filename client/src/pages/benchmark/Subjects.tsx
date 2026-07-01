@@ -29,7 +29,9 @@ const DEFAULT_GEN: GenParams = {
   provider: 'fal-flux-schnell',
   bg: 'black',
   view: 'three_q',
-  style: 'clay',
+  // Default to a coloured render. 'clay' looks grey because the shape-only
+  // prompts carry no colour; photoreal now explicitly asks for natural colour.
+  style: 'photoreal',
   material: 'auto',
   aspect: '1:1',
   negative: '',
