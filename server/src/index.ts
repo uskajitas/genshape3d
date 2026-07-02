@@ -201,7 +201,7 @@ const BG_CLAUSE: Record<string, string> = {
 // also injects the COMPETING angles into the negative prompt (VIEW_NEGATIVE).
 const VIEW_CLAUSE: Record<string, string> = {
   front:   'strict front view, the subject directly facing the camera head-on, fully frontal and symmetrical, camera at eye level',
-  three_q: 'strict three-quarter view (3/4 view), the subject rotated about 45 degrees away from the camera, clearly showing both the front and one side at once with obvious depth — NOT front-facing and NOT a flat side profile',
+  three_q: 'three-quarter view (3/4 view), the subject rotated about 45 degrees toward one side so BOTH its front and one side face the camera at the same time, the front of the subject clearly still visible but angled — the classic 3/4 product-shot angle, halfway between a straight-on front and a full side profile',
   side:    'strict side profile view, the subject turned to face fully sideways (90 degrees), camera perpendicular to the subject so only one side is visible — NOT front-facing and NOT a 3/4 angle',
   back:    'strict back view, camera directly behind the subject, only the back is visible',
   top:     'strict top-down view, camera looking straight down from directly above the subject',
@@ -1874,15 +1874,19 @@ app.post('/api/benchmark/runs', async (req, res) => {
       const subject = await getSubject(it.subjectId);
       if (!subject) continue;
 
-      // Explicit worker routing for benchmark jobs — never rely on defaults.
-      // hunyuan3d (v2.0) runs only on the i7-1080; everything else on the 3090.
-      const benchmarkWorker = it.model === 'hunyuan3d' ? 'i7-1080' : 'win-3090';
-
       // Texture only for models with a real paint step (Hunyuan3D-2 / 2.1).
       // Other models ignore doTexture at the runner, but we hard-gate here so
       // a stray flag can never flip on for them.
       const textureCapable = it.model === 'hunyuan3d' || it.model === 'hunyuan3d-2-1';
       const doTexture = textureCapable && it.doTexture === true;
+
+      // Explicit worker routing for benchmark jobs — never rely on defaults.
+      // Shape-only hunyuan3d (v2.0) runs on the i7-1080. TEXTURED jobs must
+      // NOT go to the 1080 — its 8 GB card can't hold the paint pipeline and
+      // hangs at "Loading model into VRAM" (see AGENT_1080_INSTRUCTIONS.md:
+      // 1080 is mesh-only). Everything textured, and every other model, goes
+      // to the 3090.
+      const benchmarkWorker = it.model === 'hunyuan3d' && !doTexture ? 'i7-1080' : 'win-3090';
 
       const job = await createJob({
         userEmail: email,
