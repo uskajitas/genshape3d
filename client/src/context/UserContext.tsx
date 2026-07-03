@@ -39,27 +39,27 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [appUser, setAppUser] = useState<AppUserState>(DEFAULT);
 
   const refresh = useCallback(async (email: string): Promise<AppUserState> => {
-    try {
-      const r = await fetch(`${BASE}/api/auth/me?email=${encodeURIComponent(email)}`);
-      const data = await r.json();
-      const creditMap: Record<UserRole, number> = { guest: 0, free: 10, pro: 200, admin: 9999 };
-      const role: UserRole = data.role ?? 'free';
-      const next: AppUserState = {
-        role,
-        approved: Boolean(data.approved),
-        loaded: true,
-        credits: data.credits ?? creditMap[role],
-        email: data.email ?? email,
-        name: data.name,
-        picture: data.picture,
-      };
-      setAppUser(next);
-      return next;
-    } catch {
-      const fallback: AppUserState = { ...DEFAULT, loaded: true };
-      setAppUser(fallback);
-      return fallback;
-    }
+    // NOTE: no catch-to-guest here. A transient API failure (server restart,
+    // proxy hiccup, DB blip) must NEVER demote a logged-in user to guest —
+    // that turned every backend blip into a stuck "Free user" UI until a full
+    // reload. On failure we throw and keep the previous state; the caller
+    // (AuthSync) retries with backoff.
+    const r = await fetch(`${BASE}/api/auth/me?email=${encodeURIComponent(email)}`);
+    if (!r.ok) throw new Error(`auth/me ${r.status}`);
+    const data = await r.json();
+    const creditMap: Record<UserRole, number> = { guest: 0, free: 10, pro: 200, admin: 9999 };
+    const role: UserRole = data.role ?? 'free';
+    const next: AppUserState = {
+      role,
+      approved: Boolean(data.approved),
+      loaded: true,
+      credits: data.credits ?? creditMap[role],
+      email: data.email ?? email,
+      name: data.name,
+      picture: data.picture,
+    };
+    setAppUser(next);
+    return next;
   }, []);
 
   return (

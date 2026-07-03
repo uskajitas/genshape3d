@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Landing from './pages/Landing';
@@ -13,17 +13,40 @@ import { ConfirmHost } from './components/ConfirmModal';
 const AuthSync: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
   const { refresh } = useAppUser();
-  const called = useRef(false);
 
+  // Sync the Firebase login with our backend and load the user's role.
+  // Retries with backoff until it succeeds — the old one-shot version left
+  // the user stuck as "guest/Free user" after any transient backend failure
+  // (server restart, proxy hiccup, DB blip), which read as "login didn't
+  // work" until a full page reload.
   useEffect(() => {
     const email = user?.email;
-    if (!isAuthenticated || !email || called.current) return;
-    called.current = true;
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, name: user?.displayName || '', picture: user?.photoURL || '' }),
-    }).then(() => refresh(email)).catch(() => { called.current = false; });
+    if (!isAuthenticated || !email) return;
+    let cancelled = false;
+
+    (async () => {
+      for (let attempt = 1; !cancelled; attempt++) {
+        try {
+          const r = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name: user?.displayName || '', picture: user?.photoURL || '' }),
+          });
+          if (!r.ok) throw new Error(`auth/login ${r.status}`);
+          await refresh(email);
+          return; // synced
+        } catch (e) {
+          if (attempt >= 8) {
+            console.error('[AuthSync] giving up after 8 attempts:', e);
+            return;
+          }
+          // 1s, 2s, 4s… capped at 15s between tries
+          await new Promise(res => setTimeout(res, Math.min(1000 * 2 ** (attempt - 1), 15000)));
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [isAuthenticated, user?.email]);
 
   return null;
