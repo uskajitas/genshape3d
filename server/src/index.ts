@@ -1927,6 +1927,51 @@ app.patch('/api/benchmark/items/:id/rate', async (req, res) => {
 // /:id/heartbeat (worker→server, bearer-auth) and GET /api/workers (admin).
 mountWorkersApi(app);
 
+// ── Stuck-job sweeper ─────────────────────────────────────────────────────────
+// End-to-end guarantee that submitted jobs always reach a terminal state.
+// The worker-side watchdog kills hung runners, but it can't fire if the worker
+// process itself dies (crash, power loss, restart mid-job). This sweep runs on
+// the server every 5 min:
+//   - any job 'processing' whose updatedAt (bumped on every progress write and
+//     claim) is >30 min old is presumed orphaned;
+//   - requeued back to 'pending' up to 2 times ("requeueCount");
+//   - after that it's marked failed so a poisoned job can't loop forever.
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const SWEEP_STALE_MIN = parseInt(process.env.SWEEP_STALE_MINUTES || '30', 10);
+
+async function sweepStuckJobs() {
+  try {
+    const { getDb } = require('./db');
+    const db = getDb();
+    const requeued = await db.query(
+      `UPDATE genshape3d_jobs
+          SET status='pending', "assignedWorkerId"='', "startedAt"=NULL,
+              "progressPct"=0, "progressPhase"='requeued by sweeper (worker went silent)',
+              "requeueCount" = COALESCE("requeueCount",0) + 1, "updatedAt"=NOW()
+        WHERE status='processing'
+          AND "updatedAt"::timestamptz < NOW() - ($1 || ' minutes')::interval
+          AND COALESCE("requeueCount",0) < 2
+        RETURNING id, name`,
+      [SWEEP_STALE_MIN],
+    );
+    const failed = await db.query(
+      `UPDATE genshape3d_jobs
+          SET status='failed',
+              "errorMessage"='gave up: worker went silent 3 times (sweeper)',
+              "completedAt"=NOW(), "updatedAt"=NOW()
+        WHERE status='processing'
+          AND "updatedAt"::timestamptz < NOW() - ($1 || ' minutes')::interval
+          AND COALESCE("requeueCount",0) >= 2
+        RETURNING id, name`,
+      [SWEEP_STALE_MIN],
+    );
+    for (const r of requeued.rows) console.log(`[sweeper] requeued stuck job ${r.id} (${r.name})`);
+    for (const r of failed.rows) console.log(`[sweeper] failed poisoned job ${r.id} (${r.name})`);
+  } catch (e: any) {
+    console.warn(`[sweeper] pass failed (non-fatal): ${e.message}`);
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 async function boot() {
@@ -1935,6 +1980,8 @@ async function boot() {
       await initDb();
       app.listen(port, () => console.log(`GenShape3D API listening on http://localhost:${port}`));
       warmRembg();
+      setInterval(sweepStuckJobs, SWEEP_INTERVAL_MS);
+      sweepStuckJobs();
       return;
     } catch (err: any) {
       console.error(`Boot attempt ${attempt} failed: ${err.message} — retrying in 5s`);

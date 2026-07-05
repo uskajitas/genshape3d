@@ -625,16 +625,35 @@ export const BenchmarkRunResults: React.FC = () => {
     return itemsData;
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => {}); }, [load]);
 
+  // Poll while the page is open — unconditionally. The old version stopped
+  // for good if one load() threw (transient API blip) or once nothing looked
+  // pending, which left tabs showing stale "pending" tiles forever. Fast
+  // cadence while jobs are in flight, slow heartbeat once settled; also
+  // refetch when the tab regains focus.
   useEffect(() => {
+    let stopped = false;
     const poll = async () => {
-      const latest = await load();
-      const anyPending = latest?.some(i => !i.jobStatus || i.jobStatus === 'pending' || i.jobStatus === 'processing');
-      if (anyPending) pollRef.current = setTimeout(poll, 8000);
+      if (stopped) return;
+      let anyPending = false;
+      try {
+        const latest = await load();
+        anyPending = !!latest?.some(i => !i.jobStatus || i.jobStatus === 'pending' || i.jobStatus === 'processing');
+      } catch { /* transient — keep polling */ }
+      pollRef.current = setTimeout(poll, anyPending ? 8000 : 30000);
     };
     pollRef.current = setTimeout(poll, 8000);
-    return () => { if (pollRef.current) clearTimeout(pollRef.current); };
+
+    const onVisible = () => { if (!document.hidden) load().catch(() => {}); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      stopped = true;
+      if (pollRef.current) clearTimeout(pollRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
   }, [load]);
 
   const onSaved = (itemId: string, ratings: Record<string, number>, notes: string) => {
