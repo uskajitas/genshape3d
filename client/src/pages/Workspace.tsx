@@ -2727,6 +2727,27 @@ const Workspace: React.FC = () => {
     onChange: setTextureSelection,
   }), [activeTool, textureEditorSettings, textureZones, textureClearSignal]);
 
+  const onDeleteTextureJob = async (tj: TextureJobRow) => {
+    const ok = await confirm({
+      title: 'Delete this texture variant?',
+      message: `"${tj.materialPreset !== 'Auto' ? tj.materialPreset : (tj.prompt || 'Auto material')}" will be removed from the list. The original model is not affected.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      const r = await fetch(`/api/textures/${tj.id}?email=${encodeURIComponent(email)}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${r.status}`);
+      }
+      if (textureViewJobId === tj.id) setTextureViewJobId(null);
+      setTextureJobsRefresh(n => n + 1);
+    } catch (e) {
+      setSubmitError(`Delete failed: ${(e as Error).message}`);
+    }
+  };
+
   const onTextureRerun = useCallback(async () => {
     if (!isAuthenticated) {
       navigate('/login');
@@ -2761,8 +2782,12 @@ const Workspace: React.FC = () => {
     });
     setSubmitting(false);
     if (textureJob) {
-      setSubmitNotice('Texture job queued for the selected model.');
+      // Transient confirmation only — live status (pending → processing →
+      // done) is shown by the polled job list, so the banner must not
+      // outlive its usefulness and read as "still queued" after completion.
+      setSubmitNotice('Texture job queued — live progress appears in the Texture jobs list.');
       setTextureJobsRefresh(n => n + 1);
+      window.setTimeout(() => setSubmitNotice(null), 8000);
     }
     if (error) {
       setSubmitError(error);
@@ -3040,6 +3065,14 @@ const Workspace: React.FC = () => {
                               onClick={() => setTextureViewJobId(v => v === tj.id ? null : tj.id)}
                             >
                               {textureViewJobId === tj.id ? 'Viewing' : 'View'}
+                            </TexJobBtn>
+                          )}
+                          {(tj.status === 'done' || tj.status === 'failed') && (
+                            <TexJobBtn
+                              title="Delete this texture variant"
+                              onClick={() => onDeleteTextureJob(tj)}
+                            >
+                              ✕
                             </TexJobBtn>
                           )}
                         </TexJobRow>

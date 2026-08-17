@@ -88,3 +88,20 @@ export async function getTextureJobsForSource(sourceJobId: string, userEmail: st
   );
   return rows;
 }
+
+export async function getTextureJobById(id: string): Promise<TextureJob | null> {
+  const { rows } = await dbQuery(
+    `SELECT * FROM genshape3d_texture_jobs WHERE id = $1 AND deleted = false`,
+    [id],
+  );
+  return rows[0] || null;
+}
+
+// Soft-delete — GPU time is expensive, rows are hidden, never dropped
+// (same policy as genshape3d_jobs).
+export async function deleteTextureJob(id: string): Promise<void> {
+  await dbQuery(
+    `UPDATE genshape3d_texture_jobs SET deleted = true, "updatedAt" = NOW() WHERE id = $1`,
+    [id],
+  );
+}

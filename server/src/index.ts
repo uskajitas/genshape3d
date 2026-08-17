@@ -1090,6 +1090,24 @@ app.post('/api/textures', async (req, res) => {
   }
 });
 
+// Delete (soft) a texture variant — owner or admin only.
+app.delete('/api/textures/:id', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { getTextureJobById, deleteTextureJob } = await import('./textureJobsRepo');
+    const job = await getTextureJobById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'not found' });
+    if (job.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await deleteTextureJob(req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Worker polls for pending texture jobs
 app.get('/api/textures/pending', async (req, res) => {
   const workerId = req.query.workerId as string;
