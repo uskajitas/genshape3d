@@ -3,7 +3,23 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
-import roadmapText from '../../../GENSHAPE3D_ROADMAP.md?raw';
+import conversationText from '../../../GENSHAPE3D_PLAN_CONVERSATION.txt?raw';
+
+type Speaker = 'USER' | 'CODEX';
+
+interface ConversationTurn {
+  speaker: Speaker;
+  body: string;
+}
+
+const conversationTurns: ConversationTurn[] = conversationText
+  .split(/^=== /m)
+  .filter(Boolean)
+  .map(chunk => {
+    const firstLineEnd = chunk.indexOf('\n');
+    const speaker = chunk.slice(0, firstLineEnd).replace(' ===', '').trim() as Speaker;
+    return { speaker, body: chunk.slice(firstLineEnd + 1).trim() };
+  });
 
 const Shell = styled.main`
   min-height: 100vh;
@@ -82,18 +98,39 @@ const SourceNote = styled.div`
   font-size: 0.72rem;
 `;
 
-const Document = styled.article`
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: clamp(1.25rem, 3vw, 2.25rem);
+const Transcript = styled.article`
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 2rem);
   border: 1px solid ${p => p.theme.colors.border};
   border-radius: 14px;
   background: linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  box-shadow: 0 18px 55px ${p => p.theme.colors.background}88;
+`;
+
+const Turn = styled.section<{ $speaker: Speaker }>`
+  width: min(88%, 780px);
+  justify-self: ${p => (p.$speaker === 'USER' ? 'end' : 'start')};
+`;
+
+const SpeakerLabel = styled.div<{ $speaker: Speaker }>`
+  margin: 0 0 0.32rem 0.15rem;
+  color: ${p => (p.$speaker === 'USER' ? p.theme.colors.primary : p.theme.colors.violet)};
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+`;
+
+const Message = styled.div<{ $speaker: Speaker }>`
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1rem 1.1rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: ${p => (p.$speaker === 'USER' ? '14px 4px 14px 14px' : '4px 14px 14px 14px')};
+  background: ${p => (p.$speaker === 'USER' ? p.theme.colors.surfaceHigh : p.theme.colors.surface)};
   color: ${p => p.theme.colors.text};
-  font-family: inherit;
   font-size: 0.86rem;
   line-height: 1.7;
-  box-shadow: 0 18px 55px ${p => p.theme.colors.background}88;
 `;
 
 const Loading = styled.div`
@@ -119,14 +156,21 @@ const AdminRoadmap: React.FC = () => {
       <Header>
         <BackButton type="button" onClick={() => navigate('/dashboard')}>← Workspace</BackButton>
         <HeaderTitle>
-          <Eyebrow>Stored conversation plan</Eyebrow>
-          <Title>GenShape3D roadmap</Title>
+          <Eyebrow>Roadmap</Eyebrow>
+          <Title>Plan conversation</Title>
         </HeaderTitle>
         <AdminBadge>Admin only</AdminBadge>
       </Header>
       <Content>
-        <SourceNote>Single source of truth: GENSHAPE3D_ROADMAP.md</SourceNote>
-        <Document>{roadmapText}</Document>
+        <SourceNote>Verbatim plan conversation stored in GENSHAPE3D_PLAN_CONVERSATION.txt</SourceNote>
+        <Transcript>
+          {conversationTurns.map((turn, index) => (
+            <Turn key={`${turn.speaker}-${index}`} $speaker={turn.speaker}>
+              <SpeakerLabel $speaker={turn.speaker}>{turn.speaker === 'USER' ? 'YOU' : 'CODEX'}</SpeakerLabel>
+              <Message $speaker={turn.speaker}>{turn.body}</Message>
+            </Turn>
+          ))}
+        </Transcript>
       </Content>
     </Shell>
   );

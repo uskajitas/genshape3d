@@ -1,0 +1,299 @@
+=== USER ===
+
+i want to understand how tripo does segmentation. i also want to know how can i genereate normal maps, bump maps, and all the maps for materials. i want to turn genshape 3d in a scene creator that later i will use for my other projects. help me to understand the concepts and please learn the state of the art of genshape3d first
+
+=== CODEX ===
+
+Bottom line
+
+GenShape3D currently has a solid asset-generation foundation, an early PBR-texture workflow, and a useful geometric face-selection prototype. It is not yet doing Tripo-style semantic segmentation, reliably generating every requested material map, or representing scenes.
+
+The right evolution is:
+
+Generated mesh
+    → stable parts/regions
+    → UVs and PBR materials
+    → immutable asset versions
+    → scene instances with transforms
+    → export to GLB / engine formats
+
+I reviewed the repository as it exists on August 17, 2026. Both client and server builds pass. I did not modify any files, including your existing uncommitted Workspace changes.
+
+What “segmentation” means
+
+There are three different operations that are often all called segmentation:
+
+1. Image segmentation
+Separating the subject from the input-image background. GenShape3D already does this before Hunyuan generation.
+
+2. Surface or material segmentation
+Assigning every triangle or texel to a region such as “metal blade,” “wood handle,” or “shirt.” This is what you need for localized materials and texture painting.
+
+3. Part segmentation
+Dividing an object into distinct editable objects such as head, torso, arm, wheel, or chair leg. A further “part completion” step must generate surfaces that were hidden inside the original combined mesh.
+
+These are related, but they produce different outputs. A material region can remain one mesh; a completed part needs its own closed geometry.
+
+How Tripo does segmentation
+
+What is publicly confirmed:
+
+- Tripo’s v1 segmentation is geometry-based.
+- Its v2 beta combines semantic labeling with geometry, offers simple/balanced/detailed granularity, optionally splits connected components, and can accept a reference mask image.
+- It returns a new segmented model asynchronously.
+- Tripo also distinguishes segmentation from part completion, because cutting only the visible surface leaves incomplete geometry.
+
+A likely conceptual pipeline is:
+
+Mesh normalization
+  → geometry features and rendered multi-view images
+  → semantic/visual region proposals
+  → cross-view labels transferred back to mesh faces
+  → connectivity and boundary cleanup
+  → named parts
+  → optional hidden-geometry completion
+
+Tripo does not publicly disclose enough to claim its exact production architecture. Its published HoloPart research is useful context, but should not be treated as proof that Tripo v2 uses the same model. HoloPart takes an existing segmented mesh and generates complete, semantically meaningful parts—including hidden geometry—using a generative 3D prior.
+
+A key product lesson from Tripo is: segmentation is not merely selecting triangles. It creates a reusable structural representation that later drives materials, rigging, editing, printing, and export.
+
+What GenShape3D currently does
+
+Your selector performs geometric region growing:
+
+- Raycast to one triangle.
+- Construct triangle adjacency from shared edges.
+- Breadth-first grow for a limited number of steps.
+- Reject triangles whose normal differs too much from the original seed normal.
+- Store the resulting face indices as a zone.
+
+That is useful for brush-assisted selection, but it is not semantic segmentation. It cannot understand “select the leather strap” or “separate all four wheels.”
+
+Several limitations matter:
+
+- Paint and Select currently use essentially the same click-based selection behavior.
+- Feather is displayed but does not create soft mask weights.
+- Normal comparison is against the seed face, which can stop too early on curved surfaces.
+- Zones use face indices; retopology, decimation, or re-exporting a mesh invalidates those indices.
+- The client submits sourceMode and zones, but the server ignores them.
+- The reference-image control records a filename but does not yet upload and attach the image.
+- Texture jobs store one resultUrl; there is no durable per-map/per-variant output manifest.
+- The texture worker endpoints are separate from the authenticated general worker control plane and do not enforce the RTX 3090 capability rule.
+- No worker implementation is present in this repository, so the actual Hunyuan texture output cannot be verified here.
+
+Most importantly, GenShape3D currently has asset groups, not scenes. A group organizes related generations, but it has no node hierarchy, transforms, cameras, lights, or material overrides. The viewer loads one GLB and automatically rescales and recenters it, which is appropriate for previews but incompatible with persistent scene layout.
+
+Material-map concepts
+
+For GenShape3D, use the metallic/roughness PBR workflow because it maps naturally to Three.js, glTF, Blender, Unreal, and Unity.
+
+- Base color/albedo: Surface color without baked lighting or reflections. sRGB.
+- Roughness: Black is smooth; white is rough. Linear/non-color.
+- Metallic: Usually black for dielectric, white for metal. Linear/non-color.
+- Normal: RGB direction that changes per-pixel lighting. Linear/non-color.
+- AO: Reduces indirect light in crevices. Linear/non-color.
+- Emissive: Surface-produced light/color. sRGB.
+- Opacity: Cutout or blended transparency.
+- Height/bump: Scalar apparent surface height. Linear/non-color.
+- Displacement: Moves actual vertices using height. Linear/non-color.
+
+The crucial distinctions:
+
+- A bump map is a grayscale height field interpreted by the shader. It changes lighting, not geometry.
+- A normal map stores an explicit surface direction in RGB. It also changes lighting, not the silhouette.
+- A displacement map moves vertices, so it can change silhouettes and shadows, but only if the mesh has enough subdivisions.
+
+Core glTF stores base color, packed metallic/roughness, tangent-space normal, AO, and emissive. Roughness goes in the green channel and metallic in blue. Height/displacement is not part of the core portable glTF material, so treat it as an authoring map or engine-specific extension.
+
+How to generate the maps
+
+There are three complementary approaches.
+
+1. Bake from geometry
+
+Best for normal maps from a high-poly mesh to a low-poly mesh, ambient occlusion, curvature, thickness, position and object-space normal maps, and height/displacement when actual detailed geometry exists.
+
+2. AI material inference
+
+A multi-view PBR model predicts albedo, metallic, roughness, and sometimes normal information from a reference image while conditioning on mesh geometry. The views are then baked into UV space with seam repair.
+
+Hunyuan3D-Paint 2.1 follows this pattern and requires a mesh plus reference image. Its official pipeline uses 6–12 views, 512/768 internal generation resolution, and recommends at least 21 GB VRAM for texture inference. That makes your RTX 3090 a sensible minimum target.
+
+Consequences for GenShape3D:
+
+- Prompt-only texture generation cannot directly call the official Hunyuan pipeline. You must first generate a reference image or use another text-conditioned material model.
+- Your 1K/2K/4K settings should describe final baked/upscaled output, not raw model inference resolution.
+- The worker must declare exactly which maps it produces. Never show successful “normal map generation” if that provider only returned albedo and metallic/roughness.
+
+3. Procedural derivation
+
+Useful for preview or fallback: approximate normal from a height map, derive roughness from albedo luminance plus controlled noise, create a binary metallic mask from material regions, and generate tiled microdetail such as grain, scratches, weave, or pores.
+
+Recommended production texture pipeline
+
+Validate mesh
+ → repair normals/manifold problems
+ → retopology or decimation
+ → UV unwrap and texel-density calculation
+ → segmentation/material IDs
+ → generate or ingest reference material
+ → multi-view PBR inference
+ → bake views into UV atlases
+ → bake geometric normal/AO/curvature
+ → seam dilation and mip padding
+ → validate under neutral HDRI
+ → pack glTF textures
+ → emit GLB plus material manifest
+
+Architecture I recommend for GenShape3D
+
+First make assets durable:
+
+- assets: logical user asset.
+- asset_versions: immutable mesh revisions.
+- regions: semantic parts or material zones.
+- region_membership: face labels or UV-space masks.
+- materials: reusable material definitions.
+- material_maps: base color, normal, ORM, emissive, height, metadata.
+- material_assignments: region → material.
+- processing_jobs: generation, segmentation, UV, retopo, bake, texture, upscale.
+- artifacts: every produced GLB, texture, thumbnail, mask, and manifest.
+
+Then add a real scene document:
+
+Scene
+ ├─ environment/HDRI
+ ├─ nodes
+ │   ├─ parent
+ │   ├─ assetVersionId
+ │   ├─ translation/rotation/scale
+ │   └─ material overrides
+ ├─ lights
+ ├─ cameras
+ └─ export settings
+
+An asset is the reusable chair. A scene node is one particular chair placed at (3, 0, -2). Never modify the original asset simply because a user transforms or recolors one scene instance.
+
+Suggested implementation order
+
+1. Fix the existing texture contract.
+Persist reference images, source mode, zones, requested maps, provider capabilities, variants, and individual output artifacts. Secure texture-worker routes and route them only to compatible workers.
+
+2. Upgrade the viewer into a material inspector.
+Add HDRI/PMREM lighting, solo-map views, UV preview, normal strength, roughness/metallic controls, color-space validation, and before/after comparison.
+
+3. Make regions stable.
+Store a face-label attribute inside the asset version or bake region IDs to a UV mask. When geometry changes, create a new asset version and transfer/recompute the segmentation.
+
+4. Add hybrid segmentation.
+Keep the current region grow as the manual fallback. Add connected-component selection, local-angle propagation, brush painting, soft mask weights, merge/split, and semantic labels.
+
+5. Add the scene graph.
+Build an outliner, transform gizmos, snapping, duplication, parenting, cameras, lights, environment, autosave, undo/redo, and GLB scene export.
+
+6. Add AI scene assistance last.
+Prompt-to-layout should manipulate the same explicit scene graph. The scene must remain editable after AI operations.
+
+=== USER ===
+
+ok, for now, it seems this project is going to be for myself, and if it comes to a global thing, i will come back to this rules. for now, i want to understand how do i move safetely towards segmentation, and maps, rigging (i didnt say it before) and lastly scenes. please make a plan succint and clear, no need to go very deep becuase u already did deep. i want to know how much effort will be, and possible issues i might face. i want to start doing simiple scenes to compliment my current projects, so i would like to do it on iterations that allow me to start seeing results as soon as possible to start putting in my presentations of other project 3d objects.
+
+=== CODEX ===
+
+The fastest safe route is to build a small scene composer now, then improve the assets with maps, segmentation, and rigging. Scenes should not be last—you can create presentation-ready results using today’s GLBs while the deeper systems develop.
+
+Assumption: effort estimates are for one developer working mostly full-time.
+
+Iteration 0. Foundations — 2–3 days
+Deliverable: Immutable asset versions, artifact manifests, sample test assets.
+Result you can use: Future processing cannot destroy originals.
+
+Iteration 1. Scene MVP — 5–8 days
+Deliverable: Multiple GLBs, move/rotate/scale, ground, lights, camera, save/load scene.
+Result you can use: Simple presentation scenes immediately.
+
+Iteration 2. Presentation output — 3–5 days
+Deliverable: Camera presets, backgrounds/HDRI, shadows, PNG capture, GLB export.
+Result you can use: Images and scenes for other projects.
+
+Iteration 3. PBR maps — 1–2 weeks
+Deliverable: Material inspector, albedo/roughness/metallic/normal/AO, Hunyuan worker integration.
+Result you can use: Objects respond convincingly to scene lighting.
+
+Iteration 4. Manual segmentation — 1–2 weeks
+Deliverable: Persistent zones, connected-part selection, brush add/remove, material per zone.
+Result you can use: Metal handle plus wooden body, clothing regions, and similar multi-material objects.
+
+Iteration 5. Semantic segmentation — 2–4 weeks
+Deliverable: Automatic named parts with manual correction.
+Result you can use: Select wheels, separate arms, and create reusable parts.
+
+Iteration 6. Basic rigging — 2–4 weeks
+Deliverable: Load/display skeletons, animation playback, humanoid auto-rig workflow.
+Result you can use: Posed characters and simple animations.
+
+Iteration 7. Scene editor v2 — 1–2 weeks
+Deliverable: Hierarchy, parenting, duplication, snapping, material overrides, reusable prefabs.
+Result you can use: A practical reusable scene creator.
+
+First useful milestone
+
+In roughly 1–2 weeks, aim for:
+
+- Drag several existing GenShape3D assets into a viewport.
+- Position, rotate, and scale them.
+- Add a floor, directional light, HDRI, and shadows.
+- Save the arrangement as scene JSON.
+- Create camera presets.
+- Export a high-resolution transparent or background image.
+- Export the composed scene as GLB where practical.
+
+Keep the existing MeshViewer for asset previews. Create a separate SceneEditor; the current viewer automatically recenters and rescales each model, which would destroy scene placement.
+
+Safe architecture rules
+
+- Never overwrite a generated GLB. Retexturing, segmentation, retopology, and rigging each create a new asset version.
+- A scene references an exact asset version.
+- Store transformations in the scene, not inside the source model.
+- Store each material map as a separate artifact plus a manifest describing color space and provider.
+- Store segmentation on the asset version it belongs to; face indices cannot safely survive retopology.
+- Always keep manual correction available after automatic segmentation or rigging.
+- Add export validation using a few fixed test assets before expanding features.
+
+Likely problems — Maps
+
+- Bad or overlapping UVs create stretching and seams.
+- Wrong color spaces make roughness and normals look incorrect.
+- A generated 4K image is not necessarily true 4K detail.
+- Hunyuan texture generation is close to the RTX 3090’s memory limit.
+- Prompt-only texturing needs an intermediate reference image.
+- PBR must be tested with HDRI lighting; basic lights can hide material errors.
+
+Likely problems — Segmentation
+
+- Geometry-only selection cannot understand semantic parts.
+- Face-index zones break after mesh simplification.
+- Automatic boundaries may bleed across fused pieces.
+- Separating visible triangles does not generate hidden internal surfaces.
+- Semantic results still require merge, split, rename, and brush correction.
+
+Start with material zones, not fully separated geometry. They are much easier and already unlock multi-material objects.
+
+Likely problems — Rigging
+
+- Humanoids are considerably easier than arbitrary creatures or mechanical objects.
+- Generated topology may deform poorly around shoulders, elbows, and hips.
+- Segmentation helps identify limbs but does not automatically create good skin weights.
+- Retopology may be required before rigging.
+- Rigging should initially create another asset version containing skeleton and skin weights.
+
+Start by supporting already-rigged GLBs and animation playback. Then add humanoid auto-rigging. Leave arbitrary-object rigging until later.
+
+Realistic timeline
+
+- Presentation-ready Scene MVP: 1–2 weeks.
+- Scene MVP plus reliable PBR materials and manual material zones: 3–5 weeks.
+- Add automatic segmentation and basic humanoid rigging: approximately 6–10 weeks total.
+- Robust arbitrary-character rigging and Tripo-level part completion: potentially several additional months.
+
+The best first iteration is therefore: Scene MVP → presentation rendering → PBR viewer → manual material zones. That produces visible value quickly without locking GenShape3D into a fragile architecture.
