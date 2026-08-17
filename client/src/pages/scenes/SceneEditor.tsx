@@ -616,7 +616,10 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
   useEffect(() => {
     if (!sceneReady) return;
     initialData.nodes.forEach(n => {
-      loadNode(n.id, n.jobId, n.name, n.resultUrl, n.position, n.rotation, n.scale, n.visible !== false);
+      loadNode(
+        n.id, n.jobId, n.name, n.resultUrl, n.position, n.rotation, n.scale, n.visible !== false,
+        { legacyPivot: n.pivotCenter !== true },
+      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneReady]);
@@ -701,6 +704,7 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
   function loadNode(
     nodeId: string, jobId: string, jobName: string, resultUrl: string,
     position: Vec3, rotation: Vec3, scale: Vec3, visible = true,
+    opts: { spawn?: boolean; legacyPivot?: boolean } = {},
   ) {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -723,7 +727,19 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
       const fit = 1.4 / maxDim;
       inner.scale.setScalar(fit);
-      inner.position.set(-center.x * fit, -center.y * fit + (size.y * fit) / 2, -center.z * fit);
+      // Pivot at the model's geometric CENTER: scaling and rotating happen
+      // around the middle of the object, never shifting it (Blender/Maya
+      // behaviour). Floor placement is handled below, not by the pivot.
+      inner.position.set(-center.x * fit, -center.y * fit, -center.z * fit);
+      const halfH = (size.y * fit) / 2;
+      if (opts.spawn) {
+        // Fresh asset: rest it on the ground plane.
+        group.position.y = halfH * group.scale.y;
+      } else if (opts.legacyPivot) {
+        // Saved before the center-pivot change (bottom pivot): lift by half
+        // the height so it still appears exactly where it was saved.
+        group.position.y += halfH * group.scale.y;
+      }
       inner.traverse(c => {
         const mesh = c as THREE.Mesh;
         if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
@@ -741,7 +757,7 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
     const nodeId = crypto.randomUUID();
     const n = stateRef.current.nodeList.length;
     const position: Vec3 = n === 0 ? [0, 0, 0] : [Math.cos(n * 1.1) * 1.8, 0, Math.sin(n * 1.1) * 1.8];
-    loadNode(nodeId, job.id, job.name || 'Untitled asset', job.resultUrl, position, [0, 0, 0], [1, 1, 1]);
+    loadNode(nodeId, job.id, job.name || 'Untitled asset', job.resultUrl, position, [0, 0, 0], [1, 1, 1], true, { spawn: true });
     setSelection({ kind: 'node', id: nodeId });
     setPickerOpen(false);
   }
@@ -861,6 +877,7 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
         rotation: g ? [g.rotation.x, g.rotation.y, g.rotation.z] : [0, 0, 0],
         scale: g ? [g.scale.x, g.scale.y, g.scale.z] : [1, 1, 1],
         visible: meta.visible,
+        pivotCenter: true,
       };
     });
     const lightsOut: SceneLight[] = stateRef.current.lights.map(spec => {

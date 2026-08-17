@@ -18,6 +18,10 @@ export interface SceneNode {
   rotation: Vec3;
   scale: Vec3;
   visible?: boolean;
+  /** True when position was saved with the pivot at the model's geometric
+   *  center. Older documents used a bottom pivot; the editor lifts those by
+   *  half the model height on load so they keep sitting on the floor. */
+  pivotCenter?: boolean;
 }
 
 export type LightType = 'directional' | 'point' | 'spot';
@@ -126,6 +130,7 @@ export function migrateSceneData(raw: any): SceneData {
           rotation: vec3(n.rotation, [0, 0, 0]),
           scale: vec3(n.scale, [1, 1, 1]),
           visible: n.visible !== false,
+          pivotCenter: n.pivotCenter === true,
         }))
     : [];
 
