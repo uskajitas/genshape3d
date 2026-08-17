@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Workspace from './pages/Workspace';
 import TextToImage from './pages/TextToImage';
 import AdminStats from './pages/AdminStats';
+import AdminScenesRoadmap from './pages/AdminScenesRoadmap';
 import { BenchmarkShell } from './pages/benchmark/index';
 import { UserProvider, useAppUser } from './context/UserContext';
 import { ConfirmHost } from './components/ConfirmModal';
@@ -77,6 +78,7 @@ const App: React.FC = () => {
         <Route path="/dashboard" element={<Workspace />} />
         <Route path="/dashboard/text" element={<TextToImage />} />
         <Route path="/admin/stats" element={<AdminStats />} />
+        <Route path="/admin/scenes" element={<AdminScenesRoadmap />} />
         <Route path="/benchmark/*" element={<BenchmarkShell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

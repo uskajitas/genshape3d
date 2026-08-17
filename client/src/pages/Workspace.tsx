@@ -2793,6 +2793,7 @@ const Workspace: React.FC = () => {
                 title="Benchmark runs"
                 onClick={() => navigate('/benchmark')}
               />
+              <RailItem icon="🎬" label="Scenes" title="Scenes roadmap" onClick={() => navigate('/admin/scenes')} />
             </>
           )}
         </Rail>
