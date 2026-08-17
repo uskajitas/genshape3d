@@ -55,6 +55,10 @@ const AccWrap = styled.div`
   border-radius: 10px;
   background: ${p => p.theme.colors.surface};
   overflow: hidden;
+  /* Accordions live inside scrollable flex columns. Without this, the
+     column squeezes open sections to fit the viewport (overflow: hidden
+     then clips their content) instead of letting the panel scroll. */
+  flex-shrink: 0;
 `;
 
 const AccHeader = styled.button<{ $open?: boolean }>`

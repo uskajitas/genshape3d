@@ -41,32 +41,36 @@ const Panel = styled.section<{ $visible: boolean }>`
   right: 1rem;
   bottom: 1rem;
   z-index: 6;
-  display: ${p => p.$visible ? 'grid' : 'none'};
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.75rem;
+  display: ${p => p.$visible ? 'flex' : 'none'};
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
   border: 1px solid ${p => p.theme.colors.borderHigh};
   border-radius: 12px;
   background: ${p => p.theme.colors.surface}f2;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(10px);
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
 `;
 
-const Main = styled.div`
-  min-width: 0;
+const PanelRow = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  min-width: 0;
+`;
 
-  @media (max-width: 980px) {
-    flex-wrap: wrap;
-  }
+const RowSpacer = styled.div`
+  flex: 1;
+`;
+
+const GroupLabel = styled.span`
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: ${p => p.theme.colors.textMuted};
+  margin-right: -0.25rem;
 `;
 
 const TitleBlock = styled.div`
@@ -97,7 +101,7 @@ const Segmented = styled.div`
 `;
 
 const Segment = styled.button<{ $active?: boolean }>`
-  min-width: 54px;
+  min-width: 0;
   border: 0;
   border-radius: 6px;
   padding: 0.34rem 0.55rem;
@@ -114,21 +118,16 @@ const Controls = styled.div`
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
-
-  @media (max-width: 980px) {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  flex-wrap: wrap;
 `;
 
 const SliderField = styled.label`
   display: grid;
-  grid-template-columns: 64px minmax(90px, 1fr);
+  grid-template-columns: 58px 110px;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.4rem;
   color: ${p => p.theme.colors.textMuted};
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 700;
 `;
 
@@ -237,19 +236,24 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
     onSettingsChange({ ...settings, ...patch });
   };
 
+  const selectionActive = settings.mode !== 'view';
+
   return (
     <Panel $visible={visible}>
-      <Main>
+      {/* Row 1 — what am I looking at + how */}
+      <PanelRow>
         <TitleBlock>
           <Title>Material zones</Title>
           <Subtitle title={sourceName}>{sourceName || 'No source selected'}</Subtitle>
         </TitleBlock>
-        <Segmented title="Choose how to interact with the model.">
+        <GroupLabel>Mode</GroupLabel>
+        <Segmented title="View orbits freely; Select and Paint pick faces on the model.">
           <Segment $active={settings.mode === 'view'} onClick={() => update({ mode: 'view' })}>View</Segment>
           <Segment $active={settings.mode === 'select'} onClick={() => update({ mode: 'select' })}>Select</Segment>
           <Segment $active={settings.mode === 'paint'} onClick={() => update({ mode: 'paint' })}>Paint</Segment>
         </Segmented>
-        <Segmented title="Shading">
+        <GroupLabel>Shading</GroupLabel>
+        <Segmented title="How the mesh is rendered while you work.">
           <Segment $active={viz.viewMode === 'solid'} onClick={() => onVizChange({ ...viz, viewMode: 'solid' })}>Solid</Segment>
           <Segment $active={viz.viewMode === 'clay'} onClick={() => onVizChange({ ...viz, viewMode: 'clay' })}>Clay</Segment>
           <Segment $active={viz.viewMode === 'wireframe'} onClick={() => onVizChange({ ...viz, viewMode: 'wireframe' })}>Wire</Segment>
@@ -258,46 +262,54 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
           <Segment $active={viz.autoRotate} onClick={() => onVizChange({ ...viz, autoRotate: !viz.autoRotate })}>Spin</Segment>
           <Segment $active={viz.showGrid} onClick={() => onVizChange({ ...viz, showGrid: !viz.showGrid })}>Grid</Segment>
         </Segmented>
-        <Controls>
-          <SliderField title="Expansion radius for click-to-grow selection.">
-            Range
-            <Range type="range" min={0} max={100} value={settings.range} onChange={e => update({ range: parseInt(e.target.value, 10) || 0 })} />
-          </SliderField>
-          <SliderField title="Higher values stop selection at stronger seams and edges.">
-            Boundary
-            <Range type="range" min={0} max={100} value={settings.boundary} onChange={e => update({ boundary: parseInt(e.target.value, 10) || 0 })} />
-          </SliderField>
-          <SliderField title="Softens the edge of a saved texture zone.">
-            Feather
-            <Range type="range" min={0} max={100} value={settings.feather} onChange={e => update({ feather: parseInt(e.target.value, 10) || 0 })} />
-          </SliderField>
-        </Controls>
-      </Main>
-      <Actions>
-        <ZoneStrip>
-          {zones.slice(0, 4).map(zone => (
-            <ZoneChip
-              key={zone.id}
-              type="button"
-              $active={activeZoneId === zone.id}
-              $color={zone.color}
-              title={`${zone.name} - ${zone.faceIndices.length} faces`}
-              onClick={() => onSelectZone(zone.id)}
-            >
-              <ZoneDot $color={zone.color} />
-              <ZoneName>{zone.name}</ZoneName>
-            </ZoneChip>
-          ))}
-        </ZoneStrip>
+        <RowSpacer />
         <SelectionMeta title={selection ? `${selection.meshName}, seed face ${selection.seedFaceIndex}` : 'Click the model in Select or Paint mode.'}>
-          {selection ? `${selection.faceCount} faces` : 'No selection'}
+          {selection ? `${selection.faceCount} faces` : selectionActive ? 'No selection' : ''}
         </SelectionMeta>
-        <IconAction title="Clear current selection." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
-        <Action title="Add the current selection to the active zone." disabled={!selection} onClick={onAddToZone}>Add</Action>
-        <Action title="Remove the current selection from the active zone." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Subtract</Action>
-        <Action $primary title="Save this selection as a texture zone." disabled={!selection} onClick={onSaveZone}>Save zone</Action>
-        <IconAction title="Delete active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Delete</IconAction>
-      </Actions>
+      </PanelRow>
+
+      {/* Row 2 — selection tools, only when a picking mode is active */}
+      {selectionActive && (
+        <PanelRow>
+          <Controls>
+            <SliderField title="Expansion radius for click-to-grow selection.">
+              Range
+              <Range type="range" min={0} max={100} value={settings.range} onChange={e => update({ range: parseInt(e.target.value, 10) || 0 })} />
+            </SliderField>
+            <SliderField title="Higher values stop selection at stronger seams and edges.">
+              Boundary
+              <Range type="range" min={0} max={100} value={settings.boundary} onChange={e => update({ boundary: parseInt(e.target.value, 10) || 0 })} />
+            </SliderField>
+            <SliderField title="Softens the edge of a saved texture zone.">
+              Feather
+              <Range type="range" min={0} max={100} value={settings.feather} onChange={e => update({ feather: parseInt(e.target.value, 10) || 0 })} />
+            </SliderField>
+          </Controls>
+          <ZoneStrip>
+            {zones.slice(0, 4).map(zone => (
+              <ZoneChip
+                key={zone.id}
+                type="button"
+                $active={activeZoneId === zone.id}
+                $color={zone.color}
+                title={`${zone.name} - ${zone.faceIndices.length} faces`}
+                onClick={() => onSelectZone(zone.id)}
+              >
+                <ZoneDot $color={zone.color} />
+                <ZoneName>{zone.name}</ZoneName>
+              </ZoneChip>
+            ))}
+          </ZoneStrip>
+          <RowSpacer />
+          <Actions>
+            <IconAction title="Clear current selection." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
+            <Action title="Add the current selection to the active zone." disabled={!selection} onClick={onAddToZone}>Add</Action>
+            <Action title="Remove the current selection from the active zone." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Subtract</Action>
+            <Action $primary title="Save this selection as a texture zone." disabled={!selection} onClick={onSaveZone}>Save zone</Action>
+            <IconAction title="Delete active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Delete</IconAction>
+          </Actions>
+        </PanelRow>
+      )}
     </Panel>
   );
 };

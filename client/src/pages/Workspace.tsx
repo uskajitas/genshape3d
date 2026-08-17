@@ -525,6 +525,10 @@ const PanelBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  /* Children must keep their natural height — the panel scrolls. Without
+     this, opening an accordion makes the flex column shrink every section
+     to fit, clipping content and shifting the boxes above. */
+  & > * { flex-shrink: 0; }
 `;
 
 const DropZone = styled.label<{ $hasFile?: boolean; $dragOver?: boolean }>`
