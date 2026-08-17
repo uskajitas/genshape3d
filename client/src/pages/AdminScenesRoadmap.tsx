@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
+import planText from '../../../GENSHAPE3D_ROADMAP.md?raw';
 import conversationText from '../../../GENSHAPE3D_PLAN_CONVERSATION.txt?raw';
 
 type Speaker = 'USER' | 'CODEX';
@@ -20,6 +21,61 @@ const conversationTurns: ConversationTurn[] = conversationText
     const speaker = chunk.slice(0, firstLineEnd).replace(' ===', '').trim() as Speaker;
     return { speaker, body: chunk.slice(firstLineEnd + 1).trim() };
   });
+
+const renderPlan = (text: string): React.ReactNode[] => {
+  const lines = text.split(/\r?\n/);
+  const nodes: React.ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith('# ')) {
+      nodes.push(<PlanHeading key={index}>{line.slice(2)}</PlanHeading>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith('## ')) {
+      nodes.push(<PlanSectionHeading key={index}>{line.slice(3)}</PlanSectionHeading>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith('- ')) {
+      const items: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith('- ')) {
+        items.push(lines[index].trim().slice(2));
+        index += 1;
+      }
+      nodes.push(
+        <PlanList key={`list-${index}`}>
+          {items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}
+        </PlanList>,
+      );
+      continue;
+    }
+
+    const paragraph: string[] = [line];
+    index += 1;
+    while (
+      index < lines.length
+      && lines[index].trim()
+      && !lines[index].trim().startsWith('#')
+      && !lines[index].trim().startsWith('- ')
+    ) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    nodes.push(<PlanParagraph key={`paragraph-${index}`}>{paragraph.join(' ')}</PlanParagraph>);
+  }
+
+  return nodes;
+};
 
 const Shell = styled.main`
   min-height: 100vh;
@@ -98,6 +154,72 @@ const SourceNote = styled.div`
   font-size: 0.72rem;
 `;
 
+const QuickNav = styled.nav`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+`;
+
+const JumpLink = styled.a`
+  padding: 0.5rem 0.72rem;
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 8px;
+  background: ${p => p.theme.colors.surface};
+  color: ${p => p.theme.colors.text};
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  &:hover { border-color: ${p => p.theme.colors.primary}; }
+`;
+
+const PlanDocument = styled.article`
+  padding: clamp(1.15rem, 3vw, 2.25rem);
+  border: 1px solid ${p => p.theme.colors.border};
+  border-radius: 14px;
+  background: linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
+  box-shadow: 0 18px 55px ${p => p.theme.colors.background}88;
+`;
+
+const PlanHeading = styled.h2`
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.45rem, 4vw, 2.2rem);
+  letter-spacing: -0.04em;
+`;
+
+const PlanSectionHeading = styled.h3`
+  margin: 2.4rem 0 0.75rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid ${p => p.theme.colors.border};
+  color: ${p => p.theme.colors.violet};
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+`;
+
+const PlanParagraph = styled.p`
+  margin: 0.7rem 0;
+  color: ${p => p.theme.colors.text};
+  font-size: 0.88rem;
+  line-height: 1.72;
+`;
+
+const PlanList = styled.ul`
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+  padding-left: 1.25rem;
+  color: ${p => p.theme.colors.text};
+  font-size: 0.86rem;
+  line-height: 1.62;
+  li::marker { color: ${p => p.theme.colors.primary}; }
+`;
+
+const ConversationHeading = styled.h2`
+  margin: 3rem 0 0.35rem;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+`;
+
 const Transcript = styled.article`
   display: grid;
   gap: 1rem;
@@ -156,14 +278,21 @@ const AdminRoadmap: React.FC = () => {
       <Header>
         <BackButton type="button" onClick={() => navigate('/dashboard')}>← Workspace</BackButton>
         <HeaderTitle>
-          <Eyebrow>Roadmap</Eyebrow>
-          <Title>Plan conversation</Title>
+          <Eyebrow>GenShape3D</Eyebrow>
+          <Title>Roadmap</Title>
         </HeaderTitle>
         <AdminBadge>Admin only</AdminBadge>
       </Header>
       <Content>
-        <SourceNote>Verbatim plan conversation stored in GENSHAPE3D_PLAN_CONVERSATION.txt</SourceNote>
-        <Transcript>
+        <QuickNav aria-label="Roadmap navigation">
+          <JumpLink href="#plan">What to do</JumpLink>
+          <JumpLink href="#conversation">Original conversation</JumpLink>
+        </QuickNav>
+        <SourceNote id="plan">Complete plan stored in GENSHAPE3D_ROADMAP.md</SourceNote>
+        <PlanDocument>{renderPlan(planText)}</PlanDocument>
+        <ConversationHeading id="conversation">Original plan conversation</ConversationHeading>
+        <SourceNote>Preserved in GENSHAPE3D_PLAN_CONVERSATION.txt</SourceNote>
+        <Transcript aria-label="Original plan conversation">
           {conversationTurns.map((turn, index) => (
             <Turn key={`${turn.speaker}-${index}`} $speaker={turn.speaker}>
               <SpeakerLabel $speaker={turn.speaker}>{turn.speaker === 'USER' ? 'YOU' : 'CODEX'}</SpeakerLabel>
