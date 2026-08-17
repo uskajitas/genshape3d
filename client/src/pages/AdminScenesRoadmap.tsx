@@ -418,7 +418,7 @@ const readCompleted = (): string[] => {
   }
 };
 
-const AdminScenesRoadmap: React.FC = () => {
+const AdminRoadmap: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { appUser } = useAppUser();
@@ -449,7 +449,7 @@ const AdminScenesRoadmap: React.FC = () => {
         <BackButton type="button" onClick={() => navigate('/dashboard')}>← Workspace</BackButton>
         <HeaderTitle>
           <Eyebrow>GenShape3D plan</Eyebrow>
-          <Title>Scenes roadmap</Title>
+          <Title>Product roadmap</Title>
         </HeaderTitle>
         <AdminBadge>Admin only</AdminBadge>
       </Header>
@@ -522,4 +522,4 @@ const AdminScenesRoadmap: React.FC = () => {
   );
 };
 
-export default AdminScenesRoadmap;
+export default AdminRoadmap;
