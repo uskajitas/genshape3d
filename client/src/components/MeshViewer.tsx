@@ -6,6 +6,7 @@ import {
   createMeshSelectionController,
   type MeshSelectionOptions,
 } from '../features/meshSelection';
+import { ViewGizmo } from './ViewGizmo';
 
 export type ViewMode = 'clay' | 'wireframe' | 'solid';
 
@@ -18,6 +19,9 @@ interface MeshViewerProps {
   /** Turntable spin. Defaults on (marketing-style preview); tools that need
    *  precise inspection/selection (Material) turn it off. */
   autoRotate?: boolean;
+  /** Corner axis-ball navigation widget (same as the Scene editor):
+   *  click a ball to snap the view, drag to orbit. */
+  showViewGizmo?: boolean;
   meshSelection?: MeshSelectionOptions;
 }
 
@@ -51,7 +55,7 @@ function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
   }
 }
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true, autoRotate = true, meshSelection }) => {
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true, autoRotate = true, showViewGizmo = false, meshSelection }) => {
   const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
 
   const mountRef    = useRef<HTMLDivElement>(null);
@@ -72,6 +76,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   modeRef.current   = effectiveMode;
   const autoRotateRef = useRef(autoRotate);
   autoRotateRef.current = autoRotate;
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const gizmoRef = useRef<ViewGizmo | null>(null);
   selectionOptionsRef.current = meshSelection || {
     enabled: false,
     mode: 'select',
@@ -94,6 +100,9 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
 
     const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.01, 1000);
     camera.position.set(0, 1, 3);
+    cameraRef.current = camera;
+    // The gizmo canvas anchors to the mount — it needs a positioning context.
+    mount.style.position = 'relative';
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -178,7 +187,12 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     ro.observe(mount);
 
     let animId: number;
-    const animate = () => { animId = requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); };
+    const animate = () => {
+      animId = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+      gizmoRef.current?.render();
+    };
     animate();
 
     return () => {
@@ -186,6 +200,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
       ro.disconnect();
       controls.dispose();
       controlsRef.current = null;
+      cameraRef.current = null;
       selection.dispose();
       selectionRef.current = null;
       meshesRef.current.forEach(mesh => {
@@ -224,6 +239,18 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   useEffect(() => {
     if (gridRef.current) gridRef.current.visible = showGrid && effectiveMode !== 'wireframe';
   }, [showGrid, effectiveMode]);
+
+  // ── Corner navigation gizmo ──────────────────────────────────────────────
+  useEffect(() => {
+    const mount = mountRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!showViewGizmo || !mount || !camera || !controls) return;
+    const gizmo = new ViewGizmo(camera, controls, mount);
+    gizmoRef.current = gizmo;
+    return () => { gizmo.dispose(); gizmoRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showViewGizmo, url]);
 
   useEffect(() => {
     selectionRef.current?.updateOptions(selectionOptionsRef.current);

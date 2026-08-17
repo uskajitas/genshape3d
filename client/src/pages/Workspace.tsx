@@ -3693,6 +3693,7 @@ const Workspace: React.FC = () => {
                   viewMode={activeTool === 'texture' ? materialViz.viewMode : 'solid'}
                   showGrid={activeTool === 'texture' ? materialViz.showGrid : true}
                   autoRotate={activeTool === 'texture' ? materialViz.autoRotate : true}
+                  showViewGizmo={activeTool === 'texture'}
                   meshSelection={textureMeshSelection}
                 />
               </Suspense>
