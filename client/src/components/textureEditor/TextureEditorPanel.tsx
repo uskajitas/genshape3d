@@ -11,9 +11,17 @@ export interface TextureEditorSettings {
   feather: number;
 }
 
+export interface MaterialVizSettings {
+  autoRotate: boolean;
+  viewMode: 'solid' | 'clay' | 'wireframe';
+  showGrid: boolean;
+}
+
 interface TextureEditorPanelProps {
   visible: boolean;
   sourceName: string;
+  viz: MaterialVizSettings;
+  onVizChange: (viz: MaterialVizSettings) => void;
   settings: TextureEditorSettings;
   selection: MeshSelectionSummary | null;
   zones: MeshSelectionZone[];
@@ -211,6 +219,8 @@ const IconAction = styled(Action)`
 export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
   visible,
   sourceName,
+  viz,
+  onVizChange,
   settings,
   selection,
   zones,
@@ -234,10 +244,19 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
           <Title>Material zones</Title>
           <Subtitle title={sourceName}>{sourceName || 'No source selected'}</Subtitle>
         </TitleBlock>
-        <Segmented title="Choose how to interact with the model before submitting a texture job.">
+        <Segmented title="Choose how to interact with the model.">
           <Segment $active={settings.mode === 'view'} onClick={() => update({ mode: 'view' })}>View</Segment>
           <Segment $active={settings.mode === 'select'} onClick={() => update({ mode: 'select' })}>Select</Segment>
           <Segment $active={settings.mode === 'paint'} onClick={() => update({ mode: 'paint' })}>Paint</Segment>
+        </Segmented>
+        <Segmented title="Shading">
+          <Segment $active={viz.viewMode === 'solid'} onClick={() => onVizChange({ ...viz, viewMode: 'solid' })}>Solid</Segment>
+          <Segment $active={viz.viewMode === 'clay'} onClick={() => onVizChange({ ...viz, viewMode: 'clay' })}>Clay</Segment>
+          <Segment $active={viz.viewMode === 'wireframe'} onClick={() => onVizChange({ ...viz, viewMode: 'wireframe' })}>Wire</Segment>
+        </Segmented>
+        <Segmented title="Viewport options">
+          <Segment $active={viz.autoRotate} onClick={() => onVizChange({ ...viz, autoRotate: !viz.autoRotate })}>Spin</Segment>
+          <Segment $active={viz.showGrid} onClick={() => onVizChange({ ...viz, showGrid: !viz.showGrid })}>Grid</Segment>
         </Segmented>
         <Controls>
           <SliderField title="Expansion radius for click-to-grow selection.">

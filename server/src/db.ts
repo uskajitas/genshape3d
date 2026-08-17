@@ -524,6 +524,34 @@ export async function initDb(): Promise<void> {
        deleted        BOOLEAN NOT NULL DEFAULT false
      )`,
     `CREATE INDEX IF NOT EXISTS idx_scenes_user ON genshape3d_scenes ("userEmail", "updatedAt" DESC) WHERE deleted = false`,
+
+    // Mesh refine jobs: repair (weld/floaters/holes/normals) + optional
+    // decimation of a generated mesh. On completion the worker inserts a
+    // NEW genshape3d_jobs row (the refined mesh becomes a first-class
+    // derivative asset, model='refine') and links it via "resultJobId".
+    // The source job is never modified.
+    `CREATE TABLE IF NOT EXISTS genshape3d_refine_jobs (
+       id                 TEXT PRIMARY KEY,
+       "userEmail"        TEXT NOT NULL,
+       "sourceJobId"      TEXT NOT NULL REFERENCES genshape3d_jobs(id),
+       "sourceModelUrl"   TEXT NOT NULL,
+       operations         JSONB NOT NULL DEFAULT '{}'::jsonb,
+       status             TEXT NOT NULL DEFAULT 'pending',
+       "resultUrl"        TEXT NOT NULL DEFAULT '',
+       "resultJobId"      TEXT NOT NULL DEFAULT '',
+       "errorMessage"     TEXT NOT NULL DEFAULT '',
+       "progressPct"      INTEGER NOT NULL DEFAULT 0,
+       "progressPhase"    TEXT NOT NULL DEFAULT '',
+       "assignedWorkerId" TEXT NOT NULL DEFAULT '',
+       stats              JSONB NOT NULL DEFAULT '{}'::jsonb,
+       "createdAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "updatedAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "startedAt"        TIMESTAMPTZ DEFAULT NULL,
+       "completedAt"      TIMESTAMPTZ DEFAULT NULL,
+       deleted            BOOLEAN NOT NULL DEFAULT false
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_refine_jobs_pending ON genshape3d_refine_jobs (status, "createdAt") WHERE deleted = false`,
+    `CREATE INDEX IF NOT EXISTS idx_refine_jobs_source ON genshape3d_refine_jobs ("sourceJobId", "createdAt" DESC) WHERE deleted = false`,
   ];
   for (const sql of alterCols) await dbQuery(sql);
 

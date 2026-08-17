@@ -18,6 +18,7 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AppRail, RailItem as SharedRailItem } from '../components/AppRail';
+import { Accordion, MiniBtn, BtnRow } from '../components/PanelKit';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
@@ -28,7 +29,7 @@ import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
 import { Dropdown, type DropdownOption } from '../components/Dropdown';
-import { TextureEditorPanel, type TextureEditorSettings } from '../components/textureEditor';
+import { TextureEditorPanel, type TextureEditorSettings, type MaterialVizSettings } from '../components/textureEditor';
 import type { MeshSelectionSummary, MeshSelectionZone } from '../features/meshSelection';
 
 const MeshViewer = lazy(() => import('../components/MeshViewer'));
@@ -127,6 +128,18 @@ const renameJob = async (id: string, name: string): Promise<void> => {
 
 type SubmitResult = { job: Job | null; error: string | null; warnings?: string[] };
 type TextureSubmitResult = { textureJob: { id: string; status: string } | null; error: string | null };
+
+interface RefineJobRow {
+  id: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  operations: { targetFaces?: number; fillHoles?: boolean; smooth?: number };
+  stats: { faces_in?: number; faces_out?: number; floaters_removed?: number; degenerate_removed?: number; watertight?: boolean };
+  resultJobId: string;
+  errorMessage: string;
+  progressPct: number;
+  progressPhase: string;
+  createdAt: string;
+}
 
 interface TextureJobRow {
   id: string;
@@ -1976,6 +1989,11 @@ const Workspace: React.FC = () => {
     boundary: 70,
     feather: 12,
   });
+  const [materialViz, setMaterialViz] = useState<MaterialVizSettings>({
+    autoRotate: false,   // Material work needs a still model — no turntable
+    viewMode: 'solid',
+    showGrid: true,
+  });
   const [textureSelection, setTextureSelection] = useState<MeshSelectionSummary | null>(null);
   const [textureZones, setTextureZones] = useState<MeshSelectionZone[]>([]);
   const [activeTextureZoneId, setActiveTextureZoneId] = useState<string | null>(null);
@@ -1985,6 +2003,12 @@ const Workspace: React.FC = () => {
   // but the UI never showed progress or results, which read as "nothing
   // happens". textureViewJobId swaps the viewer to a finished variant.
   const [textureJobs, setTextureJobs] = useState<TextureJobRow[]>([]);
+  const [refineJobs, setRefineJobs] = useState<RefineJobRow[]>([]);
+  const [refineRefresh, setRefineRefresh] = useState(0);
+  const [refineTargetFaces, setRefineTargetFaces] = useState(0);
+  const [refineFillHoles, setRefineFillHoles] = useState(true);
+  const [refineSmooth, setRefineSmooth] = useState(false);
+  const [refineSubmitting, setRefineSubmitting] = useState(false);
   const [textureViewJobId, setTextureViewJobId] = useState<string | null>(null);
   const [textureJobsRefresh, setTextureJobsRefresh] = useState(0);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
@@ -2576,6 +2600,34 @@ const Workspace: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTool, email, textureSourceJob?.id, textureJobsRefresh]);
 
+  // Refine jobs for the selected source — same polling scheme as materials.
+  useEffect(() => {
+    if (activeTool !== 'texture' || !email || !textureSourceJob?.id) {
+      setRefineJobs([]);
+      return;
+    }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/refine?email=${encodeURIComponent(email)}&sourceJobId=${encodeURIComponent(textureSourceJob.id)}`,
+        );
+        const d = await r.json();
+        if (!stopped) setRefineJobs(d.refineJobs || []);
+        const active = (d.refineJobs || []).some(
+          (t: RefineJobRow) => t.status === 'pending' || t.status === 'processing',
+        );
+        if (!stopped) timer = setTimeout(tick, active ? 4000 : 25000);
+      } catch {
+        if (!stopped) timer = setTimeout(tick, 15000);
+      }
+    };
+    tick();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTool, email, textureSourceJob?.id, refineRefresh]);
+
   // In texture mode a finished variant can be viewed in place of the source.
   const textureViewJob = textureViewJobId
     ? textureJobs.find(t => t.id === textureViewJobId && t.status === 'done' && t.resultUrl) ?? null
@@ -2740,6 +2792,35 @@ const Workspace: React.FC = () => {
     clearSignal: textureClearSignal,
     onChange: setTextureSelection,
   }), [activeTool, textureEditorSettings, textureZones, textureClearSignal]);
+
+  const onSubmitRefine = async () => {
+    if (!email || !textureSourceJob || refineSubmitting) return;
+    setRefineSubmitting(true);
+    try {
+      const r = await fetch('/api/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          sourceJobId: textureSourceJob.id,
+          operations: {
+            targetFaces: refineTargetFaces,
+            fillHoles: refineFillHoles,
+            smooth: refineSmooth ? 5 : 0,
+          },
+        }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${r.status}`);
+      }
+      setRefineRefresh(n => n + 1);
+    } catch (e) {
+      setSubmitError(`Refine failed to queue: ${(e as Error).message}`);
+    } finally {
+      setRefineSubmitting(false);
+    }
+  };
 
   const onDeleteTextureJob = async (tj: TextureJobRow) => {
     const ok = await confirm({
@@ -3004,6 +3085,7 @@ const Workspace: React.FC = () => {
           <PanelBody key={activeTool}>
             {activeTool === 'texture' ? (
               <>
+                <Accordion title="Source" badge={textureSourceJob ? '1' : undefined}>
                 <Field>
                   <FieldLabel>
                     Source model
@@ -3088,6 +3170,65 @@ const Workspace: React.FC = () => {
                   </Field>
                 )}
 
+                </Accordion>
+
+                {/* ── Mesh: repair + retopology (clean geometry first — zoning
+                       and per-part materials need a workable mesh) ── */}
+                <Accordion title="Mesh" badge={refineJobs.length ? String(refineJobs.length) : undefined} defaultOpen={false}>
+                  <Field>
+                    <FieldLabel>
+                      Refine
+                      <Tooltip text="Repairs the mesh (weld vertices, remove floating fragments and degenerate faces, fill holes, fix normals) and optionally rebuilds it at a lower face count. Produces a NEW clean asset — the original is untouched. Textures are dropped; run Material on the refined mesh after." multiline maxWidth={270}><FieldHint>?</FieldHint></Tooltip>
+                    </FieldLabel>
+                    <Segmented>
+                      {([[0, 'Keep faces'], [20000, '20k'], [40000, '40k'], [80000, '80k']] as const).map(([v, label]) => (
+                        <SegmentedBtn key={v} $active={refineTargetFaces === v} onClick={() => setRefineTargetFaces(v)}>
+                          {label}
+                        </SegmentedBtn>
+                      ))}
+                    </Segmented>
+                    <TextureOptionsGrid>
+                      <TextureToggle checked={refineFillHoles} onChange={setRefineFillHoles}>Fill holes</TextureToggle>
+                      <TextureToggle checked={refineSmooth} onChange={setRefineSmooth}>Smooth</TextureToggle>
+                    </TextureOptionsGrid>
+                    <BtnRow>
+                      <MiniBtn $primary disabled={!textureSourceJob || refineSubmitting} onClick={onSubmitRefine}>
+                        {refineSubmitting ? 'Queueing…' : '🛠 Refine mesh'}
+                      </MiniBtn>
+                    </BtnRow>
+                  </Field>
+                  {refineJobs.length > 0 && (
+                    <TexJobList>
+                      {refineJobs.map(rj => (
+                        <TexJobRow key={rj.id}>
+                          <TexJobMain>
+                            <TexJobTitle>
+                              {rj.operations?.targetFaces ? `Refine → ${Math.round(rj.operations.targetFaces / 1000)}k faces` : 'Refine (keep faces)'}
+                            </TexJobTitle>
+                            <TexJobSub title={rj.status === 'failed' ? rj.errorMessage : ''}>
+                              {rj.status === 'failed'
+                                ? (rj.errorMessage || 'Failed')
+                                : rj.status === 'done'
+                                  ? `${rj.stats?.floaters_removed ?? 0} floaters removed · ${rj.stats?.faces_out ? `${Math.round((rj.stats.faces_out) / 1000)}k faces` : 'done'}`
+                                  : rj.status === 'processing'
+                                    ? `${rj.progressPhase || 'Working'} · ${rj.progressPct}%`
+                                    : 'Waiting for a worker…'}
+                            </TexJobSub>
+                            {rj.status === 'processing' && <TexJobProgress $pct={rj.progressPct} />}
+                          </TexJobMain>
+                          <TexJobBadge $status={rj.status}>{rj.status}</TexJobBadge>
+                          {rj.status === 'done' && rj.resultJobId && (
+                            <Tooltip text="Select the refined mesh as the material source">
+                              <TexJobBtn onClick={() => setSelectedJobId(rj.resultJobId)}>Use</TexJobBtn>
+                            </Tooltip>
+                          )}
+                        </TexJobRow>
+                      ))}
+                    </TexJobList>
+                  )}
+                </Accordion>
+
+                <Accordion title="Material">
                 <Field>
                   <FieldLabel>Direction <Tooltip text="Describe the desired material, finish, age, wear, color, or style." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <PromptArea
@@ -3148,6 +3289,9 @@ const Workspace: React.FC = () => {
                   </TextureReferenceButton>
                 </Field>
 
+                </Accordion>
+
+                <Accordion title="Output & advanced" defaultOpen={false}>
                 <Field>
                   <FieldLabel>Size <Tooltip text="Requested texture resolution. Higher resolution costs more GPU time." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <Segmented>
@@ -3206,6 +3350,7 @@ const Workspace: React.FC = () => {
                   <FieldLabel>Keep shape <Tooltip text="Preserve the selected model's shape." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
                 </Field>
+                </Accordion>
 
               </>
             ) : (
@@ -3541,14 +3686,17 @@ const Workspace: React.FC = () => {
               <Suspense fallback={<EmptyState><EmptySub>Loading viewer…</EmptySub></EmptyState>}>
                 <MeshViewer
                   url={meshUrl}
-                  wireframe={false}
-                  showGrid
+                  viewMode={activeTool === 'texture' ? materialViz.viewMode : 'solid'}
+                  showGrid={activeTool === 'texture' ? materialViz.showGrid : true}
+                  autoRotate={activeTool === 'texture' ? materialViz.autoRotate : true}
                   meshSelection={textureMeshSelection}
                 />
               </Suspense>
               <TextureEditorPanel
                 visible={activeTool === 'texture'}
                 sourceName={textureSourceJob?.name || 'Untitled asset'}
+                viz={materialViz}
+                onVizChange={setMaterialViz}
                 settings={textureEditorSettings}
                 selection={textureSelection}
                 zones={textureZones}

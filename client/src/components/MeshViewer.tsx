@@ -15,6 +15,9 @@ interface MeshViewerProps {
   /** @deprecated use viewMode instead */
   wireframe?: boolean;
   showGrid?: boolean;
+  /** Turntable spin. Defaults on (marketing-style preview); tools that need
+   *  precise inspection/selection (Material) turn it off. */
+  autoRotate?: boolean;
   meshSelection?: MeshSelectionOptions;
 }
 
@@ -48,7 +51,7 @@ function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
   }
 }
 
-const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true, meshSelection }) => {
+const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = false, showGrid = true, autoRotate = true, meshSelection }) => {
   const effectiveMode: ViewMode = viewMode ?? (wireframe ? 'wireframe' : 'solid');
 
   const mountRef    = useRef<HTMLDivElement>(null);
@@ -67,6 +70,8 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   // Keep a ref that the async loader callback can read without stale closure issues
   const modeRef     = useRef<ViewMode>(effectiveMode);
   modeRef.current   = effectiveMode;
+  const autoRotateRef = useRef(autoRotate);
+  autoRotateRef.current = autoRotate;
   selectionOptionsRef.current = meshSelection || {
     enabled: false,
     mode: 'select',
@@ -119,7 +124,7 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     controls.dampingFactor  = 0.05;
     controls.minDistance    = 0.5;
     controls.maxDistance    = 20;
-    controls.autoRotate     = true;
+    controls.autoRotate     = autoRotateRef.current;
     controls.autoRotateSpeed = 0.8;
     controls.enabled = !selectionOptionsRef.current.enabled;
     controlsRef.current = controls;
@@ -209,6 +214,11 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
       applyMode(mesh, effectiveMode);
     });
   }, [effectiveMode]);
+
+  // ── Auto-rotate toggle ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (controlsRef.current) controlsRef.current.autoRotate = autoRotate;
+  }, [autoRotate]);
 
   // ── Grid visibility ──────────────────────────────────────────────────────
   useEffect(() => {
