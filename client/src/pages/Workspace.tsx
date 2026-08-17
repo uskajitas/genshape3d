@@ -3015,9 +3015,9 @@ const Workspace: React.FC = () => {
                         <TextureSourceThumb src={selectedThumb} alt="" />
                         <TextureSourceMeta>
                           <TextureSourceName>{textureSourceJob.name || 'Untitled asset'}</TextureSourceName>
-                          <TextureNote title="Texture variants will stay linked to this source model.">
+                          <Tooltip text="Material variants stay linked to this source model." multiline maxWidth={230}><TextureNote>
                             {textureSourceJob.doTexture ? 'Textured' : 'Untextured'}
-                          </TextureNote>
+                          </TextureNote></Tooltip>
                         </TextureSourceMeta>
                       </TextureSource>
                     ) : (
@@ -3076,12 +3076,11 @@ const Workspace: React.FC = () => {
                             </TexJobBtn>
                           )}
                           {(tj.status === 'done' || tj.status === 'failed') && (
-                            <TexJobBtn
-                              title="Delete this material variant"
+                            <Tooltip text="Delete this material variant"><TexJobBtn
                               onClick={() => onDeleteTextureJob(tj)}
                             >
                               ✕
-                            </TexJobBtn>
+                            </TexJobBtn></Tooltip>
                           )}
                         </TexJobRow>
                       ))}
@@ -3090,7 +3089,7 @@ const Workspace: React.FC = () => {
                 )}
 
                 <Field>
-                  <FieldLabel>Direction <FieldHint title="Describe the desired material, finish, age, wear, color, or style.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Direction <Tooltip text="Describe the desired material, finish, age, wear, color, or style." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <PromptArea
                     placeholder="e.g. aged bronze, worn edges, subtle roughness"
                     value={texturePrompt}
@@ -3099,7 +3098,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Material <FieldHint title="Choose a broad material preset. The prompt can refine it.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Material <Tooltip text="Choose a broad material preset. The prompt can refine it." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <PresetGrid>
                     {MATERIAL_PRESETS.map(preset => (
                       <PresetCard
@@ -3115,7 +3114,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Source <FieldHint title="Choose whether the texture is guided by the prompt, a reference image, the original source image, or the current model texture.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Source <Tooltip text="Choose whether the texture is guided by the prompt, a reference image, the original source image, or the current model texture." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <PresetGrid>
                     {TEXTURE_SOURCE_MODES.map(mode => (
                       <PresetCard
@@ -3131,7 +3130,7 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Reference <FieldHint title="Optional material or style image. Selecting one switches Source to Reference.">{textureReferenceName || '?'}</FieldHint></FieldLabel>
+                  <FieldLabel>Reference <Tooltip text="Optional material or style image. Selecting one switches Source to Reference." multiline maxWidth={250}><FieldHint>{textureReferenceName || '?'}</FieldHint></Tooltip></FieldLabel>
                   <TextureReferenceButton type="button" onClick={() => textureRefInputRef.current?.click()}>
                     <HiddenInput
                       ref={textureRefInputRef}
@@ -3144,13 +3143,13 @@ const Workspace: React.FC = () => {
                     />
                     <TextureSourceMeta>
                       <TextureSourceName>{textureReferenceName || 'Add reference image'}</TextureSourceName>
-                      <TextureNote title="Use a material swatch, style image, or target finish.">Material image</TextureNote>
+                      <Tooltip text="Use a material swatch, style image, or target finish." multiline maxWidth={230}><TextureNote>Material image</TextureNote></Tooltip>
                     </TextureSourceMeta>
                   </TextureReferenceButton>
                 </Field>
 
                 <Field>
-                  <FieldLabel>Size <FieldHint title="Requested texture resolution. Higher resolution costs more GPU time.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Size <Tooltip text="Requested texture resolution. Higher resolution costs more GPU time." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <Segmented>
                     {(['1K', '2K', '4K'] as const).map(r => (
                       <SegmentedBtn key={r} $active={textureRes === r} onClick={() => setTextureRes(r)}>
@@ -3163,26 +3162,26 @@ const Workspace: React.FC = () => {
                 <Field>
                   <FieldLabel>
                     Maps
-                    <FieldHint title="PBR maps produced by the material pipeline (glTF metallic-roughness workflow), baked into the exported GLB.">?</FieldHint>
+                    <Tooltip text="PBR maps produced by the material pipeline (glTF metallic-roughness workflow), baked into the exported GLB." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip>
                   </FieldLabel>
                   {/* These reflect what the Hunyuan3D-2.1 PBR paint pipeline
                       actually generates — do NOT turn them back into toggles
                       unless the runner honors the selection. */}
                   <MapChipRow>
-                    <MapChip $on title="Albedo texture — the material's color.">✓ Base color</MapChip>
-                    <MapChip $on title="Green channel of the metallic-roughness map.">✓ Roughness</MapChip>
-                    <MapChip $on title="Blue channel of the metallic-roughness map.">✓ Metallic</MapChip>
-                    <MapChip title="Geometry-baked normal map — planned.">Normal · soon</MapChip>
-                    <MapChip title="Ambient occlusion baked from geometry — planned.">AO · soon</MapChip>
+                    <Tooltip text="Albedo texture — the material's color."><MapChip $on>✓ Base color</MapChip></Tooltip>
+                    <Tooltip text="Green channel of the metallic-roughness map."><MapChip $on>✓ Roughness</MapChip></Tooltip>
+                    <Tooltip text="Blue channel of the metallic-roughness map."><MapChip $on>✓ Metallic</MapChip></Tooltip>
+                    <Tooltip text="Geometry-baked normal map — planned."><MapChip>Normal · soon</MapChip></Tooltip>
+                    <Tooltip text="Ambient occlusion raytraced from the geometry — packed with roughness+metallic in one ORM texture."><MapChip $on>✓ AO</MapChip></Tooltip>
                   </MapChipRow>
                   <TextureNote>
-                    Base color + metallic-roughness are generated and baked into the GLB (standard PBR).
+                    Base color, roughness, metallic, and baked AO ship in the GLB (standard PBR + ORM packing).
                   </TextureNote>
                 </Field>
 
                 <TextureSettingsRow>
                   <Field>
-                    <FieldLabel>Variants <FieldHint title="More variants cost more GPU time. Default is one.">?</FieldHint></FieldLabel>
+                    <FieldLabel>Variants <Tooltip text="More variants cost more GPU time. Default is one." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                     <Segmented>
                       {([1, 2, 4] as const).map(n => (
                         <SegmentedBtn key={n} $active={textureVariants === n} onClick={() => setTextureVariants(n)}>
@@ -3193,18 +3192,18 @@ const Workspace: React.FC = () => {
                   </Field>
 
                   <Field>
-                    <FieldLabel>Seed <FieldHint title="Use 0 for random. Set a number for repeatable results when supported.">?</FieldHint></FieldLabel>
+                    <FieldLabel>Seed <Tooltip text="Use 0 for random. Set a number for repeatable results when supported." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                     <TextureNumberField label="Seed" value={textureSeed} onChange={setTextureSeed} />
                   </Field>
                 </TextureSettingsRow>
 
                 <Field>
-                  <FieldLabel>Strength <FieldHint title="Controls how strongly the new direction changes the material.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Strength <Tooltip text="Controls how strongly the new direction changes the material." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <TextureSliderField label="Strength" value={textureStrength} onChange={setTextureStrength} />
                 </Field>
 
                 <Field>
-                  <FieldLabel>Keep shape <FieldHint title="Preserve the selected model's shape.">?</FieldHint></FieldLabel>
+                  <FieldLabel>Keep shape <Tooltip text="Preserve the selected model's shape." multiline maxWidth={250}><FieldHint>?</FieldHint></Tooltip></FieldLabel>
                   <TextureToggle checked={textureKeepShape} onChange={setTextureKeepShape}>Keep shape</TextureToggle>
                 </Field>
 
