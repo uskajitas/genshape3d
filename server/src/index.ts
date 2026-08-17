@@ -1488,6 +1488,83 @@ app.delete('/api/groups/:id', async (req, res) => {
   }
 });
 
+// ── Scenes ────────────────────────────────────────────────────────────────────
+
+app.get('/api/scenes', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { listScenesByUser } = await import('./scenesRepo');
+    res.json({ scenes: await listScenesByUser(email) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/scenes', async (req, res) => {
+  const { email, name } = req.body as { email?: string; name?: string };
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { createScene } = await import('./scenesRepo');
+    const scene = await createScene(email, (name || '').trim() || 'Untitled scene');
+    res.json({ scene });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/scenes/:id', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { getScene } = await import('./scenesRepo');
+    const scene = await getScene(req.params.id);
+    if (!scene) return res.status(404).json({ error: 'not found' });
+    if (scene.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    res.json({ scene });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/scenes/:id', async (req, res) => {
+  const { email, name, sceneData, thumbnailUrl } = req.body as {
+    email?: string; name?: string; sceneData?: any; thumbnailUrl?: string;
+  };
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { getScene, updateScene } = await import('./scenesRepo');
+    const scene = await getScene(req.params.id);
+    if (!scene) return res.status(404).json({ error: 'not found' });
+    if (scene.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await updateScene(req.params.id, { name, sceneData, thumbnailUrl });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/scenes/:id', async (req, res) => {
+  const email = req.query.email as string;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const { getScene, deleteScene } = await import('./scenesRepo');
+    const scene = await getScene(req.params.id);
+    if (!scene) return res.status(404).json({ error: 'not found' });
+    if (scene.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await deleteScene(req.params.id);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Generate ──────────────────────────────────────────────────────────────────
 
 app.post('/api/generate', async (req, res) => {

@@ -507,6 +507,23 @@ export async function initDb(): Promise<void> {
        created_at TIMESTAMPTZ DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS idx_credit_ledger_email ON genshape3d_credit_ledger (email, created_at DESC)`,
+
+    // Scenes: a composition of existing GLB assets (job results) placed,
+    // lit, and framed together for a presentation render. Never references
+    // or duplicates the underlying GLB bytes — sceneData just stores each
+    // node's jobId/resultUrl + transform, so re-texturing or deleting the
+    // source job never corrupts a saved scene's own record of what it used.
+    `CREATE TABLE IF NOT EXISTS genshape3d_scenes (
+       id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       "userEmail"    TEXT NOT NULL,
+       name           TEXT NOT NULL DEFAULT 'Untitled scene',
+       "sceneData"    JSONB NOT NULL DEFAULT '{}'::jsonb,
+       "thumbnailUrl" TEXT NOT NULL DEFAULT '',
+       "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       deleted        BOOLEAN NOT NULL DEFAULT false
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_scenes_user ON genshape3d_scenes ("userEmail", "updatedAt" DESC) WHERE deleted = false`,
   ];
   for (const sql of alterCols) await dbQuery(sql);
 

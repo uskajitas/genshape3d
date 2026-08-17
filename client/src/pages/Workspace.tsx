@@ -1986,6 +1986,7 @@ const Workspace: React.FC = () => {
   const [showAdvModal, setShowAdvModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedJobs, setArchivedJobs] = useState<Job[]>([]);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
 
   // Gallery images fetched from the text-to-image page — shown in the panel
   // so the user can pick one as the input without re-uploading.
@@ -2770,30 +2771,30 @@ const Workspace: React.FC = () => {
       <Body>
         {/* ──────── Icon rail ──────── */}
         <Rail>
-          <RailItem icon="🖼" label="Image" active={activeTool === 'image'} title="Image to 3D" onClick={() => setActiveTool('image')} />
-          <RailItem icon="✨" label="Text" title="Text to image"
-                    onClick={() => navigate('/dashboard/text')} />
+          <RailItem icon="🖼" label="Image" title="Text to image" onClick={() => navigate('/dashboard/text')} />
+          <RailItem icon="⬡" label="3D Model" active={activeTool === 'image'} title="Image to 3D" onClick={() => setActiveTool('image')} />
           <RailItem icon="🎨" label="Texture" active={activeTool === 'texture'} title="Texture selected asset" onClick={() => setActiveTool('texture')} />
+          <RailItem icon="🎬" label="Scene" title="Compose a scene from your assets" onClick={() => navigate('/scenes')} />
           <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
-          <RailDivider />
-          <RailItem icon="📦" label="Assets" title="My assets" />
-          <RailItem icon="⚙" label="Settings" title="Settings" />
+          <RailItem icon="📦" label="Assets" disabled title="Asset library — coming soon" />
           {isAdmin && (
             <>
               <RailDivider />
               <RailItem
-                icon="📊"
-                label="Stats"
-                title="Admin stats"
-                onClick={() => navigate('/admin/stats')}
+                icon="⚙"
+                label="Admin"
+                active={showAdminMenu}
+                title="Admin tools"
+                onClick={() => setShowAdminMenu(v => !v)}
               />
-              <RailItem
-                icon="🧪"
-                label="Benchmark"
-                title="Benchmark runs"
-                onClick={() => navigate('/benchmark')}
-              />
-              <RailItem icon="🗺" label="Roadmap" title="GenShape3D roadmap" onClick={() => navigate('/admin/roadmap')} />
+              {showAdminMenu && (
+                <>
+                  <RailItem icon="📊" label="Stats" title="Admin stats" onClick={() => navigate('/admin/stats')} />
+                  <RailItem icon="🧪" label="Bench" title="Benchmark runs" onClick={() => navigate('/benchmark')} />
+                  <RailItem icon="🗺" label="Roadmap" title="GenShape3D roadmap" onClick={() => navigate('/admin/roadmap')} />
+                  <RailItem icon="🗃" label="Archive" active={showArchived} title="Archived generations" onClick={() => setShowArchived(v => !v)} />
+                </>
+              )}
             </>
           )}
         </Rail>
@@ -3269,15 +3270,6 @@ const Workspace: React.FC = () => {
               >
                 {submitNotice}
               </div>
-            )}
-            {isAdmin && (
-              <AdminLinks>
-                <AdminLink to="/admin/stats">📊 Stats</AdminLink>
-                <AdminLink to="/benchmark">🧪 Benchmark</AdminLink>
-                <AdminLinkBtn type="button" onClick={() => setShowArchived(v => !v)}>
-                  📦 {showArchived ? 'Back' : 'Archive'}
-                </AdminLinkBtn>
-              </AdminLinks>
             )}
           </PanelFooter>
         </Panel>

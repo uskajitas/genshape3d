@@ -8,6 +8,8 @@ import TextToImage from './pages/TextToImage';
 import AdminStats from './pages/AdminStats';
 import AdminRoadmap from './pages/AdminScenesRoadmap';
 import { BenchmarkShell } from './pages/benchmark/index';
+import ScenesList from './pages/scenes/ScenesList';
+import SceneEditor from './pages/scenes/SceneEditor';
 import { UserProvider, useAppUser } from './context/UserContext';
 import { ConfirmHost } from './components/ConfirmModal';
 
@@ -77,6 +79,8 @@ const App: React.FC = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<Workspace />} />
         <Route path="/dashboard/text" element={<TextToImage />} />
+        <Route path="/scenes" element={<ScenesList />} />
+        <Route path="/scenes/:id" element={<SceneEditor />} />
         <Route path="/admin/stats" element={<AdminStats />} />
         <Route path="/admin/roadmap" element={<AdminRoadmap />} />
         <Route path="/benchmark/*" element={<BenchmarkShell />} />
