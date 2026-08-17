@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from '../context/AuthContext';
@@ -16,28 +16,21 @@ interface RoadmapPhase {
   risk: string;
 }
 
-interface StarterTask {
-  id: string;
-  label: string;
-  detail: string;
-}
-
-const STARTER_TASKS: StarterTask[] = [
-  { id: 'scene-document', label: 'Define the scene document', detail: 'Nodes, asset version, parent, transform, lights, cameras and environment.' },
-  { id: 'scene-editor', label: 'Create a separate SceneEditor', detail: 'Keep MeshViewer as the single-asset preview; scene transforms must not auto-normalize.' },
-  { id: 'multi-load', label: 'Load multiple GLB assets', detail: 'Add, remove, duplicate and select independent scene instances.' },
-  { id: 'transforms', label: 'Add transform controls', detail: 'Move, rotate and scale the selected instance while preserving its source asset.' },
-  { id: 'outliner', label: 'Add a basic outliner', detail: 'Show every object, light and camera in a simple selectable hierarchy.' },
-  { id: 'lighting', label: 'Add presentation lighting', detail: 'Ground plane, shadows, neutral HDRI and one adjustable key light.' },
-  { id: 'save-capture', label: 'Save and capture', detail: 'Persist scene JSON, restore it, and export a presentation-ready PNG.' },
-];
-
 const ROADMAP: RoadmapPhase[] = [
+  {
+    number: 0,
+    title: 'Safe foundations',
+    effort: '2–3 days',
+    state: 'now',
+    outcome: 'Protect source assets so every later operation creates a reversible version.',
+    work: ['Asset versions', 'Artifact manifests', 'Scene document', 'Test assets', 'Export checks'],
+    risk: 'Overwriting generated GLBs would make texture, segmentation and rigging experiments difficult to undo.',
+  },
   {
     number: 1,
     title: 'Scene basics',
     effort: '5–8 days',
-    state: 'now',
+    state: 'next',
     outcome: 'Compose current GenShape3D assets into simple presentation scenes.',
     work: ['Multiple GLBs', 'Transforms', 'Outliner', 'Ground and lights', 'Save/load JSON'],
     risk: 'The current MeshViewer recenters and rescales assets, so scene composition needs a separate viewer path.',
@@ -97,8 +90,6 @@ const ROADMAP: RoadmapPhase[] = [
     risk: 'Undo/redo and asset-version changes require deliberate state management.',
   },
 ];
-
-const STORAGE_KEY = 'genshape3d-admin-scene-roadmap-v1';
 
 const Shell = styled.main`
   min-height: 100vh;
@@ -172,12 +163,7 @@ const Content = styled.div`
 `;
 
 const Hero = styled.section`
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.6fr);
-  gap: 1rem;
   margin-bottom: 1.25rem;
-
-  @media (max-width: 800px) { grid-template-columns: 1fr; }
 `;
 
 const Surface = styled.section`
@@ -226,39 +212,10 @@ const PrimaryButton = styled.button`
   box-shadow: 0 8px 24px ${p => p.theme.colors.primary}33;
 `;
 
-const ProgressCard = styled(Surface)`
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-`;
-
-const ProgressValue = styled.div`
-  font-size: 2.2rem;
-  font-weight: 900;
-  letter-spacing: -0.05em;
-`;
-
 const Muted = styled.div`
   color: ${p => p.theme.colors.textMuted};
   font-size: 0.76rem;
   line-height: 1.5;
-`;
-
-const ProgressTrack = styled.div`
-  height: 7px;
-  margin: 0.8rem 0;
-  border-radius: 999px;
-  overflow: hidden;
-  background: ${p => p.theme.colors.surfaceHigh};
-`;
-
-const ProgressFill = styled.div<{ $value: number }>`
-  width: ${p => p.$value}%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
-  transition: width 0.2s ease;
 `;
 
 const SectionHeading = styled.div`
@@ -273,44 +230,6 @@ const SectionTitle = styled.h2`
   margin: 0;
   font-size: 1rem;
   letter-spacing: -0.02em;
-`;
-
-const Checklist = styled(Surface)`
-  padding: 0.45rem;
-`;
-
-const TaskRow = styled.label`
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: start;
-  padding: 0.8rem;
-  border-radius: 9px;
-  cursor: pointer;
-  &:hover { background: ${p => p.theme.colors.surfaceHigh}; }
-  & + & { border-top: 1px solid ${p => p.theme.colors.border}; }
-`;
-
-const TaskCheck = styled.input`
-  width: 17px;
-  height: 17px;
-  margin-top: 0.08rem;
-  accent-color: ${p => p.theme.colors.violet};
-  cursor: pointer;
-`;
-
-const TaskLabel = styled.div<{ $done: boolean }>`
-  color: ${p => p.$done ? p.theme.colors.textMuted : p.theme.colors.text};
-  font-size: 0.82rem;
-  font-weight: 800;
-  text-decoration: ${p => p.$done ? 'line-through' : 'none'};
-`;
-
-const TaskDetail = styled.div`
-  margin-top: 0.18rem;
-  color: ${p => p.theme.colors.textMuted};
-  font-size: 0.74rem;
-  line-height: 1.45;
 `;
 
 const Roadmap = styled.div`
@@ -389,17 +308,6 @@ const Risk = styled.div`
   line-height: 1.45;
 `;
 
-const ResetButton = styled.button`
-  border: 0;
-  background: transparent;
-  color: ${p => p.theme.colors.textMuted};
-  font: inherit;
-  font-size: 0.7rem;
-  font-weight: 700;
-  cursor: pointer;
-  &:hover { color: ${p => p.theme.colors.violet}; }
-`;
-
 const Loading = styled.div`
   min-height: 100vh;
   display: grid;
@@ -409,39 +317,14 @@ const Loading = styled.div`
   font-size: 0.82rem;
 `;
 
-const readCompleted = (): string[] => {
-  try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    return Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
 const AdminRoadmap: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const { appUser } = useAppUser();
-  const [completed, setCompleted] = useState<string[]>(readCompleted);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(completed));
-  }, [completed]);
-
-  const progress = useMemo(
-    () => Math.round((completed.length / STARTER_TASKS.length) * 100),
-    [completed],
-  );
 
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!appUser.loaded) return <Loading>Checking admin access…</Loading>;
   if (appUser.role !== 'admin') return <Navigate to="/dashboard" replace />;
-
-  const toggleTask = (id: string) => {
-    setCompleted(current => current.includes(id)
-      ? current.filter(item => item !== id)
-      : [...current, id]);
-  };
 
   return (
     <Shell>
@@ -457,49 +340,21 @@ const AdminRoadmap: React.FC = () => {
       <Content>
         <Hero>
           <Intro>
-            <Eyebrow>Current focus · Iteration 1</Eyebrow>
-            <HeroTitle>Build small scenes first. Improve every asset capability around them.</HeroTitle>
+            <Eyebrow>Complete GenShape3D plan</Eyebrow>
+            <HeroTitle>From generated objects to reusable, presentation-ready 3D scenes.</HeroTitle>
             <HeroText>
-              The first milestone is intentionally narrow: compose existing GLBs, light them, save the layout and capture a presentation image. PBR maps, segmentation and rigging follow without blocking useful scene output.
+              This is the whole path we defined: protect the existing assets, start composing useful scenes immediately, improve their PBR materials, add manual and semantic segmentation, support rigging, then mature the scene editor. Nothing here is gated—you can work on any phase when it helps a current project.
             </HeroText>
             <HeroActions>
               <PrimaryButton type="button" onClick={() => navigate('/dashboard')}>Open current assets</PrimaryButton>
             </HeroActions>
           </Intro>
-          <ProgressCard>
-            <Eyebrow>Scene basics</Eyebrow>
-            <ProgressValue>{progress}%</ProgressValue>
-            <ProgressTrack><ProgressFill $value={progress} /></ProgressTrack>
-            <Muted>{completed.length} of {STARTER_TASKS.length} starter tasks complete. Progress is saved in this browser.</Muted>
-          </ProgressCard>
         </Hero>
 
         <SectionHeading>
           <div>
-            <Eyebrow>Start here</Eyebrow>
-            <SectionTitle>Scene MVP checklist</SectionTitle>
-          </div>
-          {completed.length > 0 && <ResetButton type="button" onClick={() => setCompleted([])}>Reset progress</ResetButton>}
-        </SectionHeading>
-        <Checklist>
-          {STARTER_TASKS.map(task => {
-            const done = completed.includes(task.id);
-            return (
-              <TaskRow key={task.id}>
-                <TaskCheck type="checkbox" checked={done} onChange={() => toggleTask(task.id)} />
-                <div>
-                  <TaskLabel $done={done}>{task.label}</TaskLabel>
-                  <TaskDetail>{task.detail}</TaskDetail>
-                </div>
-              </TaskRow>
-            );
-          })}
-        </Checklist>
-
-        <SectionHeading>
-          <div>
-            <Eyebrow>Path to the final goal</Eyebrow>
-            <SectionTitle>Incremental roadmap</SectionTitle>
+            <Eyebrow>Full path · use in any order</Eyebrow>
+            <SectionTitle>Roadmap</SectionTitle>
           </div>
           <Muted>Estimated full-time solo effort</Muted>
         </SectionHeading>
