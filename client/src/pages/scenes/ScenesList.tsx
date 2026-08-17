@@ -5,6 +5,11 @@ import { useAuth } from '../../context/AuthContext';
 import { confirm } from '../../components/ConfirmModal';
 import { scenesApi, Scene } from './api';
 
+// Dev-only auth bypass (matches SceneEditor) — inert in production builds.
+const DEV_EMAIL: string | undefined = import.meta.env.DEV
+  ? (import.meta.env.VITE_DEV_EMAIL as string | undefined)
+  : undefined;
+
 const Shell = styled.div`
   min-height: 100vh;
   background: ${p => p.theme.colors.background};
@@ -115,14 +120,14 @@ export const ScenesList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  const email = user?.email || '';
+  const email = user?.email || DEV_EMAIL || '';
 
   useEffect(() => {
     if (!email) return;
     scenesApi.list(email).then(r => setScenes(r.scenes)).finally(() => setLoading(false));
   }, [email]);
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated && !DEV_EMAIL) return <Navigate to="/login" replace />;
 
   const createScene = async () => {
     if (!email || creating) return;
@@ -181,7 +186,10 @@ export const ScenesList: React.FC = () => {
                   <CardName to={`/scenes/${scene.id}`}>{scene.name}</CardName>
                   <DeleteBtn title="Delete scene" onClick={() => removeScene(scene)}>✕</DeleteBtn>
                 </CardBody>
-                <CardMeta>{scene.sceneData.nodes.length} object{scene.sceneData.nodes.length === 1 ? '' : 's'} · updated {new Date(scene.updatedAt).toLocaleDateString()}</CardMeta>
+                <CardMeta>
+                  {(scene.sceneData as any)?.nodes?.length ?? 0} object{((scene.sceneData as any)?.nodes?.length ?? 0) === 1 ? '' : 's'}
+                  {' · '}updated {new Date(scene.updatedAt).toLocaleDateString()}
+                </CardMeta>
               </Card>
             ))}
           </Grid>

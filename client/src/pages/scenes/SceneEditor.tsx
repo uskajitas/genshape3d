@@ -1,48 +1,62 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SceneEditor — place multiple existing GLBs together, light them, frame a
-// camera, and export a presentation image.
+// SceneEditor — DCC-style scene composer for GenShape3D assets.
 //
-// Deliberately separate from MeshViewer: MeshViewer auto-recenters/rescales
-// every model it loads (correct for a single-asset preview), which would
-// destroy scene placement. Here each object gets a wrapper group whose
-// transform is the one thing that gets saved — the inner GLB is normalized
-// once on load (so newly-added assets land at a sane size) but the outer
-// group transform is what the user edits and what round-trips through save.
-// The source GLB itself is never modified.
+// Structure:
+//   SceneEditor (outer)  — auth + fetch. Renders SceneEditorInner only once
+//                          the scene document is loaded, so the three.js
+//                          scaffold always mounts against a real DOM node.
+//   SceneEditorInner     — the actual editor: outliner (objects + lights),
+//                          viewport, inspector (tabs + accordions).
+//
+// Navigation (Maya/Blender hybrid):
+//   LMB          select object / light
+//   Alt+LMB      orbit            (Maya)
+//   MMB          orbit            (Blender)
+//   Shift+MMB    pan
+//   RMB          pan
+//   Wheel        zoom
+//   W / E / R    move / rotate / scale gizmo
+//   F            frame selection (or everything)
+//   Ctrl+D       duplicate object
+//   Delete       remove selection
+//   Ctrl+S       save
+//
+// The source GLBs are never modified — a scene only stores jobId/resultUrl
+// plus a per-node transform. Each GLB is normalized once on load inside a
+// wrapper group; the wrapper's transform is what the user edits and saves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import styled from 'styled-components';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { useAuth } from '../../context/AuthContext';
 import { Dropdown, type DropdownOption } from '../../components/Dropdown';
-import { scenesApi, Scene, SceneData, SceneLighting } from './api';
+import {
+  scenesApi, Scene, SceneData, SceneLight, SceneEnvironment, SceneCamera,
+  LightType, Vec3, migrateSceneData, makeLight,
+} from './api';
+import {
+  Tabs, Accordion, SliderRow, Vec3Row, ColorRow, ToggleRow, MiniBtn, BtnRow, Row, RowLabel,
+} from './ui';
 
-const DEFAULT_LIGHTING: SceneLighting = {
-  ambientIntensity: 0.9,
-  keyIntensity: 2.2,
-  keyAzimuth: 45,
-  keyElevation: 55,
-  background: '#101013',
-};
+// Dev-only auth bypass so the editor can be driven without Firebase
+// (e.g. browser automation). Inert in production builds: import.meta.env.DEV
+// is false there, so DEV_EMAIL is always undefined.
+const DEV_EMAIL: string | undefined = import.meta.env.DEV
+  ? (import.meta.env.VITE_DEV_EMAIL as string | undefined)
+  : undefined;
 
-const DEFAULT_CAMERA = {
-  position: [0, 1.6, 4] as [number, number, number],
-  target: [0, 0.5, 0] as [number, number, number],
-  fov: 45,
-};
+const LIGHT_ICONS: Record<LightType, string> = { directional: '☀️', point: '💡', spot: '🔦' };
 
-const BACKGROUND_PRESETS: DropdownOption<string>[] = [
-  { value: '#101013', label: 'Studio dark' },
-  { value: '#1c1c22', label: 'Charcoal' },
-  { value: '#e8e8ec', label: 'Studio light' },
-  { value: '#ffffff', label: 'White' },
-  { value: '#0b1220', label: 'Midnight blue' },
-  { value: '#151018', label: 'Aubergine' },
+const EXPORT_SIZES: DropdownOption<string>[] = [
+  { value: '1920x1080', label: '1080p (1920×1080)' },
+  { value: '2560x1440', label: '1440p (2560×1440)' },
+  { value: '3840x2160', label: '4K (3840×2160)' },
+  { value: '1080x1080', label: 'Square (1080×1080)' },
 ];
 
 interface PickerJob {
@@ -51,7 +65,6 @@ interface PickerJob {
   status: string;
   resultUrl?: string;
   imageUrl?: string;
-  createdAt?: string;
 }
 
 interface NodeMeta {
@@ -59,7 +72,11 @@ interface NodeMeta {
   jobId: string;
   name: string;
   resultUrl: string;
+  visible: boolean;
+  loading: boolean;
 }
+
+type Selection = { kind: 'node' | 'light'; id: string } | null;
 
 const meshUrlFor = (resultUrl: string) => `/api/mesh?key=${encodeURIComponent(resultUrl)}`;
 const thumbUrlFor = (job: PickerJob) => {
@@ -70,18 +87,17 @@ const thumbUrlFor = (job: PickerJob) => {
   return `/api/image?key=${encodeURIComponent(key)}`;
 };
 
-// ── Styled ───────────────────────────────────────────────────────────────────
+// ── Styled shell ─────────────────────────────────────────────────────────────
 
 const Shell = styled.div`
   height: 100vh;
-  display: flex;
-  flex-direction: column;
+  display: flex; flex-direction: column;
   background: ${p => p.theme.colors.background};
 `;
 
 const TopBar = styled.div`
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.6rem 1rem;
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
   border-bottom: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surface};
   flex-shrink: 0;
@@ -90,26 +106,43 @@ const TopBar = styled.div`
 const BackLink = styled(Link)`
   font-size: 0.78rem; font-weight: 700;
   color: ${p => p.theme.colors.textMuted};
-  text-decoration: none;
+  text-decoration: none; flex-shrink: 0;
   &:hover { color: ${p => p.theme.colors.text}; }
 `;
 
 const NameInput = styled.input`
-  font: inherit; font-size: 0.92rem; font-weight: 700;
-  padding: 0.4rem 0.6rem; border-radius: 8px;
+  font: inherit; font-size: 0.9rem; font-weight: 700;
+  padding: 0.38rem 0.6rem; border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
   color: ${p => p.theme.colors.text};
-  min-width: 160px;
+  width: 200px;
   &:hover, &:focus { border-color: ${p => p.theme.colors.border}; background: ${p => p.theme.colors.surfaceHigh}; }
   &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
 `;
 
+const ModeGroup = styled.div`
+  display: flex; gap: 0.25rem; margin-left: 0.5rem;
+  padding: 0.25rem; border-radius: 9px;
+  background: ${p => p.theme.colors.background};
+  border: 1px solid ${p => p.theme.colors.border};
+`;
+
+const ModeChip = styled.button<{ $active?: boolean }>`
+  font: inherit; font-size: 0.72rem; font-weight: 700;
+  padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; border: 0;
+  background: ${p => p.$active
+    ? `linear-gradient(135deg, ${p.theme.colors.primary}33, ${p.theme.colors.violet}33)`
+    : 'transparent'};
+  color: ${p => p.$active ? p.theme.colors.text : p.theme.colors.textMuted};
+  &:hover { color: ${p => p.theme.colors.text}; }
+`;
+
 const Spacer = styled.div`flex: 1;`;
 
-const Btn = styled.button<{ $primary?: boolean }>`
-  font: inherit; font-size: 0.8rem; font-weight: 600;
-  padding: 0.48rem 0.95rem; border-radius: 8px; cursor: pointer;
+const TopBtn = styled.button<{ $primary?: boolean }>`
+  font: inherit; font-size: 0.78rem; font-weight: 600;
+  padding: 0.45rem 0.9rem; border-radius: 8px; cursor: pointer; flex-shrink: 0;
   border: 1px solid ${p => p.$primary ? p.theme.colors.violet : p.theme.colors.border};
   background: ${p => p.$primary
     ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
@@ -120,100 +153,58 @@ const Btn = styled.button<{ $primary?: boolean }>`
 `;
 
 const SaveStatus = styled.span`
-  font-size: 0.72rem; color: ${p => p.theme.colors.textMuted};
+  font-size: 0.7rem; color: ${p => p.theme.colors.textMuted}; flex-shrink: 0;
 `;
 
 const Body = styled.div`
   flex: 1; display: flex; min-height: 0;
 `;
 
-const SidePanel = styled.aside`
-  width: 260px; flex-shrink: 0;
-  display: flex; flex-direction: column; gap: 1rem;
-  padding: 1rem;
+const LeftPanel = styled.aside`
+  width: 232px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 0.75rem;
   border-right: 1px solid ${p => p.theme.colors.border};
   background: ${p => p.theme.colors.surface};
   overflow-y: auto;
 `;
 
-const RightPanel = styled(SidePanel)`
-  border-right: 0;
+const RightPanel = styled.aside`
+  width: 292px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  padding: 0.75rem;
   border-left: 1px solid ${p => p.theme.colors.border};
+  background: ${p => p.theme.colors.surface};
+  overflow-y: auto;
 `;
 
-const PanelSection = styled.div`
-  display: flex; flex-direction: column; gap: 0.5rem;
-`;
-
-const PanelTitle = styled.div`
-  font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
-  color: ${p => p.theme.colors.textMuted};
-`;
-
-const NodeRow = styled.button<{ $active?: boolean }>`
-  display: flex; align-items: center; gap: 0.5rem;
-  width: 100%; text-align: left; font: inherit;
-  padding: 0.45rem 0.55rem; border-radius: 8px; cursor: pointer;
+const OutlinerRow = styled.div<{ $active?: boolean }>`
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.45rem; border-radius: 7px; cursor: pointer;
   border: 1px solid ${p => p.$active ? p.theme.colors.violet : 'transparent'};
   background: ${p => p.$active ? `${p.theme.colors.violet}18` : 'transparent'};
-  color: ${p => p.theme.colors.text};
-  &:hover { background: ${p => p.theme.colors.surfaceHigh}; }
+  &:hover { background: ${p => p.$active ? `${p.theme.colors.violet}22` : p.theme.colors.surfaceHigh}; }
 `;
 
-const NodeLabel = styled.span`
-  flex: 1; min-width: 0; font-size: 0.8rem; font-weight: 600;
+const OutlinerIcon = styled.span`
+  font-size: 0.72rem; flex-shrink: 0; width: 16px; text-align: center;
+`;
+
+const OutlinerLabel = styled.span<{ $dim?: boolean }>`
+  flex: 1; min-width: 0; font-size: 0.78rem; font-weight: 600;
+  color: ${p => p.$dim ? p.theme.colors.textMuted : p.theme.colors.text};
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 `;
 
-const NodeRemove = styled.span`
-  font-size: 0.85rem; color: ${p => p.theme.colors.textMuted};
-  &:hover { color: ${p => p.theme.colors.violet}; }
+const RowAction = styled.button`
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  font-size: 0.72rem; line-height: 1; padding: 0.15rem;
+  color: ${p => p.theme.colors.textMuted};
+  &:hover { color: ${p => p.theme.colors.text}; }
 `;
 
 const EmptyHint = styled.div`
-  font-size: 0.76rem; color: ${p => p.theme.colors.textMuted}; line-height: 1.5;
-`;
-
-const ModeRow = styled.div`
-  display: flex; gap: 0.35rem;
-`;
-
-const ModeChip = styled.button<{ $active?: boolean }>`
-  flex: 1; font: inherit; font-size: 0.72rem; font-weight: 700;
-  padding: 0.35rem 0; border-radius: 7px; cursor: pointer;
-  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
-  background: ${p => p.$active ? `${p.theme.colors.violet}22` : 'transparent'};
-  color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.textMuted};
-`;
-
-const XForm = styled.div`
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem;
-`;
-
-const XField = styled.label`
-  display: flex; flex-direction: column; gap: 0.2rem;
-  font-size: 0.62rem; font-weight: 700; color: ${p => p.theme.colors.textMuted};
-  text-transform: uppercase;
-`;
-
-const XInput = styled.input`
-  font: inherit; font-size: 0.78rem;
-  padding: 0.32rem 0.4rem; border-radius: 6px;
-  border: 1px solid ${p => p.theme.colors.border};
-  background: ${p => p.theme.colors.surfaceHigh};
-  color: ${p => p.theme.colors.text};
-  width: 100%;
-  &:focus { outline: none; border-color: ${p => p.theme.colors.violet}; }
-`;
-
-const SliderLabel = styled.div`
-  display: flex; justify-content: space-between;
-  font-size: 0.72rem; color: ${p => p.theme.colors.textMuted};
-  span:last-child { color: ${p => p.theme.colors.text}; font-weight: 600; }
-`;
-
-const Slider = styled.input`
-  width: 100%; accent-color: ${p => p.theme.colors.violet};
+  font-size: 0.73rem; color: ${p => p.theme.colors.textMuted}; line-height: 1.5;
 `;
 
 const Viewport = styled.div`
@@ -222,14 +213,15 @@ const Viewport = styled.div`
 
 const ViewportMount = styled.div`
   position: absolute; inset: 0;
+  canvas { display: block; }
 `;
 
 const ViewportHint = styled.div`
-  position: absolute; left: 12px; bottom: 12px;
-  font-size: 0.7rem; color: ${p => p.theme.colors.textMuted};
-  background: ${p => p.theme.colors.surface}cc;
-  padding: 0.3rem 0.6rem; border-radius: 6px;
-  pointer-events: none;
+  position: absolute; left: 10px; bottom: 10px;
+  font-size: 0.66rem; color: ${p => p.theme.colors.textMuted};
+  background: ${p => p.theme.colors.surface}d9;
+  padding: 0.28rem 0.55rem; border-radius: 6px;
+  pointer-events: none; user-select: none;
 `;
 
 const Loading = styled.div`
@@ -293,26 +285,105 @@ const AssetName = styled.div`
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 `;
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Three.js helpers ────────────────────────────────────────────────────────
 
-export const SceneEditor: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth();
-  const email = user?.email || '';
+interface LightRig {
+  type: LightType;
+  group: THREE.Group;                 // world position of the light; gizmo target
+  light: THREE.DirectionalLight | THREE.PointLight | THREE.SpotLight;
+  helper: THREE.Object3D & { update?: () => void };
+  targetObj: THREE.Object3D;
+  handle: THREE.Mesh;
+}
 
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [loadedScene, setLoadedScene] = useState<Scene | null>(null);
-  const [sceneReady, setSceneReady] = useState(false);
+function disposeObject(obj: THREE.Object3D) {
+  obj.traverse(child => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    mats.forEach(m => {
+      if (!m) return;
+      for (const k of Object.keys(m) as (keyof THREE.Material)[]) {
+        const v = (m as any)[k];
+        if (v && typeof v === 'object' && 'isTexture' in v) (v as THREE.Texture).dispose();
+      }
+      m.dispose();
+    });
+  });
+}
 
-  const [name, setName] = useState('Untitled scene');
+function createLightRig(spec: SceneLight, scene: THREE.Scene): LightRig {
+  const group = new THREE.Group();
+  group.position.set(...spec.position);
+  group.userData.lightId = spec.id;
+
+  let light: LightRig['light'];
+  if (spec.type === 'point') light = new THREE.PointLight(spec.color, spec.intensity, 0, 2);
+  else if (spec.type === 'spot') light = new THREE.SpotLight(spec.color, spec.intensity);
+  else light = new THREE.DirectionalLight(spec.color, spec.intensity);
+  group.add(light);
+
+  const targetObj = new THREE.Object3D();
+  targetObj.position.set(...spec.target);
+  scene.add(targetObj);
+  if (light instanceof THREE.DirectionalLight || light instanceof THREE.SpotLight) {
+    light.target = targetObj;
+  }
+  if (light.shadow) {
+    light.shadow.mapSize.set(1024, 1024);
+    if (light instanceof THREE.DirectionalLight) {
+      const c = light.shadow.camera as THREE.OrthographicCamera;
+      c.left = -8; c.right = 8; c.top = 8; c.bottom = -8;
+      c.near = 0.1; c.far = 40;
+    }
+  }
+
+  // Clickable handle so lights can be selected in the viewport.
+  const handle = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.12),
+    new THREE.MeshBasicMaterial({ color: spec.color, wireframe: true }),
+  );
+  handle.userData.lightId = spec.id;
+  group.add(handle);
+
+  let helper: LightRig['helper'];
+  if (light instanceof THREE.PointLight) helper = new THREE.PointLightHelper(light, 0.3);
+  else if (light instanceof THREE.SpotLight) helper = new THREE.SpotLightHelper(light);
+  else helper = new THREE.DirectionalLightHelper(light as THREE.DirectionalLight, 0.5);
+  scene.add(helper);
+
+  scene.add(group);
+  return { type: spec.type, group, light, helper, targetObj, handle };
+}
+
+function removeLightRig(rig: LightRig, scene: THREE.Scene) {
+  scene.remove(rig.group);
+  scene.remove(rig.helper);
+  scene.remove(rig.targetObj);
+  (rig.helper as any).dispose?.();
+  rig.handle.geometry.dispose();
+  (rig.handle.material as THREE.Material).dispose();
+  rig.light.dispose?.();
+}
+
+// ── Inner editor ─────────────────────────────────────────────────────────────
+
+const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scene }> = ({ sceneId, email, initial }) => {
+  const initialData = useRef<SceneData>(migrateSceneData(initial.sceneData)).current;
+
+  const [name, setName] = useState(initial.name);
   const [nodeList, setNodeList] = useState<NodeMeta[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lights, setLights] = useState<SceneLight[]>(initialData.lights);
+  const [env, setEnv] = useState<SceneEnvironment>(initialData.environment);
+  const [fov, setFov] = useState(initialData.camera.fov);
+  const [selection, setSelection] = useState<Selection>(null);
   const [transformMode, setTransformMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
-  const [lighting, setLighting] = useState<SceneLighting>(DEFAULT_LIGHTING);
+  const [activeTab, setActiveTab] = useState<'inspector' | 'scene'>('inspector');
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [exportSize, setExportSize] = useState('1920x1080');
+  const [exportTransparent, setExportTransparent] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerJobs, setPickerJobs] = useState<PickerJob[] | null>(null);
   const [, forceTick] = useReducer((x: number) => x + 1, 0);
@@ -324,103 +395,156 @@ export const SceneEditor: React.FC = () => {
   const orbitRef = useRef<OrbitControls | null>(null);
   const transformRef = useRef<TransformControls | null>(null);
   const ambientRef = useRef<THREE.AmbientLight | null>(null);
-  const keyLightRef = useRef<THREE.DirectionalLight | null>(null);
-  const nodeObjectsRef = useRef<Map<string, THREE.Group>>(new Map());
-  const appliedRef = useRef(false);
+  const gridRef = useRef<THREE.GridHelper | null>(null);
+  const groundRef = useRef<THREE.Mesh | null>(null);
+  const nodeGroupsRef = useRef<Map<string, THREE.Group>>(new Map());
+  const lightRigsRef = useRef<Map<string, LightRig>>(new Map());
+  const sceneReadyRef = useRef(false);
+  const [sceneReady, setSceneReady] = useState(false);
 
-  // ── Load scene from the server ──────────────────────────────────────────
-  useEffect(() => {
-    if (!email || !id) return;
-    scenesApi.get(id, email)
-      .then(r => setLoadedScene(r.scene))
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
-  }, [id, email]);
+  // Latest state/actions for stable event handlers (keyboard, pointer).
+  const stateRef = useRef({ selection, transformMode, nodeList, lights });
+  stateRef.current = { selection, transformMode, nodeList, lights };
+  const actionsRef = useRef<{ [k: string]: (...a: any[]) => void }>({});
 
-  // ── Build the three.js scaffold once ────────────────────────────────────
+  // ── Scaffold (runs exactly once; the mount div always exists here) ────────
   useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
+    const mount = mountRef.current!;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(DEFAULT_LIGHTING.background);
+    scene.background = new THREE.Color(initialData.environment.background);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
-      DEFAULT_CAMERA.fov, mount.clientWidth / mount.clientHeight, 0.01, 1000,
+      initialData.camera.fov, mount.clientWidth / Math.max(1, mount.clientHeight), 0.01, 1000,
     );
-    camera.position.set(...DEFAULT_CAMERA.position);
+    camera.position.set(...initialData.camera.position);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    const ambient = new THREE.AmbientLight(0xffffff, DEFAULT_LIGHTING.ambientIntensity);
+    const ambient = new THREE.AmbientLight(
+      initialData.environment.ambientColor, initialData.environment.ambientIntensity,
+    );
     scene.add(ambient);
     ambientRef.current = ambient;
 
-    const key = new THREE.DirectionalLight(0xffffff, DEFAULT_LIGHTING.keyIntensity);
-    key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
-    scene.add(key);
-    keyLightRef.current = key;
-
-    const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-    fill.position.set(-4, 2, -3);
-    scene.add(fill);
-
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(30, 30),
-      new THREE.ShadowMaterial({ opacity: 0.28 }),
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.ShadowMaterial({ opacity: 0.3 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
+    ground.visible = initialData.environment.showGround;
     scene.add(ground);
+    groundRef.current = ground;
 
-    const grid = new THREE.GridHelper(20, 40, 0x2a2a33, 0x2a2a33);
+    const grid = new THREE.GridHelper(20, 40, 0x3a3a44, 0x26262e);
+    grid.visible = initialData.environment.showGrid;
     scene.add(grid);
+    gridRef.current = grid;
 
+    // ── Navigation: Maya/Blender hybrid ─────────────────────────────────
     const orbit = new OrbitControls(camera, renderer.domElement);
     orbit.enableDamping = true;
     orbit.dampingFactor = 0.08;
-    orbit.target.set(...DEFAULT_CAMERA.target);
+    orbit.target.set(...initialData.camera.target);
+    orbit.mouseButtons = {
+      LEFT: null as any,               // LMB = select (Alt+LMB switches to orbit)
+      MIDDLE: THREE.MOUSE.ROTATE,      // MMB orbit (Blender); Shift+MMB pan
+      RIGHT: THREE.MOUSE.PAN,
+    };
     orbit.update();
     orbitRef.current = orbit;
 
     const transform = new TransformControls(camera, renderer.domElement);
-    transform.setSize(0.9);
+    transform.setSize(0.85);
     scene.add(transform.getHelper());
     transform.addEventListener('dragging-changed', (e: any) => { orbit.enabled = !e.value; });
     transform.addEventListener('objectChange', () => forceTick());
     transformRef.current = transform;
 
+    let gizmoActive = false;
+    transform.addEventListener('mouseDown', () => { gizmoActive = true; });
+    transform.addEventListener('mouseUp', () => { setTimeout(() => { gizmoActive = false; }, 0); });
+
+    const setModifiers = (alt: boolean, shift: boolean) => {
+      orbit.mouseButtons.LEFT = alt ? THREE.MOUSE.ROTATE : (null as any);
+      orbit.mouseButtons.MIDDLE = shift ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+      // While Alt-navigating, the gizmo must not swallow the drag.
+      transform.enabled = !alt;
+    };
+    const onKeyChange = (e: KeyboardEvent) => setModifiers(e.altKey, e.shiftKey);
+    window.addEventListener('keydown', onKeyChange);
+    window.addEventListener('keyup', onKeyChange);
+    const onBlur = () => setModifiers(false, false);
+    window.addEventListener('blur', onBlur);
+
+    renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+    // ── Click select (ignores drags and gizmo interactions) ─────────────
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
-    const onClick = (e: MouseEvent) => {
-      if (transform.dragging) return;
+    let downPos: [number, number] | null = null;
+    const onPointerDown = (e: PointerEvent) => { downPos = [e.clientX, e.clientY]; };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!downPos) return;
+      const moved = Math.hypot(e.clientX - downPos[0], e.clientY - downPos[1]);
+      downPos = null;
+      if (moved > 5 || e.button !== 0 || e.altKey || gizmoActive) return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const groups = Array.from(nodeObjectsRef.current.values());
-      const hits = raycaster.intersectObjects(groups, true);
-      if (hits.length === 0) return;
+      const targets: THREE.Object3D[] = [
+        ...nodeGroupsRef.current.values(),
+        ...[...lightRigsRef.current.values()].map(r => r.handle),
+      ];
+      const hits = raycaster.intersectObjects(targets, true);
+      if (hits.length === 0) { setSelection(null); return; }
       let obj: THREE.Object3D | null = hits[0].object;
-      while (obj && !obj.userData.nodeId) obj = obj.parent;
-      if (obj) setSelectedId(obj.userData.nodeId);
+      while (obj && !obj.userData.nodeId && !obj.userData.lightId) obj = obj.parent;
+      if (obj?.userData.nodeId) setSelection({ kind: 'node', id: obj.userData.nodeId });
+      else if (obj?.userData.lightId) setSelection({ kind: 'light', id: obj.userData.lightId });
     };
-    renderer.domElement.addEventListener('click', onClick);
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
+    // ── Keyboard shortcuts ──────────────────────────────────────────────
+    const isTyping = () => {
+      const el = document.activeElement;
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTyping()) return;
+      const A = actionsRef.current;
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key.toLowerCase() === 's') { e.preventDefault(); A.save?.(); }
+        if (e.key.toLowerCase() === 'd') { e.preventDefault(); A.duplicateSelected?.(); }
+        return;
+      }
+      switch (e.key.toLowerCase()) {
+        case 'w': setTransformMode('translate'); break;
+        case 'e': setTransformMode('rotate'); break;
+        case 'r': setTransformMode('scale'); break;
+        case 'f': A.frameSelection?.(); break;
+        case 'delete': case 'backspace': A.removeSelected?.(); break;
+        case 'escape': setSelection(null); break;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
 
     const handleResize = () => {
-      if (!mount) return;
-      camera.aspect = mount.clientWidth / mount.clientHeight;
+      camera.aspect = mount.clientWidth / Math.max(1, mount.clientHeight);
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
     };
@@ -431,90 +555,145 @@ export const SceneEditor: React.FC = () => {
     const animate = () => {
       animId = requestAnimationFrame(animate);
       orbit.update();
+      lightRigsRef.current.forEach(rig => rig.helper.update?.());
       renderer.render(scene, camera);
     };
     animate();
 
+    sceneReadyRef.current = true;
     setSceneReady(true);
 
+    // Dev-only test hook: lets automated checks force a render and inspect
+    // engine state when the page isn't compositing (hidden pane). Stripped
+    // from production builds by the DEV guard.
+    if (import.meta.env.DEV) {
+      (window as any).__sceneEditor = {
+        renderOnce: () => { orbit.update(); renderer.render(scene, camera); },
+        stats: () => ({
+          nodes: nodeGroupsRef.current.size,
+          nodeChildren: [...nodeGroupsRef.current.values()].map(g => g.children.length),
+          lights: lightRigsRef.current.size,
+          camera: camera.position.toArray(),
+          target: orbit.target.toArray(),
+        }),
+        scene, camera, renderer, orbit,
+      };
+    }
+
     return () => {
+      if (import.meta.env.DEV) delete (window as any).__sceneEditor;
       cancelAnimationFrame(animId);
       ro.disconnect();
-      renderer.domElement.removeEventListener('click', onClick);
+      window.removeEventListener('keydown', onKeyChange);
+      window.removeEventListener('keyup', onKeyChange);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onKeyDown);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
       orbit.dispose();
       transform.dispose();
-      nodeObjectsRef.current.forEach(disposeObject);
-      nodeObjectsRef.current.clear();
+      nodeGroupsRef.current.forEach(disposeObject);
+      nodeGroupsRef.current.clear();
+      lightRigsRef.current.forEach(rig => removeLightRig(rig, scene));
+      lightRigsRef.current.clear();
       renderer.dispose();
       renderer.forceContextLoss();
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
       sceneRef.current = null;
-      cameraRef.current = null;
-      rendererRef.current = null;
-      orbitRef.current = null;
-      transformRef.current = null;
+      sceneReadyRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Apply loaded scene data once the scaffold + fetch are both ready ───
-  useEffect(() => {
-    if (!sceneReady || !loadedScene || appliedRef.current) return;
-    appliedRef.current = true;
-
-    setName(loadedScene.name);
-    setLighting(loadedScene.sceneData.lighting || DEFAULT_LIGHTING);
-
-    const cam = cameraRef.current!;
-    const orbit = orbitRef.current!;
-    const camData = loadedScene.sceneData.camera || DEFAULT_CAMERA;
-    cam.position.set(...camData.position);
-    cam.fov = camData.fov;
-    cam.updateProjectionMatrix();
-    orbit.target.set(...camData.target);
-    orbit.update();
-
-    (loadedScene.sceneData.nodes || []).forEach(n => {
-      loadNode(n.id, n.jobId, n.name, n.resultUrl, n.position, n.rotation, n.scale);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneReady, loadedScene]);
-
-  // ── Push lighting state into the live scene ─────────────────────────────
+  // ── Load initial nodes once the scaffold exists ─────────────────────────
   useEffect(() => {
     if (!sceneReady) return;
-    if (ambientRef.current) ambientRef.current.intensity = lighting.ambientIntensity;
-    if (keyLightRef.current) {
-      keyLightRef.current.intensity = lighting.keyIntensity;
-      const az = THREE.MathUtils.degToRad(lighting.keyAzimuth);
-      const el = THREE.MathUtils.degToRad(lighting.keyElevation);
-      const r = 7;
-      keyLightRef.current.position.set(
-        r * Math.cos(el) * Math.cos(az),
-        Math.max(0.5, r * Math.sin(el)),
-        r * Math.cos(el) * Math.sin(az),
-      );
-    }
-    if (sceneRef.current) sceneRef.current.background = new THREE.Color(lighting.background);
-  }, [lighting, sceneReady]);
+    initialData.nodes.forEach(n => {
+      loadNode(n.id, n.jobId, n.name, n.resultUrl, n.position, n.rotation, n.scale, n.visible !== false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneReady]);
 
-  // ── Keep the gizmo attached to the selected node ────────────────────────
+  // ── Reconcile light rigs with light state ───────────────────────────────
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !sceneReady) return;
+    const rigs = lightRigsRef.current;
+
+    for (const [id, rig] of [...rigs]) {
+      const spec = lights.find(l => l.id === id);
+      if (!spec || spec.type !== rig.type) {
+        removeLightRig(rig, scene);
+        rigs.delete(id);
+      }
+    }
+    for (const spec of lights) {
+      let rig = rigs.get(spec.id);
+      if (!rig) {
+        rig = createLightRig(spec, scene);
+        rigs.set(spec.id, rig);
+      }
+      // Position is owned by the three.js side (gizmo edits it live);
+      // everything else is owned by React state.
+      rig.light.color.set(spec.color);
+      rig.light.intensity = spec.intensity;
+      rig.light.castShadow = spec.castShadow;
+      (rig.handle.material as THREE.MeshBasicMaterial).color.set(spec.color);
+      rig.targetObj.position.set(...spec.target);
+      if (rig.light instanceof THREE.SpotLight) {
+        rig.light.angle = THREE.MathUtils.degToRad(spec.angle ?? 35);
+        rig.light.penumbra = spec.penumbra ?? 0.4;
+      }
+      rig.helper.update?.();
+    }
+  }, [lights, sceneReady]);
+
+  // ── Environment sync ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!sceneReady) return;
+    if (sceneRef.current) sceneRef.current.background = new THREE.Color(env.background);
+    if (ambientRef.current) {
+      ambientRef.current.color.set(env.ambientColor);
+      ambientRef.current.intensity = env.ambientIntensity;
+    }
+    if (gridRef.current) gridRef.current.visible = env.showGrid;
+    if (groundRef.current) groundRef.current.visible = env.showGround;
+  }, [env, sceneReady]);
+
+  // ── Camera FOV sync ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const cam = cameraRef.current;
+    if (!cam || !sceneReady) return;
+    cam.fov = fov;
+    cam.updateProjectionMatrix();
+  }, [fov, sceneReady]);
+
+  // ── Gizmo attachment follows selection ──────────────────────────────────
   useEffect(() => {
     const tc = transformRef.current;
     if (!tc) return;
-    if (!selectedId) { tc.detach(); return; }
-    const obj = nodeObjectsRef.current.get(selectedId);
-    if (obj) tc.attach(obj); else tc.detach();
-  }, [selectedId]);
+    if (!selection) { tc.detach(); return; }
+    const obj = selection.kind === 'node'
+      ? nodeGroupsRef.current.get(selection.id)
+      : lightRigsRef.current.get(selection.id)?.group;
+    if (obj) {
+      tc.attach(obj);
+      // Rotating/scaling a light rig is meaningless — force translate.
+      tc.setMode(selection.kind === 'light' ? 'translate' : transformMode);
+    } else {
+      tc.detach();
+    }
+  }, [selection, transformMode, sceneReady]);
 
+  // Auto-switch inspector tab when something gets selected.
   useEffect(() => {
-    transformRef.current?.setMode(transformMode);
-  }, [transformMode]);
+    if (selection) setActiveTab('inspector');
+  }, [selection]);
 
-  // ── Node loading ─────────────────────────────────────────────────────────
+  // ── Node management ─────────────────────────────────────────────────────
   function loadNode(
     nodeId: string, jobId: string, jobName: string, resultUrl: string,
-    position: [number, number, number], rotation: [number, number, number], scale: [number, number, number],
+    position: Vec3, rotation: Vec3, scale: Vec3, visible = true,
   ) {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -523,114 +702,199 @@ export const SceneEditor: React.FC = () => {
     group.position.set(...position);
     group.rotation.set(...rotation);
     group.scale.set(...scale);
+    group.visible = visible;
     scene.add(group);
-    nodeObjectsRef.current.set(nodeId, group);
-    setNodeList(prev => [...prev, { id: nodeId, jobId, name: jobName, resultUrl }]);
+    nodeGroupsRef.current.set(nodeId, group);
+    setNodeList(prev => [...prev, { id: nodeId, jobId, name: jobName, resultUrl, visible, loading: true }]);
 
     new GLTFLoader().load(meshUrlFor(resultUrl), gltf => {
+      if (!nodeGroupsRef.current.has(nodeId)) return; // removed while loading
       const inner = gltf.scene;
       const box = new THREE.Box3().setFromObject(inner);
       const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const fitScale = 1.4 / maxDim;
-      inner.scale.setScalar(fitScale);
-      inner.position.set(
-        -center.x * fitScale,
-        -center.y * fitScale + (size.y * fitScale) / 2,
-        -center.z * fitScale,
-      );
+      const fit = 1.4 / maxDim;
+      inner.scale.setScalar(fit);
+      inner.position.set(-center.x * fit, -center.y * fit + (size.y * fit) / 2, -center.z * fit);
       inner.traverse(c => {
         const mesh = c as THREE.Mesh;
         if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
       });
       group.add(inner);
-      forceTick();
-    }, undefined, err => console.error('Scene GLB load error:', err));
+      setNodeList(prev => prev.map(n => n.id === nodeId ? { ...n, loading: false } : n));
+    }, undefined, err => {
+      console.error('Scene GLB load error:', err);
+      setNodeList(prev => prev.map(n => n.id === nodeId ? { ...n, loading: false } : n));
+    });
   }
 
   function addAsset(job: PickerJob) {
     if (!job.resultUrl) return;
     const nodeId = crypto.randomUUID();
-    const offset = nodeList.length;
-    const angle = offset * 0.9;
-    const position: [number, number, number] = [Math.cos(angle) * 1.6 * (offset > 0 ? 1 : 0), 0, Math.sin(angle) * 1.6 * (offset > 0 ? 1 : 0)];
+    const n = stateRef.current.nodeList.length;
+    const position: Vec3 = n === 0 ? [0, 0, 0] : [Math.cos(n * 1.1) * 1.8, 0, Math.sin(n * 1.1) * 1.8];
     loadNode(nodeId, job.id, job.name || 'Untitled asset', job.resultUrl, position, [0, 0, 0], [1, 1, 1]);
-    setSelectedId(nodeId);
+    setSelection({ kind: 'node', id: nodeId });
     setPickerOpen(false);
   }
 
   function removeNode(nodeId: string) {
     const scene = sceneRef.current;
-    const obj = nodeObjectsRef.current.get(nodeId);
-    if (scene && obj) {
-      if (selectedId === nodeId) transformRef.current?.detach();
-      scene.remove(obj);
-      disposeObject(obj);
-      nodeObjectsRef.current.delete(nodeId);
+    const group = nodeGroupsRef.current.get(nodeId);
+    if (scene && group) {
+      if (stateRef.current.selection?.id === nodeId) transformRef.current?.detach();
+      scene.remove(group);
+      disposeObject(group);
+      nodeGroupsRef.current.delete(nodeId);
     }
     setNodeList(prev => prev.filter(n => n.id !== nodeId));
-    if (selectedId === nodeId) setSelectedId(null);
+    setSelection(sel => (sel?.id === nodeId ? null : sel));
   }
 
-  // ── Asset picker ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!pickerOpen || pickerJobs !== null || !email) return;
-    fetch(`/api/jobs?email=${encodeURIComponent(email)}`)
-      .then(r => r.json())
-      .then(d => setPickerJobs((d.jobs || []).filter((j: PickerJob) => j.status === 'done' && j.resultUrl)))
-      .catch(() => setPickerJobs([]));
-  }, [pickerOpen, pickerJobs, email]);
+  function duplicateNode(nodeId: string) {
+    const meta = stateRef.current.nodeList.find(n => n.id === nodeId);
+    const group = nodeGroupsRef.current.get(nodeId);
+    if (!meta || !group) return;
+    const newId = crypto.randomUUID();
+    loadNode(
+      newId, meta.jobId, `${meta.name} copy`, meta.resultUrl,
+      [group.position.x + 0.8, group.position.y, group.position.z],
+      [group.rotation.x, group.rotation.y, group.rotation.z],
+      [group.scale.x, group.scale.y, group.scale.z],
+      meta.visible,
+    );
+    setSelection({ kind: 'node', id: newId });
+  }
 
-  // ── Save ─────────────────────────────────────────────────────────────────
+  function toggleNodeVisible(nodeId: string) {
+    const group = nodeGroupsRef.current.get(nodeId);
+    setNodeList(prev => prev.map(n => {
+      if (n.id !== nodeId) return n;
+      if (group) group.visible = !n.visible;
+      return { ...n, visible: !n.visible };
+    }));
+  }
+
+  // ── Light management ────────────────────────────────────────────────────
+  function addLight(type: LightType) {
+    const count = stateRef.current.lights.filter(l => l.type === type).length + 1;
+    const spec = makeLight(type, count);
+    setLights(prev => [...prev, spec]);
+    setSelection({ kind: 'light', id: spec.id });
+  }
+
+  function removeLight(id: string) {
+    setLights(prev => prev.filter(l => l.id !== id));
+    setSelection(sel => (sel?.id === id ? null : sel));
+  }
+
+  // ── Camera helpers ──────────────────────────────────────────────────────
+  function frameBox(box: THREE.Box3) {
+    const cam = cameraRef.current, orbit = orbitRef.current;
+    if (!cam || !orbit || box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const dist = (maxDim / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2))) * 1.5;
+    const dir = cam.position.clone().sub(orbit.target).normalize();
+    if (!isFinite(dir.lengthSq()) || dir.lengthSq() < 1e-6) dir.set(1, 0.6, 1).normalize();
+    cam.position.copy(center.clone().add(dir.multiplyScalar(dist)));
+    orbit.target.copy(center);
+    orbit.update();
+  }
+
+  function frameSelection() {
+    const sel = stateRef.current.selection;
+    const box = new THREE.Box3();
+    if (sel?.kind === 'node') {
+      const g = nodeGroupsRef.current.get(sel.id);
+      if (g) box.setFromObject(g);
+    } else if (sel?.kind === 'light') {
+      const rig = lightRigsRef.current.get(sel.id);
+      if (rig) box.setFromCenterAndSize(rig.group.position, new THREE.Vector3(1, 1, 1));
+    } else {
+      nodeGroupsRef.current.forEach(g => box.expandByObject(g));
+    }
+    frameBox(box);
+  }
+
+  function frameAll() {
+    const box = new THREE.Box3();
+    nodeGroupsRef.current.forEach(g => box.expandByObject(g));
+    frameBox(box);
+  }
+
+  function cameraPreset(preset: 'front' | 'right' | 'top' | 'threeq') {
+    const cam = cameraRef.current, orbit = orbitRef.current;
+    if (!cam || !orbit) return;
+    const dist = cam.position.distanceTo(orbit.target) || 5;
+    const t = orbit.target;
+    const dirs: Record<string, Vec3> = {
+      front: [0, 0.15, 1],
+      right: [1, 0.15, 0],
+      top: [0, 1, 0.001],
+      threeq: [1, 0.55, 1],
+    };
+    const d = new THREE.Vector3(...dirs[preset]).normalize().multiplyScalar(dist);
+    cam.position.set(t.x + d.x, t.y + d.y, t.z + d.z);
+    orbit.update();
+  }
+
+  // ── Save / export ───────────────────────────────────────────────────────
+  function buildSceneData(): SceneData {
+    const nodes: SceneData['nodes'] = stateRef.current.nodeList.map(meta => {
+      const g = nodeGroupsRef.current.get(meta.id);
+      return {
+        id: meta.id,
+        jobId: meta.jobId,
+        name: meta.name,
+        resultUrl: meta.resultUrl,
+        position: g ? [g.position.x, g.position.y, g.position.z] : [0, 0, 0],
+        rotation: g ? [g.rotation.x, g.rotation.y, g.rotation.z] : [0, 0, 0],
+        scale: g ? [g.scale.x, g.scale.y, g.scale.z] : [1, 1, 1],
+        visible: meta.visible,
+      };
+    });
+    const lightsOut: SceneLight[] = stateRef.current.lights.map(spec => {
+      const rig = lightRigsRef.current.get(spec.id);
+      return {
+        ...spec,
+        position: rig
+          ? [rig.group.position.x, rig.group.position.y, rig.group.position.z]
+          : spec.position,
+      };
+    });
+    const cam = cameraRef.current!, orbit = orbitRef.current!;
+    const camera: SceneCamera = {
+      position: [cam.position.x, cam.position.y, cam.position.z],
+      target: [orbit.target.x, orbit.target.y, orbit.target.z],
+      fov: cam.fov,
+    };
+    return { version: 2, nodes, lights: lightsOut, environment: env, camera };
+  }
+
   function captureThumbnail(): string {
-    const renderer = rendererRef.current, scene = sceneRef.current, camera = cameraRef.current;
-    if (!renderer || !scene || !camera) return '';
-    renderer.render(scene, camera);
+    const renderer = rendererRef.current, scene = sceneRef.current, cam = cameraRef.current;
+    if (!renderer || !scene || !cam) return '';
+    renderer.render(scene, cam);
     const src = renderer.domElement;
     const c = document.createElement('canvas');
     c.width = 480;
-    c.height = Math.max(1, Math.round((480 * src.height) / src.width));
+    c.height = Math.max(1, Math.round((480 * src.height) / Math.max(1, src.width)));
     const ctx = c.getContext('2d');
     if (!ctx) return '';
     ctx.drawImage(src, 0, 0, c.width, c.height);
     return c.toDataURL('image/jpeg', 0.6);
   }
 
-  function buildSceneData(): SceneData {
-    const nodes: SceneData['nodes'] = nodeList.map(meta => {
-      const obj = nodeObjectsRef.current.get(meta.id);
-      const position: [number, number, number] = obj ? [obj.position.x, obj.position.y, obj.position.z] : [0, 0, 0];
-      const rotation: [number, number, number] = obj ? [obj.rotation.x, obj.rotation.y, obj.rotation.z] : [0, 0, 0];
-      const scale: [number, number, number] = obj ? [obj.scale.x, obj.scale.y, obj.scale.z] : [1, 1, 1];
-      return {
-        id: meta.id,
-        jobId: meta.jobId,
-        name: meta.name,
-        resultUrl: meta.resultUrl,
-        position,
-        rotation,
-        scale,
-      };
-    });
-    const cam = cameraRef.current!, orbit = orbitRef.current!;
-    return {
-      nodes,
-      lighting,
-      camera: {
-        position: cam.position.toArray() as [number, number, number],
-        target: orbit.target.toArray() as [number, number, number],
-        fov: cam.fov,
-      },
-    };
-  }
-
   async function save() {
-    if (!email || !id || saving) return;
+    if (saving) return;
     setSaving(true);
     try {
-      const thumbnailUrl = captureThumbnail();
-      await scenesApi.update(id, email, { name, sceneData: buildSceneData(), thumbnailUrl });
+      await scenesApi.update(sceneId, email, {
+        name, sceneData: buildSceneData(), thumbnailUrl: captureThumbnail(),
+      });
       setSavedAt(new Date());
     } catch (e: any) {
       alert(`Save failed: ${e.message}`);
@@ -640,164 +904,287 @@ export const SceneEditor: React.FC = () => {
   }
 
   function exportImage() {
-    const renderer = rendererRef.current, scene = sceneRef.current, camera = cameraRef.current;
-    if (!renderer || !scene || !camera) return;
+    const renderer = rendererRef.current, scene = sceneRef.current, cam = cameraRef.current;
+    if (!renderer || !scene || !cam) return;
+    const [W, H] = exportSize.split('x').map(Number);
     const prevSize = new THREE.Vector2();
     renderer.getSize(prevSize);
-    const prevAspect = camera.aspect;
-    const W = 1920, H = 1080;
+    const prevAspect = cam.aspect;
+    const prevBg = scene.background;
+    const prevHelpers: [THREE.Object3D, boolean][] = [];
+    // Hide editor-only visuals for the beauty render.
+    const editorOnly: (THREE.Object3D | null)[] = [
+      gridRef.current,
+      transformRef.current?.getHelper() ?? null,
+      ...[...lightRigsRef.current.values()].flatMap(r => [r.helper, r.handle]),
+    ];
+    editorOnly.forEach(o => { if (o) { prevHelpers.push([o, o.visible]); o.visible = false; } });
+    if (exportTransparent) scene.background = null;
+
     renderer.setSize(W, H, false);
-    camera.aspect = W / H;
-    camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
+    cam.aspect = W / H;
+    cam.updateProjectionMatrix();
+    renderer.render(scene, cam);
     const dataUrl = renderer.domElement.toDataURL('image/png');
+
+    // Restore
+    scene.background = prevBg;
+    prevHelpers.forEach(([o, v]) => { o.visible = v; });
     renderer.setSize(prevSize.x, prevSize.y, false);
-    camera.aspect = prevAspect;
-    camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
+    cam.aspect = prevAspect;
+    cam.updateProjectionMatrix();
+    renderer.render(scene, cam);
 
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = `${(name || 'scene').replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+    a.download = `${(name || 'scene').replace(/[^a-z0-9-_]+/gi, '_')}_${W}x${H}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
   }
 
-  // ── Selected node transform panel ───────────────────────────────────────
-  const selectedObj = selectedId ? nodeObjectsRef.current.get(selectedId) : null;
+  function removeSelected() {
+    const sel = stateRef.current.selection;
+    if (!sel) return;
+    if (sel.kind === 'node') removeNode(sel.id);
+    else removeLight(sel.id);
+  }
 
-  const setPos = (axis: 'x' | 'y' | 'z', v: number) => {
-    if (!selectedObj) return;
-    selectedObj.position[axis] = v;
-    forceTick();
-  };
-  const setRotDeg = (axis: 'x' | 'y' | 'z', deg: number) => {
-    if (!selectedObj) return;
-    selectedObj.rotation[axis] = THREE.MathUtils.degToRad(deg);
-    forceTick();
-  };
-  const setScaleAll = (axis: 'x' | 'y' | 'z', v: number) => {
-    if (!selectedObj || v <= 0) return;
-    selectedObj.scale[axis] = v;
-    forceTick();
+  function duplicateSelected() {
+    const sel = stateRef.current.selection;
+    if (sel?.kind === 'node') duplicateNode(sel.id);
+  }
+
+  actionsRef.current = { save, frameSelection, removeSelected, duplicateSelected };
+
+  // ── Asset picker data ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!pickerOpen || pickerJobs !== null) return;
+    fetch(`/api/jobs?email=${encodeURIComponent(email)}`)
+      .then(r => r.json())
+      .then(d => setPickerJobs((d.jobs || []).filter((j: PickerJob) => j.status === 'done' && j.resultUrl)))
+      .catch(() => setPickerJobs([]));
+  }, [pickerOpen, pickerJobs, email]);
+
+  // ── Inspector helpers ───────────────────────────────────────────────────
+  const selectedNode = selection?.kind === 'node' ? nodeList.find(n => n.id === selection.id) : undefined;
+  const selectedGroup = selection?.kind === 'node' ? nodeGroupsRef.current.get(selection.id) : undefined;
+  const selectedLight = selection?.kind === 'light' ? lights.find(l => l.id === selection.id) : undefined;
+  const selectedRig = selection?.kind === 'light' ? lightRigsRef.current.get(selection.id) : undefined;
+
+  const patchLight = (id: string, patch: Partial<SceneLight>) =>
+    setLights(prev => prev.map(l => (l.id === id ? { ...l, ...patch } : l)));
+
+  const groupVec = (g: THREE.Group | undefined, kind: 'position' | 'rotation' | 'scale'): Vec3 => {
+    if (!g) return kind === 'scale' ? [1, 1, 1] : [0, 0, 0];
+    const v = g[kind];
+    return kind === 'rotation'
+      ? [THREE.MathUtils.radToDeg(g.rotation.x), THREE.MathUtils.radToDeg(g.rotation.y), THREE.MathUtils.radToDeg(g.rotation.z)]
+      : [v.x, v.y, v.z];
   };
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (loading) return <Loading>Loading scene…</Loading>;
-  if (notFound || !loadedScene) return <Navigate to="/scenes" replace />;
+  const setGroupVec = (g: THREE.Group | undefined, kind: 'position' | 'rotation' | 'scale', axis: 0 | 1 | 2, v: number) => {
+    if (!g) return;
+    const key = (['x', 'y', 'z'] as const)[axis];
+    if (kind === 'rotation') g.rotation[key] = THREE.MathUtils.degToRad(v);
+    else g[kind][key] = kind === 'scale' ? Math.max(0.01, v) : v;
+    forceTick();
+  };
 
   return (
     <Shell>
       <TopBar>
         <BackLink to="/scenes">← Scenes</BackLink>
         <NameInput value={name} onChange={e => setName(e.target.value)} placeholder="Scene name" />
+        <ModeGroup>
+          <ModeChip $active={transformMode === 'translate'} onClick={() => setTransformMode('translate')} title="Move (W)">Move</ModeChip>
+          <ModeChip $active={transformMode === 'rotate'} onClick={() => setTransformMode('rotate')} title="Rotate (E)">Rotate</ModeChip>
+          <ModeChip $active={transformMode === 'scale'} onClick={() => setTransformMode('scale')} title="Scale (R)">Scale</ModeChip>
+        </ModeGroup>
         <Spacer />
         {savedAt && <SaveStatus>Saved {savedAt.toLocaleTimeString()}</SaveStatus>}
-        <Btn onClick={exportImage} disabled={nodeList.length === 0}>Export image</Btn>
-        <Btn $primary onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Btn>
+        <TopBtn onClick={exportImage} disabled={nodeList.length === 0} title="Render a presentation PNG">Export image</TopBtn>
+        <TopBtn $primary onClick={save} disabled={saving} title="Save scene (Ctrl+S)">{saving ? 'Saving…' : 'Save'}</TopBtn>
       </TopBar>
 
       <Body>
-        <SidePanel>
-          <PanelSection>
-            <PanelTitle>Objects ({nodeList.length})</PanelTitle>
+        {/* ── Outliner ── */}
+        <LeftPanel>
+          <Accordion title="Objects" badge={String(nodeList.length)}>
             {nodeList.length === 0 && (
-              <EmptyHint>No objects yet. Add one of your finished 3D generations to start composing.</EmptyHint>
+              <EmptyHint>Add one of your finished 3D generations to start composing.</EmptyHint>
             )}
             {nodeList.map(n => (
-              <NodeRow key={n.id} $active={n.id === selectedId} onClick={() => setSelectedId(n.id)}>
-                <NodeLabel>{n.name}</NodeLabel>
-                <NodeRemove onClick={(e) => { e.stopPropagation(); removeNode(n.id); }} title="Remove from scene">✕</NodeRemove>
-              </NodeRow>
+              <OutlinerRow
+                key={n.id}
+                $active={selection?.kind === 'node' && selection.id === n.id}
+                onClick={() => setSelection({ kind: 'node', id: n.id })}
+              >
+                <OutlinerIcon>⬡</OutlinerIcon>
+                <OutlinerLabel $dim={!n.visible}>{n.loading ? `${n.name} …` : n.name}</OutlinerLabel>
+                <RowAction title={n.visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleNodeVisible(n.id); }}>
+                  {n.visible ? '👁' : '—'}
+                </RowAction>
+                <RowAction title="Duplicate (Ctrl+D)" onClick={e => { e.stopPropagation(); duplicateNode(n.id); }}>⧉</RowAction>
+                <RowAction title="Remove" onClick={e => { e.stopPropagation(); removeNode(n.id); }}>✕</RowAction>
+              </OutlinerRow>
             ))}
-            <Btn onClick={() => setPickerOpen(true)}>+ Add object</Btn>
-          </PanelSection>
-        </SidePanel>
+            <MiniBtn $primary onClick={() => setPickerOpen(true)}>+ Add object</MiniBtn>
+          </Accordion>
 
+          <Accordion title="Lights" badge={String(lights.length)}>
+            {lights.map(l => (
+              <OutlinerRow
+                key={l.id}
+                $active={selection?.kind === 'light' && selection.id === l.id}
+                onClick={() => setSelection({ kind: 'light', id: l.id })}
+              >
+                <OutlinerIcon>{LIGHT_ICONS[l.type]}</OutlinerIcon>
+                <OutlinerLabel>{l.name}</OutlinerLabel>
+                <RowAction title="Remove" onClick={e => { e.stopPropagation(); removeLight(l.id); }}>✕</RowAction>
+              </OutlinerRow>
+            ))}
+            <BtnRow>
+              <MiniBtn onClick={() => addLight('directional')}>+ Sun</MiniBtn>
+              <MiniBtn onClick={() => addLight('point')}>+ Point</MiniBtn>
+              <MiniBtn onClick={() => addLight('spot')}>+ Spot</MiniBtn>
+            </BtnRow>
+          </Accordion>
+        </LeftPanel>
+
+        {/* ── Viewport ── */}
         <Viewport>
           <ViewportMount ref={mountRef} />
-          <ViewportHint>Drag to orbit · click an object to select it</ViewportHint>
+          <ViewportHint>
+            LMB select · Alt+LMB / MMB orbit · Shift+MMB / RMB pan · wheel zoom · W/E/R gizmo · F frame · Ctrl+S save
+          </ViewportHint>
         </Viewport>
 
+        {/* ── Inspector ── */}
         <RightPanel>
-          {selectedObj && (
-            <PanelSection>
-              <PanelTitle>Transform</PanelTitle>
-              <ModeRow>
-                <ModeChip $active={transformMode === 'translate'} onClick={() => setTransformMode('translate')}>Move</ModeChip>
-                <ModeChip $active={transformMode === 'rotate'} onClick={() => setTransformMode('rotate')}>Rotate</ModeChip>
-                <ModeChip $active={transformMode === 'scale'} onClick={() => setTransformMode('scale')}>Scale</ModeChip>
-              </ModeRow>
+          <Tabs
+            tabs={[{ key: 'inspector', label: 'Inspector' }, { key: 'scene', label: 'Scene' }]}
+            active={activeTab}
+            onChange={k => setActiveTab(k as 'inspector' | 'scene')}
+          />
 
-              <XField>Position</XField>
-              <XForm>
-                {(['x', 'y', 'z'] as const).map(axis => (
-                  <XInput
-                    key={axis}
-                    type="number"
-                    step="0.1"
-                    value={Number(selectedObj.position[axis].toFixed(2))}
-                    onChange={e => setPos(axis, parseFloat(e.target.value) || 0)}
-                  />
-                ))}
-              </XForm>
+          {activeTab === 'inspector' && (
+            <>
+              {!selection && (
+                <EmptyHint>
+                  Nothing selected. Click an object or a light in the viewport, or pick one in the outliner.
+                </EmptyHint>
+              )}
 
-              <XField>Rotation (°)</XField>
-              <XForm>
-                {(['x', 'y', 'z'] as const).map(axis => (
-                  <XInput
-                    key={axis}
-                    type="number"
-                    step="5"
-                    value={Math.round(THREE.MathUtils.radToDeg(selectedObj.rotation[axis]))}
-                    onChange={e => setRotDeg(axis, parseFloat(e.target.value) || 0)}
-                  />
-                ))}
-              </XForm>
+              {selectedNode && selectedGroup && (
+                <>
+                  <Accordion title="Transform">
+                    <Vec3Row label="Position" value={groupVec(selectedGroup, 'position')}
+                      onChange={(a, v) => setGroupVec(selectedGroup, 'position', a, v)} />
+                    <Vec3Row label="Rotation °" value={groupVec(selectedGroup, 'rotation')} step={5}
+                      onChange={(a, v) => setGroupVec(selectedGroup, 'rotation', a, v)} />
+                    <Vec3Row label="Scale" value={groupVec(selectedGroup, 'scale')} step={0.05}
+                      onChange={(a, v) => setGroupVec(selectedGroup, 'scale', a, v)} />
+                  </Accordion>
+                  <Accordion title="Object">
+                    <ToggleRow label="Visible" value={selectedNode.visible} onChange={() => toggleNodeVisible(selectedNode.id)} />
+                    <BtnRow>
+                      <MiniBtn onClick={() => duplicateNode(selectedNode.id)}>Duplicate</MiniBtn>
+                      <MiniBtn onClick={frameSelection}>Frame (F)</MiniBtn>
+                      <MiniBtn $danger onClick={() => removeNode(selectedNode.id)}>Remove</MiniBtn>
+                    </BtnRow>
+                  </Accordion>
+                </>
+              )}
 
-              <XField>Scale</XField>
-              <XForm>
-                {(['x', 'y', 'z'] as const).map(axis => (
-                  <XInput
-                    key={axis}
-                    type="number"
-                    step="0.05"
-                    min="0.01"
-                    value={Number(selectedObj.scale[axis].toFixed(2))}
-                    onChange={e => setScaleAll(axis, parseFloat(e.target.value) || 0.01)}
-                  />
-                ))}
-              </XForm>
-            </PanelSection>
+              {selectedLight && (
+                <>
+                  <Accordion title={`${selectedLight.name} · ${selectedLight.type}`}>
+                    <ColorRow label="Color" value={selectedLight.color}
+                      onChange={hex => patchLight(selectedLight.id, { color: hex })} />
+                    <SliderRow label="Intensity" value={selectedLight.intensity}
+                      min={0} max={selectedLight.type === 'directional' ? 6 : 60} step={0.1}
+                      onChange={v => patchLight(selectedLight.id, { intensity: v })} />
+                    <ToggleRow label="Shadows" value={selectedLight.castShadow}
+                      onChange={v => patchLight(selectedLight.id, { castShadow: v })} />
+                    {selectedLight.type === 'spot' && (
+                      <>
+                        <SliderRow label="Cone °" value={selectedLight.angle ?? 35} min={5} max={80} step={1}
+                          format={v => `${Math.round(v)}°`}
+                          onChange={v => patchLight(selectedLight.id, { angle: v })} />
+                        <SliderRow label="Softness" value={selectedLight.penumbra ?? 0.4} min={0} max={1} step={0.05}
+                          onChange={v => patchLight(selectedLight.id, { penumbra: v })} />
+                      </>
+                    )}
+                  </Accordion>
+                  <Accordion title="Placement">
+                    <Vec3Row label="Position"
+                      value={selectedRig
+                        ? [selectedRig.group.position.x, selectedRig.group.position.y, selectedRig.group.position.z]
+                        : selectedLight.position}
+                      onChange={(a, v) => {
+                        if (!selectedRig) return;
+                        selectedRig.group.position.setComponent(a, v);
+                        forceTick();
+                      }} />
+                    {selectedLight.type !== 'point' && (
+                      <Vec3Row label="Aim at" value={selectedLight.target}
+                        onChange={(a, v) => {
+                          const t = [...selectedLight.target] as Vec3;
+                          t[a] = v;
+                          patchLight(selectedLight.id, { target: t });
+                        }} />
+                    )}
+                    <BtnRow>
+                      <MiniBtn $danger onClick={() => removeLight(selectedLight.id)}>Remove light</MiniBtn>
+                    </BtnRow>
+                  </Accordion>
+                </>
+              )}
+            </>
           )}
 
-          <PanelSection>
-            <PanelTitle>Lighting</PanelTitle>
-            <SliderLabel><span>Ambient</span><span>{lighting.ambientIntensity.toFixed(2)}</span></SliderLabel>
-            <Slider type="range" min={0} max={2} step={0.05} value={lighting.ambientIntensity}
-              onChange={e => setLighting(l => ({ ...l, ambientIntensity: parseFloat(e.target.value) }))} />
+          {activeTab === 'scene' && (
+            <>
+              <Accordion title="Environment">
+                <ColorRow label="Background" value={env.background}
+                  onChange={hex => setEnv(e => ({ ...e, background: hex }))} />
+                <ColorRow label="Ambient" value={env.ambientColor}
+                  onChange={hex => setEnv(e => ({ ...e, ambientColor: hex }))} />
+                <SliderRow label="Amb. level" value={env.ambientIntensity} min={0} max={2} step={0.05}
+                  onChange={v => setEnv(e => ({ ...e, ambientIntensity: v }))} />
+                <ToggleRow label="Grid" value={env.showGrid}
+                  onChange={v => setEnv(e => ({ ...e, showGrid: v }))} />
+                <ToggleRow label="Floor shadow" value={env.showGround}
+                  onChange={v => setEnv(e => ({ ...e, showGround: v }))} />
+              </Accordion>
 
-            <SliderLabel><span>Key light</span><span>{lighting.keyIntensity.toFixed(2)}</span></SliderLabel>
-            <Slider type="range" min={0} max={4} step={0.05} value={lighting.keyIntensity}
-              onChange={e => setLighting(l => ({ ...l, keyIntensity: parseFloat(e.target.value) }))} />
+              <Accordion title="Camera">
+                <SliderRow label="FOV" value={fov} min={15} max={90} step={1}
+                  format={v => `${Math.round(v)}°`} onChange={setFov} />
+                <BtnRow>
+                  <MiniBtn onClick={() => cameraPreset('front')}>Front</MiniBtn>
+                  <MiniBtn onClick={() => cameraPreset('right')}>Right</MiniBtn>
+                  <MiniBtn onClick={() => cameraPreset('top')}>Top</MiniBtn>
+                  <MiniBtn onClick={() => cameraPreset('threeq')}>¾ view</MiniBtn>
+                </BtnRow>
+                <BtnRow>
+                  <MiniBtn onClick={frameAll}>Frame all</MiniBtn>
+                </BtnRow>
+              </Accordion>
 
-            <SliderLabel><span>Key azimuth</span><span>{lighting.keyAzimuth}°</span></SliderLabel>
-            <Slider type="range" min={0} max={360} step={1} value={lighting.keyAzimuth}
-              onChange={e => setLighting(l => ({ ...l, keyAzimuth: parseFloat(e.target.value) }))} />
-
-            <SliderLabel><span>Key elevation</span><span>{lighting.keyElevation}°</span></SliderLabel>
-            <Slider type="range" min={5} max={90} step={1} value={lighting.keyElevation}
-              onChange={e => setLighting(l => ({ ...l, keyElevation: parseFloat(e.target.value) }))} />
-
-            <PanelTitle style={{ marginTop: '0.25rem' }}>Background</PanelTitle>
-            <Dropdown
-              value={lighting.background}
-              options={BACKGROUND_PRESETS}
-              onChange={v => setLighting(l => ({ ...l, background: v }))}
-              fullWidth
-            />
-          </PanelSection>
+              <Accordion title="Export">
+                <Row>
+                  <RowLabel>Size</RowLabel>
+                  <Dropdown value={exportSize} options={EXPORT_SIZES} onChange={setExportSize} fullWidth />
+                </Row>
+                <ToggleRow label="Transparent" value={exportTransparent} onChange={setExportTransparent} />
+                <BtnRow>
+                  <MiniBtn $primary onClick={exportImage} disabled={nodeList.length === 0}>Export PNG</MiniBtn>
+                </BtnRow>
+              </Accordion>
+            </>
+          )}
         </RightPanel>
       </Body>
 
@@ -806,7 +1193,7 @@ export const SceneEditor: React.FC = () => {
           <ModalPanel>
             <ModalHead>
               <ModalTitle>Add an object</ModalTitle>
-              <Btn onClick={() => setPickerOpen(false)}>Close</Btn>
+              <TopBtn onClick={() => setPickerOpen(false)}>Close</TopBtn>
             </ModalHead>
             {pickerJobs === null ? (
               <EmptyHint>Loading your assets…</EmptyHint>
@@ -829,22 +1216,31 @@ export const SceneEditor: React.FC = () => {
   );
 };
 
-function disposeObject(obj: THREE.Object3D) {
-  obj.traverse(child => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    mesh.geometry?.dispose();
-    const mat = mesh.material;
-    const mats = Array.isArray(mat) ? mat : [mat];
-    mats.forEach(m => {
-      if (!m) return;
-      for (const k of Object.keys(m) as (keyof THREE.Material)[]) {
-        const v = (m as any)[k];
-        if (v && typeof v === 'object' && 'isTexture' in v) (v as THREE.Texture).dispose();
-      }
-      m.dispose();
-    });
-  });
-}
+// ── Outer: auth + fetch ──────────────────────────────────────────────────────
+
+export const SceneEditor: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const { user, isAuthenticated } = useAuth();
+  const email = user?.email || DEV_EMAIL || '';
+
+  const [scene, setScene] = useState<Scene | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!email || !id) return;
+    let cancelled = false;
+    scenesApi.get(id, email)
+      .then(r => { if (!cancelled) setScene(r.scene); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [id, email]);
+
+  if (!isAuthenticated && !DEV_EMAIL) return <Navigate to="/login" replace />;
+  if (!id) return <Navigate to="/scenes" replace />;
+  if (failed) return <Navigate to="/scenes" replace />;
+  if (!scene) return <Loading>Loading scene…</Loading>;
+
+  return <SceneEditorInner sceneId={id} email={email} initial={scene} />;
+};
 
 export default SceneEditor;

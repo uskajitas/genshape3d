@@ -1,51 +1,36 @@
 import { dbQuery } from './db';
 import { randomUUID } from 'node:crypto';
 
-export interface SceneNode {
-  id: string;
-  jobId: string;
-  name: string;
-  resultUrl: string;
-  position: [number, number, number];
-  rotation: [number, number, number];
-  scale: [number, number, number];
-}
+// sceneData is an opaque, versioned JSON document owned by the client editor
+// (see client/src/pages/scenes/api.ts for the authoritative schema + the
+// migration that upgrades old documents on load). The server never interprets
+// it beyond storing/returning it.
+export type SceneData = Record<string, unknown>;
 
-export interface SceneLighting {
-  ambientIntensity: number;
-  keyIntensity: number;
-  keyAzimuth: number;
-  keyElevation: number;
-  background: string;
+function defaultSceneData(): SceneData {
+  return {
+    version: 2,
+    nodes: [],
+    lights: [{
+      id: randomUUID(),
+      type: 'directional',
+      name: 'Sun 1',
+      color: '#ffffff',
+      intensity: 2.0,
+      position: [4, 6, 3],
+      target: [0, 0, 0],
+      castShadow: true,
+    }],
+    environment: {
+      background: '#101013',
+      ambientColor: '#ffffff',
+      ambientIntensity: 0.7,
+      showGrid: true,
+      showGround: true,
+    },
+    camera: { position: [3.2, 2.2, 3.2], target: [0, 0.5, 0], fov: 45 },
+  };
 }
-
-export interface SceneCamera {
-  position: [number, number, number];
-  target: [number, number, number];
-  fov: number;
-}
-
-export interface SceneData {
-  nodes: SceneNode[];
-  lighting: SceneLighting;
-  camera: SceneCamera;
-}
-
-export const DEFAULT_SCENE_DATA: SceneData = {
-  nodes: [],
-  lighting: {
-    ambientIntensity: 0.9,
-    keyIntensity: 2.2,
-    keyAzimuth: 45,
-    keyElevation: 55,
-    background: '#101013',
-  },
-  camera: {
-    position: [0, 1.6, 4],
-    target: [0, 0.5, 0],
-    fov: 45,
-  },
-};
 
 export interface Scene {
   id: string;
@@ -82,7 +67,7 @@ export async function createScene(userEmail: string, name: string): Promise<Scen
     `INSERT INTO genshape3d_scenes (id, "userEmail", name, "sceneData")
      VALUES ($1, $2, $3, $4)
      RETURNING ${SELECT_COLS}`,
-    [randomUUID(), userEmail, name, JSON.stringify(DEFAULT_SCENE_DATA)],
+    [randomUUID(), userEmail, name, JSON.stringify(defaultSceneData())],
   );
   return rows[0];
 }

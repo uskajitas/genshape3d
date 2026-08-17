@@ -15,3 +15,4 @@ server/scripts/bench-summary.json
 server/.env.bak.*
 server/tmp.js
 server/q.js
+*.local
