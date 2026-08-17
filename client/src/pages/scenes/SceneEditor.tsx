@@ -42,6 +42,7 @@ import {
 import {
   Tabs, Accordion, SliderRow, Vec3Row, ColorRow, ToggleRow, MiniBtn, BtnRow, Row, RowLabel,
 } from './ui';
+import { ViewGizmo } from './viewGizmo';
 
 // Dev-only auth bypass so the editor can be driven without Firebase
 // (e.g. browser automation). Inert in production builds: import.meta.env.DEV
@@ -551,12 +552,17 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
     const ro = new ResizeObserver(handleResize);
     ro.observe(mount);
 
+    // Corner navigation widget: click an axis ball to snap the view,
+    // drag it to orbit (Blender/Maya style).
+    const viewGizmo = new ViewGizmo(camera, orbit, mount);
+
     let animId: number;
     const animate = () => {
       animId = requestAnimationFrame(animate);
       orbit.update();
       lightRigsRef.current.forEach(rig => rig.helper.update?.());
       renderer.render(scene, camera);
+      viewGizmo.render();
     };
     animate();
 
@@ -576,7 +582,7 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
           camera: camera.position.toArray(),
           target: orbit.target.toArray(),
         }),
-        scene, camera, renderer, orbit,
+        scene, camera, renderer, orbit, viewGizmo,
       };
     }
 
@@ -590,6 +596,7 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
       window.removeEventListener('keydown', onKeyDown);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      viewGizmo.dispose();
       orbit.dispose();
       transform.dispose();
       nodeGroupsRef.current.forEach(disposeObject);
