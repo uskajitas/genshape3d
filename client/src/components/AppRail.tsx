@@ -5,7 +5,7 @@
 //
 //   ✨ Image     → text-to-image        (/dashboard/text)
 //   ⬡  3D Model  → image/text-to-model  (/dashboard)
-//   🎨 Texture   → texture a model      (/dashboard?tool=texture)
+//   🎨 Material  → PBR materials        (/dashboard?tool=material)
 //   🎬 Scene     → scene composer       (/scenes)
 //   🦴 Rig       → coming soon
 //   📦 Assets    → coming soon
@@ -23,7 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 
 export type RailKey =
-  | 'image' | 'model' | 'texture' | 'scene' | 'rig' | 'assets'
+  | 'image' | 'model' | 'material' | 'scene' | 'rig' | 'assets'
   | 'stats' | 'bench' | 'roadmap';
 
 const Rail = styled.aside`
@@ -118,7 +118,7 @@ interface AppRailProps {
 const NAV_TARGETS: Partial<Record<RailKey, string>> = {
   image: '/dashboard/text',
   model: '/dashboard',
-  texture: '/dashboard?tool=texture',
+  material: '/dashboard?tool=material',
   scene: '/scenes',
   stats: '/admin/stats',
   bench: '/benchmark',
@@ -139,7 +139,7 @@ export const AppRail: React.FC<AppRailProps> = ({ active, isAdmin, onSelect, adm
     <Rail>
       <RailItem icon="✨" label="Image" title="Text to image" active={active === 'image'} onClick={() => go('image')} />
       <RailItem icon="⬡" label="3D Model" title="Image to 3D model" active={active === 'model'} onClick={() => go('model')} />
-      <RailItem icon="🎨" label="Texture" title="Texture a finished model" active={active === 'texture'} onClick={() => go('texture')} />
+      <RailItem icon="🎨" label="Material" title="Generate PBR materials for a finished model" active={active === 'material'} onClick={() => go('material')} />
       <RailItem icon="🎬" label="Scene" title="Compose a scene from your assets" active={active === 'scene'} onClick={() => go('scene')} />
       <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
       <RailItem icon="📦" label="Assets" disabled title="Asset library — coming soon" />

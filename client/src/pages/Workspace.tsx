@@ -1015,6 +1015,22 @@ const TexJobBtn = styled.button<{ $active?: boolean }>`
   &:hover { border-color: ${p => p.theme.colors.violet}; }
 `;
 
+const MapChipRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+`;
+
+const MapChip = styled.span<{ $on?: boolean }>`
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid ${p => p.$on ? `${p.theme.colors.green}55` : p.theme.colors.border};
+  background: ${p => p.$on ? `${p.theme.colors.green}18` : 'transparent'};
+  color: ${p => p.$on ? p.theme.colors.green : p.theme.colors.textMuted};
+`;
+
 const TexJobProgress = styled.div<{ $pct: number }>`
   height: 3px;
   border-radius: 2px;
@@ -1954,10 +1970,6 @@ const Workspace: React.FC = () => {
   const [textureVariants, setTextureVariants] = useState(1);
   const [textureSeed, setTextureSeed] = useState(0);
   const [textureKeepShape, setTextureKeepShape] = useState(true);
-  const [texturePbrBase, setTexturePbrBase] = useState(true);
-  const [texturePbrRoughness, setTexturePbrRoughness] = useState(true);
-  const [texturePbrNormal, setTexturePbrNormal] = useState(false);
-  const [texturePbrMetallic, setTexturePbrMetallic] = useState(false);
   const [textureEditorSettings, setTextureEditorSettings] = useState<TextureEditorSettings>({
     mode: 'view',
     range: 32,
@@ -2017,10 +2029,12 @@ const Workspace: React.FC = () => {
   const [showArchived, setShowArchived] = useState(false);
   const location = useLocation();
 
-  // Deep-link: /dashboard?tool=texture opens the texture tool directly
+  // Deep-link: /dashboard?tool=material opens the material tool directly
   // (used by the shared rail when navigating from other pages).
+  // 'texture' is the legacy name — keep accepting it.
   useEffect(() => {
-    if (new URLSearchParams(location.search).get('tool') === 'texture') {
+    const tool = new URLSearchParams(location.search).get('tool');
+    if (tool === 'material' || tool === 'texture') {
       setActiveTool('texture');
     }
   }, [location.search]);
@@ -2729,7 +2743,7 @@ const Workspace: React.FC = () => {
 
   const onDeleteTextureJob = async (tj: TextureJobRow) => {
     const ok = await confirm({
-      title: 'Delete this texture variant?',
+      title: 'Delete this material variant?',
       message: `"${tj.materialPreset !== 'Auto' ? tj.materialPreset : (tj.prompt || 'Auto material')}" will be removed from the list. The original model is not affected.`,
       confirmLabel: 'Delete',
       variant: 'danger',
@@ -2758,12 +2772,9 @@ const Workspace: React.FC = () => {
     setSubmitting(true);
     setSubmitError(null);
     setSubmitNotice(null);
-    const maps = [
-      texturePbrBase && 'baseColor',
-      texturePbrRoughness && 'roughness',
-      texturePbrNormal && 'normal',
-      texturePbrMetallic && 'metallic',
-    ].filter(Boolean) as string[];
+    // What the PBR paint pipeline actually produces (see the Maps field):
+    // albedo + combined metallic-roughness, baked into the GLB.
+    const maps = ['baseColor', 'roughness', 'metallic'];
     const textureDirection = [
       texturePreset !== 'Auto' ? `Material: ${texturePreset}` : '',
       texturePrompt.trim(),
@@ -2785,7 +2796,7 @@ const Workspace: React.FC = () => {
       // Transient confirmation only — live status (pending → processing →
       // done) is shown by the polled job list, so the banner must not
       // outlive its usefulness and read as "still queued" after completion.
-      setSubmitNotice('Texture job queued — live progress appears in the Texture jobs list.');
+      setSubmitNotice('Material job queued — live progress appears in the Materials list.');
       setTextureJobsRefresh(n => n + 1);
       window.setTimeout(() => setSubmitNotice(null), 8000);
     }
@@ -2802,10 +2813,6 @@ const Workspace: React.FC = () => {
     textureSourceJob,
     email,
     submitting,
-    texturePbrBase,
-    texturePbrRoughness,
-    texturePbrNormal,
-    texturePbrMetallic,
     texturePrompt,
     textureRes,
     texturePreset,
@@ -2823,14 +2830,14 @@ const Workspace: React.FC = () => {
 
   const primaryActionLabel = activeTool === 'texture'
     ? (!isAuthenticated
-        ? 'Sign in to texture'
+        ? 'Sign in to generate materials'
         : submitting
           ? 'Submitting...'
           : !textureSourceJob
             ? 'Select an asset first'
             : textureSourceJob.status !== 'done'
               ? 'Wait for this asset to finish'
-              : 'Generate texture')
+              : 'Generate material')
     : (!isAuthenticated
         ? 'Sign in to generate'
         : submitting
@@ -2879,12 +2886,13 @@ const Workspace: React.FC = () => {
       <Body>
         {/* ──────── Icon rail (shared — see components/AppRail.tsx) ──────── */}
         <AppRail
-          active={activeTool === 'texture' ? 'texture' : 'model'}
+          active={activeTool === 'texture' ? 'material' : 'model'}
           isAdmin={isAdmin}
           onSelect={key => {
-            // Model and Texture are in-page tools here — no navigation.
+            // Model and Material are in-page tools here — no navigation.
+            // (Material's internal state/DB name is still 'texture'.)
             if (key === 'model') { setActiveTool('image'); return true; }
-            if (key === 'texture') { setActiveTool('texture'); return true; }
+            if (key === 'material') { setActiveTool('texture'); return true; }
             return false;
           }}
           adminExtras={
@@ -2901,7 +2909,7 @@ const Workspace: React.FC = () => {
         {/* ──────── Config panel ──────── */}
         <Panel>
           <PanelHeader>
-            <PanelTitle>{activeTool === 'texture' ? 'Texture' : 'Image to 3D'}</PanelTitle>
+            <PanelTitle>{activeTool === 'texture' ? 'Material' : 'Image to 3D'}</PanelTitle>
             <FieldHint
               style={{ cursor: 'pointer', fontSize: '0.72rem' }}
               onClick={() => activeTool === 'texture' ? setActiveTool('image') : navigate('/dashboard/text')}
@@ -3027,7 +3035,7 @@ const Workspace: React.FC = () => {
                 {textureSourceJob && textureJobs.length > 0 && (
                   <Field>
                     <FieldLabel>
-                      Texture jobs
+                      Materials
                       <FieldHint>{textureJobs.length} for this model</FieldHint>
                     </FieldLabel>
                     <TexJobList>
@@ -3069,7 +3077,7 @@ const Workspace: React.FC = () => {
                           )}
                           {(tj.status === 'done' || tj.status === 'failed') && (
                             <TexJobBtn
-                              title="Delete this texture variant"
+                              title="Delete this material variant"
                               onClick={() => onDeleteTextureJob(tj)}
                             >
                               ✕
@@ -3153,13 +3161,23 @@ const Workspace: React.FC = () => {
                 </Field>
 
                 <Field>
-                  <FieldLabel>Maps <FieldHint title="PBR maps requested from the texture job.">?</FieldHint></FieldLabel>
-                  <TextureOptionsGrid>
-                    <TextureToggle checked={texturePbrBase} onChange={setTexturePbrBase}>Base color</TextureToggle>
-                    <TextureToggle checked={texturePbrRoughness} onChange={setTexturePbrRoughness}>Roughness</TextureToggle>
-                    <TextureToggle checked={texturePbrNormal} onChange={setTexturePbrNormal}>Normal</TextureToggle>
-                    <TextureToggle checked={texturePbrMetallic} onChange={setTexturePbrMetallic}>Metallic</TextureToggle>
-                  </TextureOptionsGrid>
+                  <FieldLabel>
+                    Maps
+                    <FieldHint title="PBR maps produced by the material pipeline (glTF metallic-roughness workflow), baked into the exported GLB.">?</FieldHint>
+                  </FieldLabel>
+                  {/* These reflect what the Hunyuan3D-2.1 PBR paint pipeline
+                      actually generates — do NOT turn them back into toggles
+                      unless the runner honors the selection. */}
+                  <MapChipRow>
+                    <MapChip $on title="Albedo texture — the material's color.">✓ Base color</MapChip>
+                    <MapChip $on title="Green channel of the metallic-roughness map.">✓ Roughness</MapChip>
+                    <MapChip $on title="Blue channel of the metallic-roughness map.">✓ Metallic</MapChip>
+                    <MapChip title="Geometry-baked normal map — planned.">Normal · soon</MapChip>
+                    <MapChip title="Ambient occlusion baked from geometry — planned.">AO · soon</MapChip>
+                  </MapChipRow>
+                  <TextureNote>
+                    Base color + metallic-roughness are generated and baked into the GLB (standard PBR).
+                  </TextureNote>
                 </Field>
 
                 <TextureSettingsRow>

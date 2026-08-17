@@ -231,7 +231,7 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
     <Panel $visible={visible}>
       <Main>
         <TitleBlock>
-          <Title>Texture editor</Title>
+          <Title>Material zones</Title>
           <Subtitle title={sourceName}>{sourceName || 'No source selected'}</Subtitle>
         </TitleBlock>
         <Segmented title="Choose how to interact with the model before submitting a texture job.">
