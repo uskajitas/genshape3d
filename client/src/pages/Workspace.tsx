@@ -16,7 +16,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AppRail, RailItem as SharedRailItem } from '../components/AppRail';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
@@ -126,6 +127,19 @@ const renameJob = async (id: string, name: string): Promise<void> => {
 
 type SubmitResult = { job: Job | null; error: string | null; warnings?: string[] };
 type TextureSubmitResult = { textureJob: { id: string; status: string } | null; error: string | null };
+
+interface TextureJobRow {
+  id: string;
+  status: 'pending' | 'processing' | 'done' | 'failed';
+  materialPreset: string;
+  prompt: string;
+  textureRes: string;
+  resultUrl: string;
+  errorMessage: string;
+  progressPct: number;
+  progressPhase: string;
+  createdAt: string;
+}
 
 const submitJob = async (email: string, file: File, opts: SubmitOpts): Promise<SubmitResult> => {
   const form = new FormData();
@@ -455,90 +469,7 @@ const SignInBtn = styled.button`
 // Icon rail (left)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Rail = styled.aside`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0.75rem 0;
-  gap: 0.4rem;
-  border-right: 1px solid ${p => p.theme.colors.border};
-  background:
-    linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
-`;
-
-const RailItemButton = styled.button<{ $disabled?: boolean }>`
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
-`;
-
-const RailBtn = styled.span<{ $active?: boolean; $disabled?: boolean }>`
-  width: 44px; height: 44px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1rem;
-  background: ${p => p.$active
-    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
-    : 'transparent'};
-  color: ${p => p.$active ? 'white' : p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
-  border: 1px solid ${p => p.$active ? 'transparent' : 'transparent'};
-  opacity: ${p => p.$disabled ? 0.4 : 1};
-  position: relative;
-  transition: background 0.15s, color 0.15s, transform 0.12s;
-  ${p => p.$active && `box-shadow: 0 4px 18px ${p.theme.colors.primary}66;`}
-  ${RailItemButton}:hover & {
-    ${p => !p.$disabled && !p.$active && `
-      background: ${p.theme.colors.surfaceHigh};
-    `}
-    ${p => !p.$disabled && `transform: scale(1.04);`}
-  }
-`;
-
-const RailLabel = styled.span`
-  font-size: 0.6rem;
-  color: ${p => p.theme.colors.textMuted};
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 0.1rem;
-`;
-
-const RailDivider = styled.div`
-  width: 24px;
-  height: 1px;
-  background: ${p => p.theme.colors.border};
-  margin: 0.4rem 0;
-`;
-
-const RailItem: React.FC<{
-  icon: string;
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
-  title?: string;
-}> = ({ icon, label, active, disabled, onClick, title }) => (
-  <RailItemButton
-    type="button"
-    $disabled={disabled}
-    disabled={disabled}
-    onClick={disabled ? undefined : onClick}
-    title={title || label}
-  >
-    <RailBtn
-      $active={active}
-      $disabled={disabled}
-    >
-      {icon}
-    </RailBtn>
-    <RailLabel>{label}</RailLabel>
-  </RailItemButton>
-);
+// (Icon rail lives in components/AppRail.tsx — shared across all pages.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config panel (left middle) — image upload + minimal options
@@ -1007,6 +938,98 @@ const TextureEmptyState = styled.div`
   color: ${p => p.theme.colors.textMuted};
   font-size: 0.78rem;
   line-height: 1.45;
+`;
+
+// ── Texture job list (progress + results for the selected source) ────────────
+
+const TexJobList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+`;
+
+const TexJobRow = styled.div<{ $viewing?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 9px;
+  border: 1px solid ${p => p.$viewing ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$viewing ? `${p.theme.colors.violet}14` : p.theme.colors.surface};
+`;
+
+const TexJobMain = styled.div`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+`;
+
+const TexJobTitle = styled.div`
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: ${p => p.theme.colors.text};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const TexJobSub = styled.div`
+  font-size: 0.68rem;
+  color: ${p => p.theme.colors.textMuted};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const TexJobBadge = styled.span<{ $status: string }>`
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  ${p => {
+    switch (p.$status) {
+      case 'done': return `background: ${p.theme.colors.green}22; color: ${p.theme.colors.green}; border: 1px solid ${p.theme.colors.green}55;`;
+      case 'failed': return `background: rgba(239,68,68,0.14); color: #ef6a6a; border: 1px solid rgba(239,68,68,0.4);`;
+      case 'processing': return `background: ${p.theme.colors.violet}22; color: ${p.theme.colors.violet}; border: 1px solid ${p.theme.colors.violet}55;`;
+      default: return `background: ${p.theme.colors.surfaceHigh}; color: ${p.theme.colors.textMuted}; border: 1px solid ${p.theme.colors.border};`;
+    }
+  }}
+`;
+
+const TexJobBtn = styled.button<{ $active?: boolean }>`
+  flex-shrink: 0;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.32rem 0.65rem;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$active ? `${p.theme.colors.violet}2e` : 'transparent'};
+  color: ${p => p.theme.colors.text};
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const TexJobProgress = styled.div<{ $pct: number }>`
+  height: 3px;
+  border-radius: 2px;
+  background: ${p => p.theme.colors.border};
+  position: relative;
+  overflow: hidden;
+  margin-top: 0.2rem;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: ${p => Math.max(2, p.$pct)}%;
+    background: linear-gradient(90deg, ${p => p.theme.colors.primary}, ${p => p.theme.colors.violet});
+    transition: width 0.4s;
+  }
 `;
 
 const TextureFilmMore = styled(FilmThumb)`
@@ -1945,6 +1968,13 @@ const Workspace: React.FC = () => {
   const [textureZones, setTextureZones] = useState<MeshSelectionZone[]>([]);
   const [activeTextureZoneId, setActiveTextureZoneId] = useState<string | null>(null);
   const [textureClearSignal, setTextureClearSignal] = useState(0);
+  // Texture jobs for the selected source model, polled while the texture
+  // tool is open. Submitting used to be fire-and-forget — the job queued
+  // but the UI never showed progress or results, which read as "nothing
+  // happens". textureViewJobId swaps the viewer to a finished variant.
+  const [textureJobs, setTextureJobs] = useState<TextureJobRow[]>([]);
+  const [textureViewJobId, setTextureViewJobId] = useState<string | null>(null);
+  const [textureJobsRefresh, setTextureJobsRefresh] = useState(0);
   // Multi-view (Zero123++ auto-generates back/side views on the worker
   // and feeds them to Hunyuan3D-2-mv). Helps on upright subjects;
   // worker auto-skips for horizontal subjects regardless.
@@ -1985,8 +2015,16 @@ const Workspace: React.FC = () => {
   const [managePackName, setManagePackName] = useState('');
   const [showAdvModal, setShowAdvModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const location = useLocation();
+
+  // Deep-link: /dashboard?tool=texture opens the texture tool directly
+  // (used by the shared rail when navigating from other pages).
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('tool') === 'texture') {
+      setActiveTool('texture');
+    }
+  }, [location.search]);
   const [archivedJobs, setArchivedJobs] = useState<Job[]>([]);
-  const [showAdminMenu, setShowAdminMenu] = useState(false);
 
   // Gallery images fetched from the text-to-image page — shown in the panel
   // so the user can pick one as the input without re-uploading.
@@ -2012,7 +2050,11 @@ const Workspace: React.FC = () => {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  const email = user?.email || '';
+  // Dev-only auth bypass (matches scenes pages) — inert in production
+  // builds; lets automated browser tests exercise data-backed UI.
+  const email = user?.email
+    || (import.meta.env.DEV ? (import.meta.env.VITE_DEV_EMAIL as string | undefined) : undefined)
+    || '';
   const isAdmin = appUser?.role === 'admin';
   // Non-admins are pinned to Standard while we're on the GTX 1080. Texture is
   // deliberately open now so we can benchmark the full textured flow.
@@ -2040,9 +2082,11 @@ const Workspace: React.FC = () => {
   // ── Effects
   // Initial load + steady poll every 5s. Cheap (single GET, small JSON) and
   // means new jobs from anywhere (e.g. the benchmark harness) appear in the
-  // asset rail without a manual refresh.
+  // asset rail without a manual refresh. Gated on email (not isAuthenticated)
+  // so the dev bypass can exercise data-backed UI; in production email is
+  // only ever set when authenticated.
   useEffect(() => {
-    if (!isAuthenticated || !email) return;
+    if (!email) return;
     let cancelled = false;
     const tick = async () => {
       const [j, l] = await Promise.all([
@@ -2488,8 +2532,46 @@ const Workspace: React.FC = () => {
     ? (selectedTextureJob ?? textureSourceJobs[0] ?? null)
     : selectedJob;
 
-  const meshUrl = textureSourceJob?.resultUrl
-    ? `/api/mesh?key=${encodeURIComponent(textureSourceJob.resultUrl)}`
+  // Poll texture jobs for the selected source while the texture tool is
+  // open — fast while something is queued/running, relaxed when settled.
+  useEffect(() => {
+    setTextureViewJobId(null);
+    if (activeTool !== 'texture' || !email || !textureSourceJob?.id) {
+      setTextureJobs([]);
+      return;
+    }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const r = await fetch(
+          `/api/textures?email=${encodeURIComponent(email)}&sourceJobId=${encodeURIComponent(textureSourceJob.id)}`,
+        );
+        const d = await r.json();
+        if (!stopped) setTextureJobs(d.textureJobs || []);
+        const active = (d.textureJobs || []).some(
+          (t: TextureJobRow) => t.status === 'pending' || t.status === 'processing',
+        );
+        if (!stopped) timer = setTimeout(tick, active ? 5000 : 20000);
+      } catch {
+        if (!stopped) timer = setTimeout(tick, 15000);
+      }
+    };
+    tick();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTool, email, textureSourceJob?.id, textureJobsRefresh]);
+
+  // In texture mode a finished variant can be viewed in place of the source.
+  const textureViewJob = textureViewJobId
+    ? textureJobs.find(t => t.id === textureViewJobId && t.status === 'done' && t.resultUrl) ?? null
+    : null;
+  const viewedModelKey = activeTool === 'texture' && textureViewJob
+    ? textureViewJob.resultUrl
+    : textureSourceJob?.resultUrl;
+
+  const meshUrl = viewedModelKey
+    ? `/api/mesh?key=${encodeURIComponent(viewedModelKey)}`
     : null;
 
   const selectedThumbKey = textureSourceJob?.imageUrl?.includes('/uploads/')
@@ -2680,6 +2762,7 @@ const Workspace: React.FC = () => {
     setSubmitting(false);
     if (textureJob) {
       setSubmitNotice('Texture job queued for the selected model.');
+      setTextureJobsRefresh(n => n + 1);
     }
     if (error) {
       setSubmitError(error);
@@ -2769,35 +2852,26 @@ const Workspace: React.FC = () => {
       </NavBar>
 
       <Body>
-        {/* ──────── Icon rail ──────── */}
-        <Rail>
-          <RailItem icon="🖼" label="Image" title="Text to image" onClick={() => navigate('/dashboard/text')} />
-          <RailItem icon="⬡" label="3D Model" active={activeTool === 'image'} title="Image to 3D" onClick={() => setActiveTool('image')} />
-          <RailItem icon="🎨" label="Texture" active={activeTool === 'texture'} title="Texture selected asset" onClick={() => setActiveTool('texture')} />
-          <RailItem icon="🎬" label="Scene" title="Compose a scene from your assets" onClick={() => navigate('/scenes')} />
-          <RailItem icon="🦴" label="Rig" disabled title="Rig & animate — coming soon" />
-          <RailItem icon="📦" label="Assets" disabled title="Asset library — coming soon" />
-          {isAdmin && (
-            <>
-              <RailDivider />
-              <RailItem
-                icon="⚙"
-                label="Admin"
-                active={showAdminMenu}
-                title="Admin tools"
-                onClick={() => setShowAdminMenu(v => !v)}
-              />
-              {showAdminMenu && (
-                <>
-                  <RailItem icon="📊" label="Stats" title="Admin stats" onClick={() => navigate('/admin/stats')} />
-                  <RailItem icon="🧪" label="Bench" title="Benchmark runs" onClick={() => navigate('/benchmark')} />
-                  <RailItem icon="🗺" label="Roadmap" title="GenShape3D roadmap" onClick={() => navigate('/admin/roadmap')} />
-                  <RailItem icon="🗃" label="Archive" active={showArchived} title="Archived generations" onClick={() => setShowArchived(v => !v)} />
-                </>
-              )}
-            </>
-          )}
-        </Rail>
+        {/* ──────── Icon rail (shared — see components/AppRail.tsx) ──────── */}
+        <AppRail
+          active={activeTool === 'texture' ? 'texture' : 'model'}
+          isAdmin={isAdmin}
+          onSelect={key => {
+            // Model and Texture are in-page tools here — no navigation.
+            if (key === 'model') { setActiveTool('image'); return true; }
+            if (key === 'texture') { setActiveTool('texture'); return true; }
+            return false;
+          }}
+          adminExtras={
+            <SharedRailItem
+              icon="🗃"
+              label="Archive"
+              active={showArchived}
+              title="Archived generations"
+              onClick={() => setShowArchived(v => !v)}
+            />
+          }
+        />
 
         {/* ──────── Config panel ──────── */}
         <Panel>
@@ -2924,6 +2998,55 @@ const Workspace: React.FC = () => {
                     </TextureEmptyState>
                   )}
                 </Field>
+
+                {textureSourceJob && textureJobs.length > 0 && (
+                  <Field>
+                    <FieldLabel>
+                      Texture jobs
+                      <FieldHint>{textureJobs.length} for this model</FieldHint>
+                    </FieldLabel>
+                    <TexJobList>
+                      <TexJobRow $viewing={!textureViewJobId}>
+                        <TexJobMain>
+                          <TexJobTitle>Original model</TexJobTitle>
+                          <TexJobSub>{textureSourceJob.doTexture ? 'Textured output' : 'Untextured output'}</TexJobSub>
+                        </TexJobMain>
+                        <TexJobBtn
+                          $active={!textureViewJobId}
+                          onClick={() => setTextureViewJobId(null)}
+                        >
+                          {!textureViewJobId ? 'Viewing' : 'View'}
+                        </TexJobBtn>
+                      </TexJobRow>
+                      {textureJobs.map(tj => (
+                        <TexJobRow key={tj.id} $viewing={textureViewJobId === tj.id}>
+                          <TexJobMain>
+                            <TexJobTitle>{tj.materialPreset !== 'Auto' ? tj.materialPreset : (tj.prompt || 'Auto material')}</TexJobTitle>
+                            <TexJobSub title={tj.status === 'failed' ? tj.errorMessage : tj.prompt}>
+                              {tj.status === 'failed'
+                                ? (tj.errorMessage || 'Failed')
+                                : tj.status === 'processing'
+                                  ? `${tj.progressPhase || 'Working'} · ${tj.progressPct}%`
+                                  : tj.status === 'pending'
+                                    ? 'Waiting for a GPU worker…'
+                                    : `${tj.textureRes} · ${new Date(tj.createdAt).toLocaleTimeString()}`}
+                            </TexJobSub>
+                            {tj.status === 'processing' && <TexJobProgress $pct={tj.progressPct} />}
+                          </TexJobMain>
+                          <TexJobBadge $status={tj.status}>{tj.status}</TexJobBadge>
+                          {tj.status === 'done' && tj.resultUrl && (
+                            <TexJobBtn
+                              $active={textureViewJobId === tj.id}
+                              onClick={() => setTextureViewJobId(v => v === tj.id ? null : tj.id)}
+                            >
+                              {textureViewJobId === tj.id ? 'Viewing' : 'View'}
+                            </TexJobBtn>
+                          )}
+                        </TexJobRow>
+                      ))}
+                    </TexJobList>
+                  </Field>
+                )}
 
                 <Field>
                   <FieldLabel>Direction <FieldHint title="Describe the desired material, finish, age, wear, color, or style.">?</FieldHint></FieldLabel>

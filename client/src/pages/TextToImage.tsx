@@ -20,6 +20,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
+import { AppRail } from '../components/AppRail';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
@@ -291,68 +292,7 @@ const AvatarFallback = styled.button`
   font-weight: 700;
 `;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Left icon rail
-// ─────────────────────────────────────────────────────────────────────────────
-
-const Rail = styled.aside`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0.75rem 0;
-  gap: 0.4rem;
-  border-right: 1px solid ${p => p.theme.colors.border};
-  background: linear-gradient(180deg, ${p => p.theme.colors.surface}, ${p => p.theme.colors.background});
-`;
-
-const RailBtn = styled.button<{ $active?: boolean; $disabled?: boolean }>`
-  width: 44px; height: 44px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: ${p => p.$disabled ? 'not-allowed' : 'pointer'};
-  font-size: 1rem;
-  background: ${p => p.$active
-    ? `linear-gradient(135deg, ${p.theme.colors.primary}, ${p.theme.colors.violet})`
-    : 'transparent'};
-  color: ${p => p.$active ? 'white' : p.$disabled ? p.theme.colors.textMuted : p.theme.colors.text};
-  border: 1px solid transparent;
-  opacity: ${p => p.$disabled ? 0.4 : 1};
-  transition: background 0.15s, transform 0.12s;
-  ${p => p.$active && `box-shadow: 0 4px 18px ${p.theme.colors.primary}66;`}
-  &:hover {
-    ${p => !p.$disabled && !p.$active && `background: ${p.theme.colors.surfaceHigh};`}
-    ${p => !p.$disabled && `transform: scale(1.04);`}
-  }
-`;
-
-const RailLabel = styled.span`
-  font-size: 0.6rem;
-  color: ${p => p.theme.colors.textMuted};
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-top: 0.1rem;
-`;
-
-const RailDivider = styled.div`
-  width: 24px;
-  height: 1px;
-  background: ${p => p.theme.colors.border};
-  margin: 0.4rem 0;
-`;
-
-const RailItem: React.FC<{
-  icon: string; label: string;
-  active?: boolean; disabled?: boolean;
-  onClick?: () => void; title?: string;
-}> = ({ icon, label, active, disabled, onClick, title }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-    <RailBtn $active={active} $disabled={disabled}
-             onClick={disabled ? undefined : onClick}
-             title={title || label}>{icon}</RailBtn>
-    <RailLabel>{label}</RailLabel>
-  </div>
-);
+// (Icon rail lives in components/AppRail.tsx — shared across all pages.)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config panel
@@ -1650,25 +1590,8 @@ const TextToImage: React.FC = () => {
       </NavBar>
 
       <Body>
-        {/* Icon rail */}
-        <Rail>
-          <RailItem icon="🖼" label="Image"  title="Image to 3D"
-                    onClick={() => navigate('/dashboard')} />
-          <RailItem icon="✨" label="Text"   active title="Text to image" />
-          <RailItem icon="🎨" label="Texture" disabled title="Re-texture — coming soon" />
-          <RailItem icon="🦴" label="Rig"     disabled title="Rig & animate — coming soon" />
-          <RailDivider />
-          <RailItem icon="📦" label="Assets"   title="My assets"
-                    onClick={() => navigate('/dashboard')} />
-          <RailItem icon="⚙" label="Settings" title="Settings" />
-          {isAdmin && (
-            <>
-              <RailDivider />
-              <RailItem icon="📊" label="Stats" title="Admin stats"
-                        onClick={() => navigate('/admin/stats')} />
-            </>
-          )}
-        </Rail>
+        {/* Icon rail (shared — see components/AppRail.tsx) */}
+        <AppRail active="image" isAdmin={isAdmin} />
 
         {/* Config */}
         <Panel>

@@ -4,6 +4,14 @@ This app has a deliberate visual language. **Do not drop raw HTML controls into
 the page.** A stray `<input type="checkbox">`, `<select>`, or unstyled `<button>`
 looks broken next to everything else and the user will reject it.
 
+## The left icon rail is ONE component
+
+`components/AppRail.tsx` is the only left rail. Every workspace page renders
+`<AppRail active=… />` — never a hand-rolled copy. The pipeline order and
+labels are fixed there: Image (text-to-image) → 3D Model → Texture → Scene →
+Rig → Assets → admin group. Duplicated rails are how "Image" once meant
+text-to-image on one page and image-to-3D on another.
+
 ## Use the existing components / styled primitives
 
 Before adding a control, reuse what's already here:
