@@ -27,6 +27,7 @@ interface TextureEditorPanelProps {
   zones: MeshSelectionZone[];
   activeZoneId: string | null;
   onSettingsChange: (settings: TextureEditorSettings) => void;
+  onAddZone: () => void;
   onSelectZone: (id: string) => void;
   onAddToZone: () => void;
   onSubtractFromZone: () => void;
@@ -185,6 +186,26 @@ const ZoneName = styled.span`
   text-overflow: ellipsis;
 `;
 
+const WorkflowHint = styled.div`
+  font-size: 0.7rem;
+  color: ${p => p.theme.colors.textMuted};
+  line-height: 1.5;
+  b { color: ${p => p.theme.colors.text}; }
+`;
+
+const Kbd = styled.span`
+  display: inline-block;
+  padding: 0 0.32rem;
+  margin: 0 0.08rem;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: ${p => p.theme.colors.background};
+  color: ${p => p.theme.colors.text};
+  font-size: 0.64rem;
+  font-weight: 700;
+`;
+
 const SelectionMeta = styled.div`
   min-width: 74px;
   color: ${p => p.theme.colors.textMuted};
@@ -225,6 +246,7 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
   zones,
   activeZoneId,
   onSettingsChange,
+  onAddZone,
   onSelectZone,
   onAddToZone,
   onSubtractFromZone,
@@ -268,7 +290,7 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
         </SelectionMeta>
       </PanelRow>
 
-      {/* Row 2 — selection tools, only when a picking mode is active */}
+      {/* Row 2 — zone workflow, only when a picking mode is active */}
       {selectionActive && (
         <PanelRow>
           <Controls>
@@ -286,28 +308,35 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
             </SliderField>
           </Controls>
           <ZoneStrip>
-            {zones.slice(0, 4).map(zone => (
+            {zones.map((zone, i) => (
               <ZoneChip
                 key={zone.id}
                 type="button"
                 $active={activeZoneId === zone.id}
                 $color={zone.color}
-                title={`${zone.name} - ${zone.faceIndices.length} faces`}
+                title={`${zone.name} — ${zone.faceIndices.length} faces (key ${i + 1})`}
                 onClick={() => onSelectZone(zone.id)}
               >
                 <ZoneDot $color={zone.color} />
-                <ZoneName>{zone.name}</ZoneName>
+                <ZoneName>{zone.name} · {zone.faceIndices.length}</ZoneName>
               </ZoneChip>
             ))}
+            <IconAction title="New zone (N). Becomes the active zone; Assign fills it." onClick={onAddZone}>+ Zone</IconAction>
           </ZoneStrip>
           <RowSpacer />
-          <Actions>
-            <IconAction title="Clear current selection." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
-            <Action title="Add the current selection to the active zone." disabled={!selection} onClick={onAddToZone}>Add</Action>
-            <Action title="Remove the current selection from the active zone." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Subtract</Action>
-            <Action $primary title="Save this selection as a texture zone." disabled={!selection} onClick={onSaveZone}>Save zone</Action>
-            <IconAction title="Delete active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Delete</IconAction>
-          </Actions>
+          {zones.length === 0 && !selection ? (
+            <WorkflowHint>
+              <b>How it works:</b> click the model to select (yellow) → <Kbd>A</Kbd> assign to the
+              active zone · <Kbd>N</Kbd> new zone · <Kbd>1</Kbd>–<Kbd>9</Kbd> pick zone · <Kbd>X</Kbd> remove · <Kbd>Esc</Kbd> clear
+            </WorkflowHint>
+          ) : (
+            <Actions>
+              <Action $primary title="Assign the yellow selection to the active zone (A). The faces take the zone's color — the selection stays so you can keep building." disabled={!selection} onClick={onAddToZone}>Assign (A)</Action>
+              <Action title="Remove the selected faces from the active zone (X)." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Remove (X)</Action>
+              <IconAction title="Clear the selection (Esc)." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
+              <IconAction title="Delete the active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Del zone</IconAction>
+            </Actions>
+          )}
         </PanelRow>
       )}
     </Panel>

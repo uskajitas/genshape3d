@@ -33,10 +33,14 @@ export const createMeshSelectionController = (
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
+  // Selection uses bright yellow — deliberately OUTSIDE the zone palette
+  // (violet/green/sky/pink/red/teal) so "what I'm selecting" never blends
+  // with "what's already assigned". Semi-transparent so an assigned zone's
+  // color reads through underneath after Assign.
   const material = new THREE.MeshBasicMaterial({
-    color: 0x8b5cf6,
+    color: 0xffeb3b,
     transparent: true,
-    opacity: 0.58,
+    opacity: 0.5,
     depthTest: false,
     side: THREE.DoubleSide,
   });
@@ -65,10 +69,12 @@ export const createMeshSelectionController = (
       if (!mesh) continue;
       const graph = getFaceGraph(mesh.geometry);
       if (!graph) continue;
+      const isActive = zone.id === currentOptions.activeZoneId;
       const zoneMaterial = new THREE.MeshBasicMaterial({
         color: new THREE.Color(zone.color),
         transparent: true,
-        opacity: 0.32,
+        // The active zone pops; the rest stay readable but recede.
+        opacity: isActive ? 0.55 : 0.3,
         depthTest: false,
         side: THREE.DoubleSide,
       });

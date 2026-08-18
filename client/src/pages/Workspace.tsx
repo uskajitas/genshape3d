@@ -783,7 +783,9 @@ const TEXTURE_SOURCE_MODES: Array<{ label: string; value: TextureSourceMode; hin
   { label: 'Current', value: 'current', hint: 'start from the current texture' },
 ];
 
-const TEXTURE_ZONE_COLORS = ['#8B5CF6', '#10B981', '#F59E0B', '#38BDF8', '#EC4899', '#F97316'];
+// Zone palette deliberately excludes yellow/amber — bright yellow is the
+// SELECTION color (see meshSelection controller) and must never be a zone.
+const TEXTURE_ZONE_COLORS = ['#8B5CF6', '#10B981', '#38BDF8', '#EC4899', '#EF4444', '#14B8A6'];
 
 
 const PromptArea = styled.textarea`
@@ -2000,6 +2002,7 @@ const Workspace: React.FC = () => {
   });
   const [textureSelection, setTextureSelection] = useState<MeshSelectionSummary | null>(null);
   const [textureZones, setTextureZones] = useState<MeshSelectionZone[]>([]);
+  const zoneCounterRef = useRef(0);
   const [activeTextureZoneId, setActiveTextureZoneId] = useState<string | null>(null);
   const [textureClearSignal, setTextureClearSignal] = useState(0);
   // Texture jobs for the selected source model, polled while the texture
@@ -2715,17 +2718,25 @@ const Workspace: React.FC = () => {
     setActiveTextureZoneId(null);
   }, [selectedJobId]);
 
-  const createTextureZone = useCallback((selection: MeshSelectionSummary): MeshSelectionZone => {
-    const nextIndex = textureZones.length + 1;
+  const createTextureZone = useCallback((selection: MeshSelectionSummary | null): MeshSelectionZone => {
+    const nextIndex = ++zoneCounterRef.current;
     return {
       id: `zone-${Date.now()}-${nextIndex}`,
       name: `Zone ${nextIndex}`,
-      meshId: selection.meshId,
-      meshName: selection.meshName,
-      faceIndices: selection.faceIndices,
+      meshId: selection?.meshId || '',
+      meshName: selection?.meshName || '',
+      faceIndices: selection?.faceIndices || [],
       color: TEXTURE_ZONE_COLORS[(nextIndex - 1) % TEXTURE_ZONE_COLORS.length],
     };
-  }, [textureZones.length]);
+  }, []);
+
+  // Zones exist independently of selections: create an empty one any time,
+  // it becomes active, then Assign fills it.
+  const addEmptyTextureZone = useCallback(() => {
+    const zone = createTextureZone(null);
+    setTextureZones(prev => [...prev, zone]);
+    setActiveTextureZoneId(zone.id);
+  }, [createTextureZone]);
 
   // Zones PARTITION the surface: a face belongs to exactly one zone (same
   // rule as material slots in any DCC). Assigning faces to a zone steals
@@ -2735,17 +2746,17 @@ const Workspace: React.FC = () => {
     zones: MeshSelectionZone[], meshId: string, faces: number[], keepZoneId: string,
   ): MeshSelectionZone[] => {
     const taken = new Set(faces);
-    return zones
-      .map(zone => (zone.id === keepZoneId || zone.meshId !== meshId)
-        ? zone
-        : { ...zone, faceIndices: zone.faceIndices.filter(f => !taken.has(f)) })
-      .filter(zone => zone.faceIndices.length > 0 || zone.id === keepZoneId);
+    return zones.map(zone => (zone.id === keepZoneId || (zone.meshId && zone.meshId !== meshId))
+      ? zone
+      : { ...zone, faceIndices: zone.faceIndices.filter(f => !taken.has(f)) });
   };
 
   const addSelectionToTextureZone = useCallback(() => {
     if (!textureSelection) return;
     const activeZone = textureZones.find(zone => zone.id === activeTextureZoneId);
-    if (!activeZone || activeZone.meshId !== textureSelection.meshId) {
+    // No active zone (or one bound to a different mesh): make a new zone
+    // straight from the selection.
+    if (!activeZone || (activeZone.meshId && activeZone.meshId !== textureSelection.meshId)) {
       const zone = createTextureZone(textureSelection);
       setTextureZones(prev =>
         claimFacesForZone([...prev, zone], zone.meshId, zone.faceIndices, zone.id));
@@ -2755,9 +2766,11 @@ const Workspace: React.FC = () => {
 
     setTextureZones(prev => {
       const merged = prev.map(zone => {
-        if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+        if (zone.id !== activeTextureZoneId) return zone;
         return {
           ...zone,
+          meshId: textureSelection.meshId,
+          meshName: textureSelection.meshName,
           faceIndices: Array.from(new Set([...zone.faceIndices, ...textureSelection.faceIndices])),
         };
       });
@@ -2770,16 +2783,13 @@ const Workspace: React.FC = () => {
     if (!textureSelection || !activeTextureZoneId) return;
     const remove = new Set(textureSelection.faceIndices);
     setTextureZones(prev => {
-      const next = prev
-        .map(zone => {
-          if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
-          return {
-            ...zone,
-            faceIndices: zone.faceIndices.filter(face => !remove.has(face)),
-          };
-        })
-        .filter(zone => zone.faceIndices.length > 0);
-      return next;
+      return prev.map(zone => {
+        if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+        return {
+          ...zone,
+          faceIndices: zone.faceIndices.filter(face => !remove.has(face)),
+        };
+      });
     });
   }, [activeTextureZoneId, textureSelection]);
 
@@ -2789,13 +2799,17 @@ const Workspace: React.FC = () => {
     }
   }, [activeTextureZoneId, textureZones]);
 
+  // New-zone-from-selection: used by the N shortcut with a live selection.
   const saveTextureZone = useCallback(() => {
-    if (!textureSelection) return;
+    if (!textureSelection) {
+      addEmptyTextureZone();
+      return;
+    }
     const zone = createTextureZone(textureSelection);
     setTextureZones(prev =>
       claimFacesForZone([...prev, zone], zone.meshId, zone.faceIndices, zone.id));
     setActiveTextureZoneId(zone.id);
-  }, [createTextureZone, textureSelection]);
+  }, [addEmptyTextureZone, createTextureZone, textureSelection]);
 
   const clearTextureSelection = useCallback(() => {
     setTextureSelection(null);
@@ -2815,9 +2829,37 @@ const Workspace: React.FC = () => {
     boundary: textureEditorSettings.boundary,
     feather: textureEditorSettings.feather,
     zones: textureZones,
+    activeZoneId: activeTextureZoneId,
     clearSignal: textureClearSignal,
     onChange: setTextureSelection,
-  }), [activeTool, textureEditorSettings, textureZones, textureClearSignal]);
+  }), [activeTool, textureEditorSettings, textureZones, activeTextureZoneId, textureClearSignal]);
+
+  // Zone workflow shortcuts (material tool, Select/Paint mode only):
+  // 1-9 pick zone · N new zone · A assign · X remove · Esc clear selection
+  useEffect(() => {
+    if (activeTool !== 'texture' || textureEditorSettings.mode === 'view') return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k >= '1' && k <= '9') {
+        const zone = textureZones[parseInt(k, 10) - 1];
+        if (zone) { setActiveTextureZoneId(zone.id); e.preventDefault(); }
+      } else if (k === 'n') {
+        saveTextureZone(); e.preventDefault();
+      } else if (k === 'a') {
+        addSelectionToTextureZone(); e.preventDefault();
+      } else if (k === 'x') {
+        subtractSelectionFromTextureZone(); e.preventDefault();
+      } else if (k === 'escape') {
+        clearTextureSelection(); e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTool, textureEditorSettings.mode, textureZones, saveTextureZone,
+      addSelectionToTextureZone, subtractSelectionFromTextureZone, clearTextureSelection]);
 
   const onSubmitRefine = async () => {
     if (!email || !textureSourceJob || refineSubmitting) return;
@@ -3740,6 +3782,7 @@ const Workspace: React.FC = () => {
                 onSettingsChange={setTextureEditorSettings}
                 onSelectZone={setActiveTextureZoneId}
                 onAddToZone={addSelectionToTextureZone}
+                onAddZone={addEmptyTextureZone}
                 onSubtractFromZone={subtractSelectionFromTextureZone}
                 onSaveZone={saveTextureZone}
                 onClearSelection={clearTextureSelection}

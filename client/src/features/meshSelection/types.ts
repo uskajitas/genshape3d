@@ -30,6 +30,8 @@ export interface MeshSelectionZone {
 
 export interface MeshSelectionOptions extends MeshSelectionSettings {
   zones?: MeshSelectionZone[];
+  /** Zone currently being edited — rendered emphasized in the viewport. */
+  activeZoneId?: string | null;
   clearSignal?: number;
   onChange?: (selection: MeshSelectionSummary | null) => void;
 }
