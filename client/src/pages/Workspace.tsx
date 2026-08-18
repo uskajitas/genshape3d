@@ -3500,11 +3500,11 @@ const Workspace: React.FC = () => {
                     <Tooltip text="Albedo texture — the material's color."><MapChip $on>✓ Base color</MapChip></Tooltip>
                     <Tooltip text="Green channel of the metallic-roughness map."><MapChip $on>✓ Roughness</MapChip></Tooltip>
                     <Tooltip text="Blue channel of the metallic-roughness map."><MapChip $on>✓ Metallic</MapChip></Tooltip>
-                    <Tooltip text="Geometry-baked normal map — planned."><MapChip>Normal · soon</MapChip></Tooltip>
+                    <Tooltip text="Tangent-space normal map baked from the highest-detail version of the asset — refined meshes keep the original's surface detail." multiline maxWidth={240}><MapChip $on>✓ Normal</MapChip></Tooltip>
                     <Tooltip text="Ambient occlusion raytraced from the geometry — packed with roughness+metallic in one ORM texture."><MapChip $on>✓ AO</MapChip></Tooltip>
                   </MapChipRow>
                   <TextureNote>
-                    Base color, roughness, metallic, and baked AO ship in the GLB (standard PBR + ORM packing).
+                    Base color, roughness, metallic, baked AO, and a normal map ship in the GLB (standard PBR + ORM packing).
                   </TextureNote>
                 </Field>
 
