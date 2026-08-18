@@ -2727,23 +2727,43 @@ const Workspace: React.FC = () => {
     };
   }, [textureZones.length]);
 
+  // Zones PARTITION the surface: a face belongs to exactly one zone (same
+  // rule as material slots in any DCC). Assigning faces to a zone steals
+  // them from every other zone — without this, overlapping selections
+  // stacked up in multiple zones and the overlay looked inconsistent.
+  const claimFacesForZone = (
+    zones: MeshSelectionZone[], meshId: string, faces: number[], keepZoneId: string,
+  ): MeshSelectionZone[] => {
+    const taken = new Set(faces);
+    return zones
+      .map(zone => (zone.id === keepZoneId || zone.meshId !== meshId)
+        ? zone
+        : { ...zone, faceIndices: zone.faceIndices.filter(f => !taken.has(f)) })
+      .filter(zone => zone.faceIndices.length > 0 || zone.id === keepZoneId);
+  };
+
   const addSelectionToTextureZone = useCallback(() => {
     if (!textureSelection) return;
     const activeZone = textureZones.find(zone => zone.id === activeTextureZoneId);
     if (!activeZone || activeZone.meshId !== textureSelection.meshId) {
       const zone = createTextureZone(textureSelection);
-      setTextureZones(prev => [...prev, zone]);
+      setTextureZones(prev =>
+        claimFacesForZone([...prev, zone], zone.meshId, zone.faceIndices, zone.id));
       setActiveTextureZoneId(zone.id);
       return;
     }
 
-    setTextureZones(prev => prev.map(zone => {
-      if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
-      return {
-        ...zone,
-        faceIndices: Array.from(new Set([...zone.faceIndices, ...textureSelection.faceIndices])),
-      };
-    }));
+    setTextureZones(prev => {
+      const merged = prev.map(zone => {
+        if (zone.id !== activeTextureZoneId || zone.meshId !== textureSelection.meshId) return zone;
+        return {
+          ...zone,
+          faceIndices: Array.from(new Set([...zone.faceIndices, ...textureSelection.faceIndices])),
+        };
+      });
+      return claimFacesForZone(
+        merged, textureSelection.meshId, textureSelection.faceIndices, activeTextureZoneId!);
+    });
   }, [activeTextureZoneId, createTextureZone, textureSelection, textureZones]);
 
   const subtractSelectionFromTextureZone = useCallback(() => {
@@ -2772,7 +2792,8 @@ const Workspace: React.FC = () => {
   const saveTextureZone = useCallback(() => {
     if (!textureSelection) return;
     const zone = createTextureZone(textureSelection);
-    setTextureZones(prev => [...prev, zone]);
+    setTextureZones(prev =>
+      claimFacesForZone([...prev, zone], zone.meshId, zone.faceIndices, zone.id));
     setActiveTextureZoneId(zone.id);
   }, [createTextureZone, textureSelection]);
 
