@@ -203,6 +203,8 @@ const MODEL_COMBOS: ModelCombo[] = [
     octree: p.octree, steps: p.steps, guidance: p.guidance, faces: p.faces, chunks: p.chunks,
     supportsTexture: true, textureNote: 'Optional PBR paint (albedo / rough / normal)',
   })),
+  { id: 'trellis2-prop', model: 'trellis2', preset: 'prop', label: 'TRELLIS.2', hint: 'best · native PBR · 3090', octree: 1024, steps: 12, guidance: 7.5, faces: 100000, chunks: 8000,
+    supportsTexture: false, textureNote: 'Always textured — native PBR (base color / metallic / roughness)' },
   { id: 'triposr-draft', model: 'triposr', preset: 'draft', label: 'TripoSR', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000,
     supportsTexture: false, textureNote: 'No texture pass — vertex colours only' },
   { id: 'sf3d-draft', model: 'sf3d', preset: 'draft', label: 'Stable Fast 3D', hint: 'fast · 3090', octree: 256, steps: 5, guidance: 5, faces: 30000, chunks: 8000,
