@@ -290,7 +290,11 @@ const sweep = keyframes`
 
 const Shell = styled.div`
   display: grid;
-  grid-template-rows: 56px 1fr;
+  /* minmax(0, 1fr): a bare 1fr row still grows to its content's min-height,
+     which let a tall config panel push the whole shell past 100vh (dead
+     band under the app + page scrollbar). Clamped, the panel scrolls
+     internally instead. */
+  grid-template-rows: 56px minmax(0, 1fr);
   height: 100vh;
   width: 100%;
   max-width: 100vw;
@@ -306,6 +310,7 @@ const Shell = styled.div`
 const Body = styled.div`
   display: grid;
   grid-template-columns: 64px 320px 1fr 320px;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 
@@ -491,6 +496,11 @@ const SignInBtn = styled.button`
 const Panel = styled.section`
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  /* Positioning context for the absolute HiddenInput file pickers inside —
+     without it they anchor to the page root at their static offset, which
+     extends the document below the app (dead band + page scrollbar). */
+  position: relative;
   border-right: 1px solid ${p => p.theme.colors.border};
   background:
     radial-gradient(ellipse 100% 40% at 50% 0%, ${p => p.theme.colors.primary}0d, transparent 70%),
