@@ -52,6 +52,18 @@ export const IconTrash: React.FC<IconProps> = ({ size = 16, ...rest }) => (
   </svg>
 );
 
+// Archive box: lid + body + pull handle.
+export const IconArchive: React.FC<IconProps> = ({ size = 16, ...rest }) => (
+  <svg {...baseProps(size)} strokeWidth={1.9} {...rest}>
+    {/* Lid */}
+    <rect x="4" y="5" width="16" height="4" rx="1" />
+    {/* Body */}
+    <path d="M5.5 9 V17.5 a1.5 1.5 0 0 0 1.5 1.5 H17 a1.5 1.5 0 0 0 1.5 -1.5 V9" />
+    {/* Handle */}
+    <path d="M10 12.5 H14" />
+  </svg>
+);
+
 export const IconAlertTriangle: React.FC<IconProps> = ({ size = 16, ...rest }) => (
   <svg {...baseProps(size)} {...rest}>
     <path d="M12 3 L22 20 H2 Z" />

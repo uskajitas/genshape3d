@@ -21,6 +21,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { Tooltip } from './Tooltip';
 
 export type RailKey =
   | 'image' | 'model' | 'material' | 'scene' | 'rig' | 'assets'
@@ -91,16 +92,17 @@ export const RailItem: React.FC<{
   onClick?: () => void;
   title?: string;
 }> = ({ icon, label, active, disabled, onClick, title }) => (
-  <RailItemButton
-    type="button"
-    $disabled={disabled}
-    disabled={disabled}
-    onClick={disabled ? undefined : onClick}
-    title={title || label}
-  >
-    <RailBtn $active={active} $disabled={disabled}>{icon}</RailBtn>
-    <RailLabel>{label}</RailLabel>
-  </RailItemButton>
+  <Tooltip text={title || label} placement="right">
+    <RailItemButton
+      type="button"
+      $disabled={disabled}
+      disabled={disabled}
+      onClick={disabled ? undefined : onClick}
+    >
+      <RailBtn $active={active} $disabled={disabled}>{icon}</RailBtn>
+      <RailLabel>{label}</RailLabel>
+    </RailItemButton>
+  </Tooltip>
 );
 
 interface AppRailProps {

@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import type { MeshSelectionSummary, MeshSelectionZone } from '../../features/meshSelection';
+import { Tooltip } from '../Tooltip';
 
 type EditorMode = 'view' | 'select' | 'paint';
 
@@ -269,18 +270,18 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
           <Subtitle title={sourceName}>{sourceName || 'No source selected'}</Subtitle>
         </TitleBlock>
         <GroupLabel>Mode</GroupLabel>
-        <Segmented title="View orbits freely; Select and Paint pick faces on the model.">
+        <Segmented>
           <Segment $active={settings.mode === 'view'} onClick={() => update({ mode: 'view' })}>View</Segment>
           <Segment $active={settings.mode === 'select'} onClick={() => update({ mode: 'select' })}>Select</Segment>
           <Segment $active={settings.mode === 'paint'} onClick={() => update({ mode: 'paint' })}>Paint</Segment>
         </Segmented>
         <GroupLabel>Shading</GroupLabel>
-        <Segmented title="How the mesh is rendered while you work.">
+        <Segmented>
           <Segment $active={viz.viewMode === 'solid'} onClick={() => onVizChange({ ...viz, viewMode: 'solid' })}>Solid</Segment>
           <Segment $active={viz.viewMode === 'clay'} onClick={() => onVizChange({ ...viz, viewMode: 'clay' })}>Clay</Segment>
           <Segment $active={viz.viewMode === 'wireframe'} onClick={() => onVizChange({ ...viz, viewMode: 'wireframe' })}>Wire</Segment>
         </Segmented>
-        <Segmented title="Viewport options">
+        <Segmented>
           <Segment $active={viz.autoRotate} onClick={() => onVizChange({ ...viz, autoRotate: !viz.autoRotate })}>Spin</Segment>
           <Segment $active={viz.showGrid} onClick={() => onVizChange({ ...viz, showGrid: !viz.showGrid })}>Grid</Segment>
         </Segmented>
@@ -294,32 +295,32 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
       {selectionActive && (
         <PanelRow>
           <Controls>
-            <SliderField title="Expansion radius for click-to-grow selection.">
+            <Tooltip text="Expansion radius for click-to-grow selection." multiline maxWidth={230}><SliderField>
               Range
               <Range type="range" min={0} max={100} value={settings.range} onChange={e => update({ range: parseInt(e.target.value, 10) || 0 })} />
-            </SliderField>
-            <SliderField title="Higher values stop selection at stronger seams and edges.">
+            </SliderField></Tooltip>
+            <Tooltip text="Higher values stop selection at stronger seams and edges." multiline maxWidth={230}><SliderField>
               Boundary
               <Range type="range" min={0} max={100} value={settings.boundary} onChange={e => update({ boundary: parseInt(e.target.value, 10) || 0 })} />
-            </SliderField>
-            <SliderField title="Softens the edge of a saved texture zone.">
+            </SliderField></Tooltip>
+            <Tooltip text="Softens the edge of a saved texture zone." multiline maxWidth={230}><SliderField>
               Feather
               <Range type="range" min={0} max={100} value={settings.feather} onChange={e => update({ feather: parseInt(e.target.value, 10) || 0 })} />
-            </SliderField>
+            </SliderField></Tooltip>
           </Controls>
           <ZoneStrip>
             {zones.map((zone, i) => (
-              <ZoneChip
-                key={zone.id}
-                type="button"
-                $active={activeZoneId === zone.id}
-                $color={zone.color}
-                title={`${zone.name} — ${zone.faceIndices.length} faces (key ${i + 1})`}
-                onClick={() => onSelectZone(zone.id)}
-              >
-                <ZoneDot $color={zone.color} />
-                <ZoneName>{zone.name} · {zone.faceIndices.length}</ZoneName>
-              </ZoneChip>
+              <Tooltip key={zone.id} text={`${zone.name} — ${zone.faceIndices.length} faces (key ${i + 1})`}>
+                <ZoneChip
+                  type="button"
+                  $active={activeZoneId === zone.id}
+                  $color={zone.color}
+                  onClick={() => onSelectZone(zone.id)}
+                >
+                  <ZoneDot $color={zone.color} />
+                  <ZoneName>{zone.name} · {zone.faceIndices.length}</ZoneName>
+                </ZoneChip>
+              </Tooltip>
             ))}
             <IconAction title="New zone (N). Becomes the active zone; Assign fills it." onClick={onAddZone}>+ Zone</IconAction>
           </ZoneStrip>
@@ -331,10 +332,10 @@ export const TextureEditorPanel: React.FC<TextureEditorPanelProps> = ({
             </WorkflowHint>
           ) : (
             <Actions>
-              <Action $primary title="Assign the yellow selection to the active zone (A). The faces take the zone's color — the selection stays so you can keep building." disabled={!selection} onClick={onAddToZone}>Assign (A)</Action>
-              <Action title="Remove the selected faces from the active zone (X)." disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Remove (X)</Action>
-              <IconAction title="Clear the selection (Esc)." disabled={!selection} onClick={onClearSelection}>Clear</IconAction>
-              <IconAction title="Delete the active zone." disabled={!activeZoneId} onClick={onDeleteZone}>Del zone</IconAction>
+              <Tooltip text="Assign the yellow selection to the active zone (A) — the selection stays so you can keep building." multiline maxWidth={240}><Action $primary disabled={!selection} onClick={onAddToZone}>Assign (A)</Action></Tooltip>
+              <Tooltip text="Remove the selected faces from the active zone (X)." multiline maxWidth={220}><Action disabled={!selection || !activeZoneId} onClick={onSubtractFromZone}>Remove (X)</Action></Tooltip>
+              <Tooltip text="Clear the selection (Esc)."><IconAction disabled={!selection} onClick={onClearSelection}>Clear</IconAction></Tooltip>
+              <Tooltip text="Delete the active zone."><IconAction disabled={!activeZoneId} onClick={onDeleteZone}>Del zone</IconAction></Tooltip>
             </Actions>
           )}
         </PanelRow>

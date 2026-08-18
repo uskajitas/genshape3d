@@ -35,6 +35,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { useAuth } from '../../context/AuthContext';
 import { Dropdown, type DropdownOption } from '../../components/Dropdown';
+import { Tooltip } from '../../components/Tooltip';
 import {
   scenesApi, Scene, SceneData, SceneLight, SceneEnvironment, SceneCamera,
   LightType, Vec3, migrateSceneData, makeLight,
@@ -1031,14 +1032,14 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
         <BackLink to="/scenes">← Scenes</BackLink>
         <NameInput value={name} onChange={e => setName(e.target.value)} placeholder="Scene name" />
         <ModeGroup>
-          <ModeChip $active={transformMode === 'translate'} onClick={() => setTransformMode('translate')} title="Move (W)">Move</ModeChip>
-          <ModeChip $active={transformMode === 'rotate'} onClick={() => setTransformMode('rotate')} title="Rotate (E)">Rotate</ModeChip>
-          <ModeChip $active={transformMode === 'scale'} onClick={() => setTransformMode('scale')} title="Scale (R)">Scale</ModeChip>
+          <Tooltip text="Move (W)" placement="bottom"><ModeChip $active={transformMode === 'translate'} onClick={() => setTransformMode('translate')}>Move</ModeChip></Tooltip>
+          <Tooltip text="Rotate (E)" placement="bottom"><ModeChip $active={transformMode === 'rotate'} onClick={() => setTransformMode('rotate')}>Rotate</ModeChip></Tooltip>
+          <Tooltip text="Scale (R)" placement="bottom"><ModeChip $active={transformMode === 'scale'} onClick={() => setTransformMode('scale')}>Scale</ModeChip></Tooltip>
         </ModeGroup>
         <Spacer />
         {savedAt && <SaveStatus>Saved {savedAt.toLocaleTimeString()}</SaveStatus>}
-        <TopBtn onClick={exportImage} disabled={nodeList.length === 0} title="Render a presentation PNG">Export image</TopBtn>
-        <TopBtn $primary onClick={save} disabled={saving} title="Save scene (Ctrl+S)">{saving ? 'Saving…' : 'Save'}</TopBtn>
+        <Tooltip text="Render a presentation PNG" placement="bottom"><TopBtn onClick={exportImage} disabled={nodeList.length === 0}>Export image</TopBtn></Tooltip>
+        <Tooltip text="Save scene (Ctrl+S)" placement="bottom"><TopBtn $primary onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</TopBtn></Tooltip>
       </TopBar>
 
       <Body>
@@ -1056,10 +1057,10 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
               >
                 <OutlinerIcon>⬡</OutlinerIcon>
                 <OutlinerLabel $dim={!n.visible}>{n.loading ? `${n.name} …` : n.name}</OutlinerLabel>
-                <RowAction title={n.visible ? 'Hide' : 'Show'} onClick={e => { e.stopPropagation(); toggleNodeVisible(n.id); }}>
+                <RowAction onClick={e => { e.stopPropagation(); toggleNodeVisible(n.id); }}>
                   {n.visible ? '👁' : '—'}
                 </RowAction>
-                <RowAction title="Duplicate (Ctrl+D)" onClick={e => { e.stopPropagation(); duplicateNode(n.id); }}>⧉</RowAction>
+                <Tooltip text="Duplicate (Ctrl+D)"><RowAction onClick={e => { e.stopPropagation(); duplicateNode(n.id); }}>⧉</RowAction></Tooltip>
                 <RowAction title="Remove" onClick={e => { e.stopPropagation(); removeNode(n.id); }}>✕</RowAction>
               </OutlinerRow>
             ))}

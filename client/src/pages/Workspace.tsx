@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AppRail, RailItem as SharedRailItem } from '../components/AppRail';
 import { Accordion, MiniBtn, BtnRow } from '../components/PanelKit';
@@ -24,7 +25,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
 import { signOutUser } from '../firebase';
 import { confirm } from '../components/ConfirmModal';
-import { IconClose, IconTrash } from '../components/Icons';
+import { IconArchive, IconClose, IconTrash } from '../components/Icons';
 import { Tooltip } from '../components/Tooltip';
 import { DetailOverlay, DetailField } from '../components/DetailOverlay';
 import { AdvancedParamsModal, MESH_TYPE_PRESETS, type AdvancedParams } from '../components/AdvancedParamsModal';
@@ -814,11 +815,18 @@ const VersionBadge = styled.button`
   &:hover { border-color: ${p => p.theme.colors.violet}; }
 `;
 
-const VersionStrip = styled.div`
+// Rendered via portal at a fixed position — takes no layout space.
+const VersionPanel = styled.div`
+  position: fixed;
+  z-index: 1000;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem 0.1rem 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.3rem;
+  border-radius: 10px;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  background: linear-gradient(180deg, ${p => p.theme.colors.surfaceHigh}, ${p => p.theme.colors.surface});
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px ${p => p.theme.colors.violet}33;
 `;
 
 const VersionChip = styled.button<{ $active?: boolean }>`
@@ -2644,7 +2652,7 @@ const Workspace: React.FC = () => {
     (jobId: string) => railLineages.find(l => l.rep.id === jobId),
     [railLineages],
   );
-  const [versionStripFor, setVersionStripFor] = useState<string | null>(null);
+  const [versionPopover, setVersionPopover] = useState<{ rootId: string; x: number; y: number } | null>(null);
   const selectedTextureJob = selectedJobId
     ? textureSourceJobs.find(j => j.id === selectedJobId) ?? null
     : null;
@@ -2920,6 +2928,25 @@ const Workspace: React.FC = () => {
     onChange: setTextureSelection,
   }), [activeTool, textureEditorSettings, textureZones, activeTextureZoneId, textureClearSignal]);
 
+  // Version popover: close on outside click or any scroll (anchor moves).
+  useEffect(() => {
+    if (!versionPopover) return;
+    const close = () => setVersionPopover(null);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-version-panel]')) return;
+      close();
+    };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [versionPopover]);
+
   // Zone workflow shortcuts (material tool, Select/Paint mode only):
   // 1-9 pick zone · N new zone · A assign · X remove · Esc clear selection
   useEffect(() => {
@@ -3113,7 +3140,7 @@ const Workspace: React.FC = () => {
         {isAuthenticated ? (
           user?.photoURL
             ? <ProfileImg src={user.photoURL} alt={user.displayName || 'Profile'} onClick={onSignOut} title="Sign out" />
-            : <ProfileBtn onClick={onSignOut} title="Sign out">{initials}</ProfileBtn>
+            : <Tooltip text="Sign out" placement="bottom"><ProfileBtn onClick={onSignOut}>{initials}</ProfileBtn></Tooltip>
         ) : (
           <SignInBtn onClick={() => navigate('/login')}>Sign in</SignInBtn>
         )}
@@ -3161,7 +3188,6 @@ const Workspace: React.FC = () => {
               className="film-arrow"
               $dir="left"
               onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft -= 160)}
-              title="Scroll left"
             >◀</FilmArrow>
             <Filmstrip ref={filmstripRef}>
               {!isAuthenticated ? (
@@ -3190,7 +3216,6 @@ const Workspace: React.FC = () => {
               className="film-arrow"
               $dir="right"
               onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft += 160)}
-              title="Scroll right"
             >▶</FilmArrow>
           </FilmstripWrap>}
 
@@ -3199,7 +3224,6 @@ const Workspace: React.FC = () => {
               className="film-arrow"
               $dir="left"
               onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft -= 160)}
-              title="Scroll left"
             >◀</FilmArrow>
             <Filmstrip ref={filmstripRef}>
               {!isAuthenticated ? (
@@ -3220,7 +3244,6 @@ const Workspace: React.FC = () => {
                   ))}
                   <TextureFilmMore
                     type="button"
-                    title="Open full model picker"
                     onClick={() => setTexturePickerOpen(true)}
                   >
                     More
@@ -3233,7 +3256,6 @@ const Workspace: React.FC = () => {
               className="film-arrow"
               $dir="right"
               onClick={() => filmstripRef.current && (filmstripRef.current.scrollLeft += 160)}
-              title="Scroll right"
             >▶</FilmArrow>
           </FilmstripWrap>}
 
@@ -3540,7 +3562,7 @@ const Workspace: React.FC = () => {
                 {previewUrl ? (
                   <>
                     <PreviewImage src={previewUrl} alt="upload preview" />
-                    <PreviewClear onClick={onClearFile} title="Remove">×</PreviewClear>
+                    <Tooltip text="Remove image"><PreviewClear onClick={onClearFile}>×</PreviewClear></Tooltip>
                   </>
                 ) : (
                   <>
@@ -3714,7 +3736,7 @@ const Workspace: React.FC = () => {
               return g ? (
                 <PackContextChip>
                   Adding to:&nbsp;<strong title={g.name}>{g.name}</strong>
-                  <button type="button" onClick={() => setSelectedGroupId('')} title="Remove pack context">✕</button>
+                  <Tooltip text="Remove pack context"><button type="button" onClick={() => setSelectedGroupId('')}>✕</button></Tooltip>
                 </PackContextChip>
               ) : null;
             })()}
@@ -3938,9 +3960,9 @@ const Workspace: React.FC = () => {
                 >
                   ···
                 </GroupMgmtBtn>
-                <GroupBtn type="button" onClick={() => setShowNewGroup(true)} title="New asset pack">
+                <Tooltip text="New asset pack"><GroupBtn type="button" onClick={() => setShowNewGroup(true)}>
                   +
-                </GroupBtn>
+                </GroupBtn></Tooltip>
               </GroupBar>
             )}
           </AsideHeader>
@@ -4078,18 +4100,22 @@ const Workspace: React.FC = () => {
                       const selectedVer = lin.versions.find(v => v.id === selectedJobId);
                       const shown = selectedVer ?? lin.rep;
                       return (
+                        <Tooltip text={`${lin.versions.length} versions — click to switch`}>
                         <VersionBadge
-                          title={`${lin.versions.length} versions — click to switch`}
                           onClick={e => {
                             e.stopPropagation();
-                            setVersionStripFor(prev => (prev === lin.rootId ? null : lin.rootId));
+                            const r = e.currentTarget.getBoundingClientRect();
+                            setVersionPopover(prev => prev?.rootId === lin.rootId
+                              ? null
+                              : { rootId: lin.rootId, x: r.left, y: r.bottom + 6 });
                           }}
                         >
                           v{shown.version ?? 1} ▾
                         </VersionBadge>
+                        </Tooltip>
                       );
                     })()}
-                    {activeTool !== 'texture' && (job.status === 'pending' || job.status === 'processing' || job.status === 'running') ? (
+                    {(job.status === 'pending' || job.status === 'processing' || job.status === 'running') ? (
                       <Tooltip text="Cancel job" placement="left">
                         <CancelJobBtn
                           className="cancel-btn"
@@ -4099,28 +4125,31 @@ const Workspace: React.FC = () => {
                           <IconClose size={13} />
                         </CancelJobBtn>
                       </Tooltip>
-                    ) : activeTool !== 'texture' ? (
+                    ) : (
                       <>
                         {isAdmin && (
+                          <Tooltip text="Archive asset" placement="left">
+                            <DeleteJobBtn
+                              className="delete-btn"
+                              aria-label="Archive asset"
+                              onClick={e => onArchiveJob(job.id, e)}
+                              style={{ right: 28, background: 'rgba(168,85,247,0.18)', color: '#C084FC' }}
+                            >
+                              <IconArchive size={13} />
+                            </DeleteJobBtn>
+                          </Tooltip>
+                        )}
+                        <Tooltip text="Delete asset" placement="left">
                           <DeleteJobBtn
                             className="delete-btn"
-                            aria-label="Archive asset"
-                            title="Archive"
-                            onClick={e => onArchiveJob(job.id, e)}
-                            style={{ right: 28, background: 'rgba(168,85,247,0.18)', color: '#C084FC' }}
+                            aria-label="Delete asset"
+                            onClick={e => onDeleteJob(job.id, job.name || '', e)}
                           >
-                            📦
+                            <IconTrash size={13} />
                           </DeleteJobBtn>
-                        )}
-                        <DeleteJobBtn
-                          className="delete-btn"
-                          aria-label="Delete asset"
-                          onClick={e => onDeleteJob(job.id, job.name || '', e)}
-                        >
-                          <IconTrash size={13} />
-                        </DeleteJobBtn>
+                        </Tooltip>
                       </>
-                    ) : null}
+                    )}
                     <AssetOverlay className="asset-overlay">
                       {activeTool !== 'texture' && (
                         <AssetTag $color={isHigh ? '#C084FC' : undefined}>
@@ -4210,24 +4239,6 @@ const Workspace: React.FC = () => {
                       </div>
                     )}
                     </AssetCard>
-                  {(() => {
-                    const lin = lineageOf(job.id);
-                    if (!lin || versionStripFor !== lin.rootId) return null;
-                    return (
-                      <VersionStrip>
-                        {[...lin.versions].sort((a, b) => (a.version ?? 1) - (b.version ?? 1)).map(v => (
-                          <VersionChip
-                            key={v.id}
-                            $active={selectedJobId === v.id}
-                            title={`${v.versionLabel || (v.version === 1 ? 'original' : `version ${v.version}`)} · ${v.status}`}
-                            onClick={() => setSelectedJobId(v.id)}
-                          >
-                            v{v.version ?? 1}{v.versionLabel ? ` ${v.versionLabel}` : (v.version ?? 1) === 1 ? ' original' : ''}
-                          </VersionChip>
-                        ))}
-                      </VersionStrip>
-                    );
-                  })()}
                   {editingNameId === job.id ? (
                     <AssetNameInput
                       autoFocus
@@ -4243,7 +4254,6 @@ const Workspace: React.FC = () => {
                   ) : (
                     <AssetName
                       $empty={!job.name}
-                      title="double-click to rename"
                       onDoubleClick={() => {
                         setEditingNameId(job.id);
                         setNameDraft(job.name || '');
@@ -4325,6 +4335,26 @@ const Workspace: React.FC = () => {
           setActivePreset(presetId);
         }}
       />
+      {versionPopover && (() => {
+        const lin = railLineages.find(l => l.rootId === versionPopover.rootId);
+        if (!lin) return null;
+        const x = Math.min(versionPopover.x, window.innerWidth - 190);
+        return ReactDOM.createPortal(
+          <VersionPanel data-version-panel style={{ left: x, top: versionPopover.y }}>
+            {[...lin.versions].sort((a, b) => (a.version ?? 1) - (b.version ?? 1)).map(v => (
+              <VersionChip
+                key={v.id}
+                $active={selectedJobId === v.id}
+                title={`${v.versionLabel || (v.version === 1 ? 'original' : `version ${v.version}`)} · ${v.status}`}
+                onClick={() => { setSelectedJobId(v.id); setVersionPopover(null); }}
+              >
+                v{v.version ?? 1}{v.versionLabel ? ` ${v.versionLabel}` : (v.version ?? 1) === 1 ? ' original' : ''}
+              </VersionChip>
+            ))}
+          </VersionPanel>,
+          document.body,
+        );
+      })()}
     </Shell>
   );
 };

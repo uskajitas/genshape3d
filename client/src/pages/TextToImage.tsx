@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { AppRail } from '../components/AppRail';
+import { Tooltip } from '../components/Tooltip';
 import styled, { keyframes } from 'styled-components';
 import { useAuth } from '../context/AuthContext';
 import { useAppUser } from '../context/UserContext';
