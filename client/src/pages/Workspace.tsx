@@ -41,6 +41,9 @@ const MeshViewer = lazy(() => import('../components/MeshViewer'));
 interface Job {
   id: string;
   name?: string;
+  rootJobId?: string;
+  version?: number;
+  versionLabel?: string;
   status: 'pending' | 'running' | 'processing' | 'done' | 'failed' | 'error' | 'cancelled';
   imageUrl?: string;
   resultUrl?: string;
@@ -795,6 +798,42 @@ const TEXTURE_SOURCE_MODES: Array<{ label: string; value: TextureSourceMode; hin
 
 // Zone palette deliberately excludes yellow/amber — bright yellow is the
 // SELECTION color (see meshSelection controller) and must never be a zone.
+const VersionBadge = styled.button`
+  position: absolute;
+  top: 6px; left: 6px;
+  z-index: 3;
+  border: 1px solid ${p => p.theme.colors.borderHigh};
+  border-radius: 999px;
+  background: ${p => p.theme.colors.background}d9;
+  color: ${p => p.theme.colors.text};
+  font: inherit;
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 0.14rem 0.42rem;
+  cursor: pointer;
+  &:hover { border-color: ${p => p.theme.colors.violet}; }
+`;
+
+const VersionStrip = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.3rem 0.1rem 0;
+`;
+
+const VersionChip = styled.button<{ $active?: boolean }>`
+  font: inherit;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid ${p => p.$active ? p.theme.colors.violet : p.theme.colors.border};
+  background: ${p => p.$active ? `${p.theme.colors.violet}22` : p.theme.colors.surface};
+  color: ${p => p.$active ? p.theme.colors.violet : p.theme.colors.textMuted};
+  &:hover { border-color: ${p => p.theme.colors.violet}; color: ${p => p.theme.colors.text}; }
+`;
+
 const TEXTURE_ZONE_COLORS = ['#8B5CF6', '#10B981', '#38BDF8', '#EC4899', '#EF4444', '#14B8A6'];
 
 
@@ -2581,6 +2620,31 @@ const Workspace: React.FC = () => {
   }, [search, textureSourceJobs]);
 
   const railJobs = activeTool === 'texture' ? textureFinishedJobs : filteredJobs;
+
+  // ── Asset lineages ──────────────────────────────────────────────────────
+  // Derivatives (refine/rebuild) are VERSIONS of one asset identity, not new
+  // assets. The rail shows one card per lineage (best/latest version), with
+  // a version strip to reach the others — otherwise every refine would
+  // multiply near-identical cards until nothing is findable.
+  const railLineages = useMemo(() => {
+    const map = new Map<string, Job[]>();
+    for (const j of railJobs) {
+      const root = j.rootJobId || j.id;
+      if (!map.has(root)) map.set(root, []);
+      map.get(root)!.push(j);
+    }
+    return Array.from(map.entries()).map(([rootId, list]) => {
+      const sorted = [...list].sort((a, b) => (b.version ?? 1) - (a.version ?? 1));
+      const rep = sorted.find(j => j.status === 'done' && j.resultUrl) ?? sorted[0];
+      return { rootId, rep, versions: sorted };
+    });
+  }, [railJobs]);
+  const railReps = useMemo(() => railLineages.map(l => l.rep), [railLineages]);
+  const lineageOf = useCallback(
+    (jobId: string) => railLineages.find(l => l.rep.id === jobId),
+    [railLineages],
+  );
+  const [versionStripFor, setVersionStripFor] = useState<string | null>(null);
   const selectedTextureJob = selectedJobId
     ? textureSourceJobs.find(j => j.id === selectedJobId) ?? null
     : null;
@@ -2665,8 +2729,20 @@ const Workspace: React.FC = () => {
     ? `/api/image?key=${encodeURIComponent(selectedThumbKey)}`
     : null;
 
+  // One entry per lineage (latest done version) — same anti-clutter rule
+  // as the asset rail.
+  const textureSourceReps = useMemo(() => {
+    const seen = new Map<string, Job>();
+    for (const j of textureSourceJobs) {
+      const root = j.rootJobId || j.id;
+      const cur = seen.get(root);
+      if (!cur || (j.version ?? 1) > (cur.version ?? 1)) seen.set(root, j);
+    }
+    return textureSourceJobs.filter(j => seen.get(j.rootJobId || j.id)?.id === j.id);
+  }, [textureSourceJobs]);
+
   const textureModelChoices = useMemo(
-    () => textureSourceJobs
+    () => textureSourceReps
       .map(j => {
         const key = j.imageUrl?.includes('/uploads/')
           ? `uploads/${j.imageUrl.split('/uploads/')[1]}`
@@ -2679,7 +2755,7 @@ const Workspace: React.FC = () => {
           thumb: key ? `/api/image?key=${encodeURIComponent(key)}` : '',
         };
       }),
-    [textureSourceJobs],
+    [textureSourceReps],
   );
 
   useEffect(() => {
@@ -3931,7 +4007,7 @@ const Workspace: React.FC = () => {
                 )}
               </>
             )}
-            {!showArchived && railJobs.map(job => {
+            {!showArchived && railReps.map(job => {
               const thumbKey = job.imageUrl?.includes('/uploads/')
                 ? `uploads/${job.imageUrl.split('/uploads/')[1]}`
                 : job.imageUrl;
@@ -3975,7 +4051,7 @@ const Workspace: React.FC = () => {
                   onMouseLeave={() => setHoveredJobId(prev => (prev === job.id ? null : prev))}
                 >
                   <AssetCard
-                    $active={selectedJobId === job.id}
+                    $active={(lineageOf(job.id)?.versions.some(v => v.id === selectedJobId)) ?? (selectedJobId === job.id)}
                     onClick={() => setSelectedJobId(job.id)}
                   >
                     {thumb
@@ -3996,6 +4072,23 @@ const Workspace: React.FC = () => {
                         ? `#${queuePos[job.id]} queue`
                         : job.status}
                     </AssetBadge>
+                    {(() => {
+                      const lin = lineageOf(job.id);
+                      if (!lin || lin.versions.length < 2) return null;
+                      const selectedVer = lin.versions.find(v => v.id === selectedJobId);
+                      const shown = selectedVer ?? lin.rep;
+                      return (
+                        <VersionBadge
+                          title={`${lin.versions.length} versions — click to switch`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            setVersionStripFor(prev => (prev === lin.rootId ? null : lin.rootId));
+                          }}
+                        >
+                          v{shown.version ?? 1} ▾
+                        </VersionBadge>
+                      );
+                    })()}
                     {activeTool !== 'texture' && (job.status === 'pending' || job.status === 'processing' || job.status === 'running') ? (
                       <Tooltip text="Cancel job" placement="left">
                         <CancelJobBtn
@@ -4117,6 +4210,24 @@ const Workspace: React.FC = () => {
                       </div>
                     )}
                     </AssetCard>
+                  {(() => {
+                    const lin = lineageOf(job.id);
+                    if (!lin || versionStripFor !== lin.rootId) return null;
+                    return (
+                      <VersionStrip>
+                        {[...lin.versions].sort((a, b) => (a.version ?? 1) - (b.version ?? 1)).map(v => (
+                          <VersionChip
+                            key={v.id}
+                            $active={selectedJobId === v.id}
+                            title={`${v.versionLabel || (v.version === 1 ? 'original' : `version ${v.version}`)} · ${v.status}`}
+                            onClick={() => setSelectedJobId(v.id)}
+                          >
+                            v{v.version ?? 1}{v.versionLabel ? ` ${v.versionLabel}` : (v.version ?? 1) === 1 ? ' original' : ''}
+                          </VersionChip>
+                        ))}
+                      </VersionStrip>
+                    );
+                  })()}
                   {editingNameId === job.id ? (
                     <AssetNameInput
                       autoFocus

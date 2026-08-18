@@ -552,6 +552,18 @@ export async function initDb(): Promise<void> {
      )`,
     `CREATE INDEX IF NOT EXISTS idx_refine_jobs_pending ON genshape3d_refine_jobs (status, "createdAt") WHERE deleted = false`,
     `CREATE INDEX IF NOT EXISTS idx_refine_jobs_source ON genshape3d_refine_jobs ("sourceJobId", "createdAt" DESC) WHERE deleted = false`,
+
+    // Asset lineage: derivatives (refine/rebuild outputs) are VERSIONS of the
+    // same asset identity, not new assets. rootJobId groups a lineage (a
+    // fresh generation is its own root), version orders it, versionLabel
+    // describes what changed ("refined 20k", "rebuilt"). The UI shows one
+    // card per lineage. All versions remain immutable rows.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "rootJobId" TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "versionLabel" TEXT NOT NULL DEFAULT ''`,
+    `CREATE INDEX IF NOT EXISTS idx_jobs_root ON genshape3d_jobs ("rootJobId") WHERE deleted = false`,
+    // Backfill: every pre-lineage job is its own root.
+    `UPDATE genshape3d_jobs SET "rootJobId" = id WHERE "rootJobId" = ''`,
   ];
   for (const sql of alterCols) await dbQuery(sql);
 

@@ -986,7 +986,17 @@ const SceneEditorInner: React.FC<{ sceneId: string; email: string; initial: Scen
     if (!pickerOpen || pickerJobs !== null) return;
     fetch(`/api/jobs?email=${encodeURIComponent(email)}`)
       .then(r => r.json())
-      .then(d => setPickerJobs((d.jobs || []).filter((j: PickerJob) => j.status === 'done' && j.resultUrl)))
+      .then(d => {
+        const done = (d.jobs || []).filter((j: any) => j.status === 'done' && j.resultUrl);
+        // One entry per asset lineage — show the latest version only.
+        const best = new Map<string, any>();
+        for (const j of done) {
+          const root = j.rootJobId || j.id;
+          const cur = best.get(root);
+          if (!cur || (j.version ?? 1) > (cur.version ?? 1)) best.set(root, j);
+        }
+        setPickerJobs([...best.values()]);
+      })
       .catch(() => setPickerJobs([]));
   }, [pickerOpen, pickerJobs, email]);
 
