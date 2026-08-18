@@ -1117,6 +1117,8 @@ app.post('/api/refine', async (req, res) => {
     fillHoles: ops.fillHoles !== false,
     smooth: Math.max(0, Math.min(20, parseInt(ops.smooth) || 0)),
     keepFrac: 0.02,
+    // true = Poisson surface rebuild (discard original topology entirely)
+    rebuild: ops.rebuild === true,
   };
   try {
     const id = randomUUID();

@@ -2012,6 +2012,7 @@ const Workspace: React.FC = () => {
   const [refineTargetFaces, setRefineTargetFaces] = useState(0);
   const [refineFillHoles, setRefineFillHoles] = useState(true);
   const [refineSmooth, setRefineSmooth] = useState(false);
+  const [refineRebuild, setRefineRebuild] = useState(false);
   const [refineSubmitting, setRefineSubmitting] = useState(false);
   const [textureViewJobId, setTextureViewJobId] = useState<string | null>(null);
   const [textureJobsRefresh, setTextureJobsRefresh] = useState(0);
@@ -2811,6 +2812,7 @@ const Workspace: React.FC = () => {
             targetFaces: refineTargetFaces,
             fillHoles: refineFillHoles,
             smooth: refineSmooth ? 5 : 0,
+            rebuild: refineRebuild,
           },
         }),
       });
@@ -3182,8 +3184,16 @@ const Workspace: React.FC = () => {
                   <Field>
                     <FieldLabel>
                       Refine
-                      <Tooltip text="Repairs the mesh (weld vertices, remove floating fragments and degenerate faces, fill holes, fix normals) and optionally rebuilds it at a lower face count. Produces a NEW clean asset — the original is untouched. Textures are dropped; run Material on the refined mesh after." multiline maxWidth={270}><FieldHint>?</FieldHint></Tooltip>
+                      <Tooltip text="Produces a NEW clean asset — the original is untouched. Textures are dropped; run Material on the refined mesh after." multiline maxWidth={270}><FieldHint>?</FieldHint></Tooltip>
                     </FieldLabel>
+                    <Segmented>
+                      <Tooltip text="Fix the existing topology: weld vertices, remove floating fragments and degenerate faces, fill holes, fix normals. Keeps the original surface detail." multiline maxWidth={260}>
+                        <SegmentedBtn $active={!refineRebuild} onClick={() => setRefineRebuild(false)}>Repair</SegmentedBtn>
+                      </Tooltip>
+                      <Tooltip text="TRUE retopology: discard the topology entirely and reconstruct the surface from scratch (Poisson). Use when the mesh is too broken to fix — selection-blocking tangles, shredded areas. Slightly softens fine detail." multiline maxWidth={260}>
+                        <SegmentedBtn $active={refineRebuild} onClick={() => setRefineRebuild(true)}>Rebuild</SegmentedBtn>
+                      </Tooltip>
+                    </Segmented>
                     <Segmented>
                       {([[0, 'Keep faces'], [20000, '20k'], [40000, '40k'], [80000, '80k']] as const).map(([v, label]) => (
                         <SegmentedBtn key={v} $active={refineTargetFaces === v} onClick={() => setRefineTargetFaces(v)}>

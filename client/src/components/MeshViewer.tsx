@@ -35,6 +35,18 @@ const disposeMaterial = (m: THREE.Material): void => {
   m.dispose();
 };
 
+// Generated GLBs frequently ship materials flagged doubleSided and/or
+// transparent (side effects of the OBJ->GLB conversion). Double-sided +
+// blend breaks depth ordering while orbiting — faces from the hidden side
+// bleed through. Force sane opaque front-side rendering; meshes with
+// genuine alpha keep their transparency.
+function normalizeMaterial(m: THREE.Material) {
+  m.side = THREE.FrontSide;
+  if (m.transparent && m.opacity >= 1) m.transparent = false;
+  m.depthWrite = true;
+  m.needsUpdate = true;
+}
+
 // Apply a view mode to a single mesh. origMaterial must already be stored.
 function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
   const orig = (mesh as any).__origMaterial;
@@ -52,6 +64,8 @@ function applyMode(mesh: THREE.Mesh, mode: ViewMode) {
     mesh.material = new THREE.MeshStandardMaterial({ color: 0xd0d0d0, roughness: 0.8, metalness: 0 });
   } else {
     mesh.material = orig;
+    const mats = Array.isArray(orig) ? orig : [orig];
+    mats.forEach((m: THREE.Material) => { if (m) normalizeMaterial(m); });
   }
 }
 
