@@ -149,7 +149,9 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
     controls.maxDistance    = 20;
     controls.autoRotate     = autoRotateRef.current;
     controls.autoRotateSpeed = 0.8;
-    controls.enabled = !selectionOptionsRef.current.enabled;
+    if (selectionOptionsRef.current.enabled) {
+      controls.mouseButtons = { LEFT: null as any, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
+    }
     controlsRef.current = controls;
 
     const selection = createMeshSelectionController(
@@ -271,9 +273,17 @@ const MeshViewer: React.FC<MeshViewerProps> = ({ url, viewMode, wireframe = fals
   }, [meshSelection]);
 
   useEffect(() => {
-    // Selection mode owns pointer clicks; view mode gives control back to orbit.
+    // Selection mode owns the LEFT button only — zoom (wheel), orbit (MMB)
+    // and pan (RMB) must keep working while picking faces. The old code
+    // disabled the whole OrbitControls object, which killed zoom too.
     const selection = selectionOptionsRef.current;
-    if (controlsRef.current) controlsRef.current.enabled = !selection.enabled;
+    const controls = controlsRef.current;
+    if (controls) {
+      controls.enabled = true;
+      controls.mouseButtons = selection.enabled
+        ? { LEFT: null as any, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN }
+        : { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    }
     const canvas = mountRef.current?.querySelector('canvas');
     if (canvas) canvas.style.cursor = selection.enabled ? 'crosshair' : '';
   }, [meshSelection]);
