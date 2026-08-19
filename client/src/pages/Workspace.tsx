@@ -775,8 +775,6 @@ const MODEL_OPTIONS: DropdownOption<ModelId>[] = [
   { value: 'hunyuan3d',     label: 'Hunyuan3D-2',     hint: 'default · i7 / GTX 1080' },
   { value: 'hunyuan3d-2-1', label: 'Hunyuan3D-2.1',   hint: 'PBR materials · 3090 / RTX 3090' },
   { value: 'trellis2',      label: 'TRELLIS.2',        hint: 'best quality · native PBR · 3090' },
-  { value: 'triposr',       label: 'TripoSR',          hint: 'fast · 3090 / RTX 3090' },
-  { value: 'sf3d',          label: 'Stable Fast 3D',   hint: 'fast · 3090 / RTX 3090' },
   { value: 'hi3dgen',       label: 'Hi3DGen',          hint: 'high detail · 3090 / RTX 3090' },
 ];
 

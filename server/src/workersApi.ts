@@ -191,7 +191,7 @@ export function mountWorkersApi(app: Express): void {
     // worker box? Add it here AND wire it into routeWorker().
     const KNOWN: Array<{ id: string; models: string[]; capacity: number }> = [
       { id: 'i7-1080', models: ['hunyuan3d'],                                 capacity: 1 },
-      { id: 'win-3090', models: ['hunyuan3d', 'hunyuan3d-2-1', 'trellis2', 'triposr', 'sf3d', 'hi3dgen'],  capacity: 1 },
+      { id: 'win-3090', models: ['hunyuan3d', 'hunyuan3d-2-1', 'trellis2', 'hi3dgen'],  capacity: 1 },
     ];
 
     // Live busy counts + last activity from Postgres.
