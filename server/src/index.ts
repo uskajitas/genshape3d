@@ -1496,6 +1496,33 @@ app.delete('/api/jobs/:id', async (req, res) => {
   }
 });
 
+// Model thumbnail — the client renders the GLB offscreen after generation
+// and posts a PNG snapshot here. Stored once in R2; every jobs list from
+// then on carries thumbUrl. Idempotent: re-posting replaces the thumb.
+app.post('/api/jobs/:id/thumbnail', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const dataUrl = String(req.body?.dataUrl || '');
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const m = /^data:image\/(png|jpeg);base64,(.+)$/.exec(dataUrl);
+  if (!m) return res.status(400).json({ error: 'dataUrl must be a base64 png/jpeg' });
+  try {
+    const job = await getJobById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (job.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 2 * 1024 * 1024) return res.status(413).json({ error: 'thumbnail too large' });
+    // store the R2 KEY (not the full URL) so /api/image?key=… can serve it
+    const uploaded = await uploadToR2(buf, `thumb-${job.id}.${m[1] === 'png' ? 'png' : 'jpg'}`, `image/${m[1]}`);
+    const key = (uploaded as any).key || uploaded.url;
+    await dbQuery(`UPDATE genshape3d_jobs SET "thumbUrl"=$1, "updatedAt"=NOW() WHERE id=$2`, [key, job.id]);
+    res.json({ ok: true, thumbUrl: key });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.patch('/api/jobs/:id/name', async (req, res) => {
   const { name } = req.body as { name?: string };
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });

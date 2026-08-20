@@ -215,6 +215,8 @@ export async function initDb(): Promise<void> {
     // Smart Mesh: worker auto-queues a rebuild+bake refine when the
     // generation completes (ugen3d's Smart Mesh tab sets this).
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "autoRefine" BOOLEAN NOT NULL DEFAULT false`,
+    // Model thumbnail (rendered client-side after generation, stored in R2)
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "thumbUrl" TEXT NOT NULL DEFAULT ''`,
     // Soft-delete: never drop a row that took GPU time. Hide from listings
     // when "deleted" = true.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,
