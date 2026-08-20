@@ -1019,6 +1019,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       detailLevel:      req.body.detailLevel   || 'Standard',
       doTexture:        req.body.doTexture === 'true' || req.body.doTexture === true,
       useMultiView:     req.body.useMultiView === 'true' || req.body.useMultiView === true,
+      autoRefine:       req.body.autoRefine === 'true' || req.body.autoRefine === true,
       octreeResolution: parseInt(req.body.octreeResolution) || 0,
       targetFaceCount:  parseInt(req.body.targetFaceCount)  || 0,
       inferenceSteps:   parseInt(req.body.inferenceSteps)   || 0,

@@ -212,6 +212,9 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "guidanceScale"    REAL NOT NULL DEFAULT 0`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "numChunks"        INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS seed               INTEGER NOT NULL DEFAULT 0`,
+    // Smart Mesh: worker auto-queues a rebuild+bake refine when the
+    // generation completes (ugen3d's Smart Mesh tab sets this).
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "autoRefine" BOOLEAN NOT NULL DEFAULT false`,
     // Soft-delete: never drop a row that took GPU time. Hide from listings
     // when "deleted" = true.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,

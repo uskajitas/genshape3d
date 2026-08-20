@@ -109,6 +109,8 @@ export async function createJob(data: {
    *  before the 3D step (if the subject is upright). When false, the
    *  worker skips auto-mv even if it otherwise would. */
   useMultiView?: boolean;
+  /** Smart Mesh: worker auto-queues a rebuild+bake refine on completion. */
+  autoRefine?: boolean;
   /** Asset group this job belongs to (null = ungrouped). Used to organize
    *  stylistically-related batches like spaceship fleets / chess sets. */
   groupId?: string | null;
@@ -122,8 +124,8 @@ export async function createJob(data: {
       (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl", "createdAt", "updatedAt",
        "polygonBudget", "textureRes", "exportFormat", "detailLevel", "doTexture",
        "octreeResolution", "targetFaceCount", "inferenceSteps", "guidanceScale", "numChunks", seed,
-       model, "preferredWorkerId", "auxImageUrls", "useMultiView", "groupId", "isBenchmark")
-     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23,$24,$25) RETURNING *`,
+       model, "preferredWorkerId", "auxImageUrls", "useMultiView", "groupId", "isBenchmark", "autoRefine")
+     VALUES ($1,$2,$3,$4,$5,$6,'pending','',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23,$24,$25,$26) RETURNING *`,
     [
       randomUUID(), data.userEmail, data.imageUrl,
       data.name || '',
@@ -145,6 +147,7 @@ export async function createJob(data: {
       data.useMultiView ?? false,
       data.groupId       ?? null,
       data.isBenchmark   ?? false,
+      data.autoRefine    ?? false,
     ]
   );
   return rows[0];
