@@ -1551,6 +1551,42 @@ app.delete('/api/jobs/:id', async (req, res) => {
 // Model thumbnail — the client renders the GLB offscreen after generation
 // and posts a PNG snapshot here. Stored once in R2; every jobs list from
 // then on carries thumbUrl. Idempotent: re-posting replaces the thumb.
+// Segmentation — parts + RLE-encoded per-face part map from the Segment
+// tool. Foundation for per-part texturing.
+app.get('/api/jobs/:id/segmentation', async (req, res) => {
+  try {
+    const job = await getJobById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    res.json({ segmentation: (job as any).segmentation || {} });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/jobs/:id/segmentation', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const seg = req.body?.segmentation;
+  if (!seg || !Array.isArray(seg.parts) || !Array.isArray(seg.rle)) {
+    return res.status(400).json({ error: 'segmentation {parts[], rle[]} required' });
+  }
+  if (JSON.stringify(seg).length > 4 * 1024 * 1024) {
+    return res.status(413).json({ error: 'segmentation too large' });
+  }
+  try {
+    const job = await getJobById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (job.userEmail !== email && !(await isAdmin(email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    await dbQuery(`UPDATE genshape3d_jobs SET segmentation=$1, "updatedAt"=NOW() WHERE id=$2`,
+      [JSON.stringify(seg), job.id]);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/jobs/:id/thumbnail', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const dataUrl = String(req.body?.dataUrl || '');
