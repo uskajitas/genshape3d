@@ -39,6 +39,16 @@ export async function uploadToR2(
   return { key, url: `${publicUrl}/${key}` };
 }
 
+// Presigned GET — lets browsers fetch objects DIRECTLY from R2/Cloudflare
+// edge instead of streaming every byte through this server's tunnel
+// (~100KB/s under load). 1h expiry; callers re-list to refresh.
+export async function presignR2Get(key: string, expiresIn = 3600): Promise<string> {
+  const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+  const bucket = process.env.R2_BUCKET || 'genshape3d';
+  // Cast: presigner's bundled smithy types lag the s3 client's — same wire shape.
+  return getSignedUrl(getS3() as any, new GetObjectCommand({ Bucket: bucket, Key: key }) as any, { expiresIn });
+}
+
 export async function getR2Stream(key: string) {
   const bucket = process.env.R2_BUCKET || 'genshape3d';
   const result = await getS3().send(new GetObjectCommand({ Bucket: bucket, Key: key }));

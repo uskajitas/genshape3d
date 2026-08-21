@@ -46,7 +46,7 @@ import {
   listAppUsers, setUserRole, deductCredit,
   isAdminEmail, isAdmin, UserRole,
 } from './usersRepo';
-import { uploadToR2, getR2Stream } from './r2';
+import { uploadToR2, getR2Stream, presignR2Get } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
 import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
@@ -627,7 +627,13 @@ app.get('/api/text2image/assets', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'email required' });
   try {
     const assets = await listAssetsByUser(email);
-    res.json({ assets });
+    // signedUrl: direct-from-R2 image URL (edge-served) so clients skip the
+    // slow tunnel streaming path. Signing is local crypto — effectively free.
+    const signed = await Promise.all(assets.map(async (a) => ({
+      ...a,
+      signedUrl: a.imageKey ? await presignR2Get(a.imageKey).catch(() => '') : '',
+    })));
+    res.json({ assets: signed });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
@@ -1048,7 +1054,13 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
 app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
-  res.json({ jobs: await getJobsByUser(email) });
+  const jobs = await getJobsByUser(email);
+  // Edge-served URLs so thumbnails and GLB downloads skip the tunnel.
+  const signed = await Promise.all(jobs.map(async (j: any) => ({
+    ...j,
+    thumbSignedUrl: j.thumbUrl ? await presignR2Get(j.thumbUrl).catch(() => '') : '',
+  })));
+  res.json({ jobs: signed });
 });
 
 app.get('/api/textures', async (req, res) => {

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<!-- DEV-ONLY thumbnail backfill — renders job GLBs and POSTs snapshots to
+     /api/jobs/:id/thumbnail through the vite proxy. Not committed. -->
+<html>
+<head><meta charset="utf-8"><title>thumb backfill</title></head>
+<body style="background:#08090d;color:#8f8">
+<pre id="log">backfill ready</pre>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const log = m => { document.getElementById('log').textContent += '\n' + m; };
+
+async function renderThumb(url, size = 384) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(size, size);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.4;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x171b26);
+  const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 200);
+  scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+  const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(2.5, 3, 2.5); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x66d9ff, 1.0); rim.position.set(-3, 1.5, -2); scene.add(rim);
+  const gltf = await new GLTFLoader().loadAsync(url);
+  const obj = gltf.scene;
+  obj.traverse(n => {
+    if (n.isMesh) {
+      if (!n.geometry.getAttribute('normal')) n.geometry.computeVertexNormals();
+      const m = n.material;
+      if (m && !m.map && !m.vertexColors) {
+        n.material = new THREE.MeshStandardMaterial({ color: 0x9aa4bd, roughness: 0.62, metalness: 0.08 });
+      }
+    }
+  });
+  const box = new THREE.Box3().setFromObject(obj);
+  obj.position.sub(box.getCenter(new THREE.Vector3()));
+  scene.add(obj);
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const dist = (sphere.radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * 0.96;
+  camera.position.set(0.72, 0.38, 1).normalize().multiplyScalar(dist);
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  const dataUrl = renderer.domElement.toDataURL('image/png');
+  renderer.dispose();
+  return dataUrl;
+}
+
+window.backfill = async function (items, email) {
+  let ok = 0, err = 0;
+  for (const it of items) {
+    try {
+      const dataUrl = await renderThumb('/api/mesh?key=' + encodeURIComponent(it.url));
+      const r = await fetch(`/api/jobs/${it.id}/thumbnail`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, dataUrl }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      ok++; log(`${ok + err}/${items.length} ok ${it.name || it.id.slice(0, 8)}`);
+    } catch (e) {
+      err++; log(`${ok + err}/${items.length} ERR ${it.name || it.id.slice(0, 8)}: ${e.message}`);
+    }
+  }
+  log(`DONE ok=${ok} err=${err}`);
+  document.title = 'BACKFILL-DONE';
+  return { ok, err };
+};
+log('module loaded');
+</script>
+</body>
+</html>
