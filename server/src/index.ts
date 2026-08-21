@@ -1066,6 +1066,7 @@ app.get('/api/jobs', async (req, res) => {
     ...j,
     thumbSignedUrl: j.thumbUrl ? await presignR2Get(toKey(j.thumbUrl)).catch(() => '') : '',
     resultSignedUrl: j.resultUrl ? await presignR2Get(toKey(j.resultUrl)).catch(() => '') : '',
+    previewSignedUrl: j.previewUrl ? await presignR2Get(toKey(j.previewUrl)).catch(() => '') : '',
   })));
   res.json({ jobs: signed });
 });

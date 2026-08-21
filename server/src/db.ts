@@ -217,6 +217,8 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "autoRefine" BOOLEAN NOT NULL DEFAULT false`,
     // Model thumbnail (rendered client-side after generation, stored in R2)
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "thumbUrl" TEXT NOT NULL DEFAULT ''`,
+    // Streaming preview GLB (JPEG textures + meshopt) built by the worker
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "previewUrl" TEXT NOT NULL DEFAULT ''`,
     // Soft-delete: never drop a row that took GPU time. Hide from listings
     // when "deleted" = true.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,
