@@ -1233,6 +1233,73 @@ app.delete('/api/refine/:id', async (req, res) => {
   }
 });
 
+// ── Part segmentation jobs ───────────────────────────────────────────────────
+// PartField semantic part segmentation of a generated mesh. Runs on the 3090
+// worker (direct DB polling, same as refine jobs). One segmentation per source
+// model: POST returns the existing live job for a source unless force=true.
+
+app.post('/api/segment', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const sourceJobId = String(req.body?.sourceJobId || '').trim();
+  if (!sourceJobId) return res.status(400).json({ error: 'sourceJobId required' });
+
+  const source = await getJobById(sourceJobId);
+  if (!source) return res.status(404).json({ error: 'source job not found' });
+  if (source.status !== 'done' || !source.resultUrl) {
+    return res.status(409).json({ error: 'source model is not ready' });
+  }
+  if (source.userEmail !== email && !(await isAdmin(email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  try {
+    // Reuse a live (pending/processing/done) job for this source unless the
+    // caller explicitly wants a re-run — segmentation is deterministic-ish
+    // and costs GPU time, so duplicates are pure waste.
+    if (req.body?.force !== true) {
+      const { rows: existing } = await dbQuery(
+        `SELECT * FROM genshape3d_segment_jobs
+         WHERE "sourceJobId" = $1 AND deleted = false AND status IN ('pending', 'processing', 'done')
+         ORDER BY "createdAt" DESC LIMIT 1`,
+        [sourceJobId],
+      );
+      if (existing[0]) return res.json({ segmentJob: existing[0], reused: true });
+    }
+    const id = randomUUID();
+    const { rows } = await dbQuery(
+      `INSERT INTO genshape3d_segment_jobs
+         (id, "userEmail", "sourceJobId", "sourceModelUrl", options)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [id, email, source.id, source.resultUrl, JSON.stringify(req.body?.options || {})],
+    );
+    res.json({ segmentJob: rows[0] });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/segment', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const sourceJobId = String(req.query.sourceJobId || '').trim();
+  try {
+    const { rows } = await dbQuery(
+      sourceJobId
+        ? `SELECT * FROM genshape3d_segment_jobs
+           WHERE "userEmail" = $1 AND "sourceJobId" = $2 AND deleted = false
+           ORDER BY "createdAt" DESC`
+        : `SELECT * FROM genshape3d_segment_jobs
+           WHERE "userEmail" = $1 AND deleted = false
+           ORDER BY "createdAt" DESC LIMIT 50`,
+      sourceJobId ? [email, sourceJobId] : [email],
+    );
+    res.json({ segmentJobs: rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Delete (soft) a texture variant — owner or admin only.
 app.delete('/api/textures/:id', async (req, res) => {
   const email = String(req.query.email || '').trim();

@@ -562,6 +562,35 @@ export async function initDb(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_refine_jobs_pending ON genshape3d_refine_jobs (status, "createdAt") WHERE deleted = false`,
     `CREATE INDEX IF NOT EXISTS idx_refine_jobs_source ON genshape3d_refine_jobs ("sourceJobId", "createdAt" DESC) WHERE deleted = false`,
 
+    // Part segmentation jobs: PartField (learned feature field) on the 3090
+    // worker. Output is a canonical re-exported GLB ("meshUrl" — the client
+    // MUST render this file, its face order is the label space) plus a
+    // labels JSON in R2 ("labelsUrl") holding per-face part labels at every
+    // granularity K, RLE-encoded in the same format the segment tool
+    // already persists to genshape3d_jobs.segmentation.
+    `CREATE TABLE IF NOT EXISTS genshape3d_segment_jobs (
+       id                 TEXT PRIMARY KEY,
+       "userEmail"        TEXT NOT NULL,
+       "sourceJobId"      TEXT NOT NULL REFERENCES genshape3d_jobs(id),
+       "sourceModelUrl"   TEXT NOT NULL,
+       options            JSONB NOT NULL DEFAULT '{}'::jsonb,
+       status             TEXT NOT NULL DEFAULT 'pending',
+       "meshUrl"          TEXT NOT NULL DEFAULT '',
+       "labelsUrl"        TEXT NOT NULL DEFAULT '',
+       "faceCount"        INTEGER NOT NULL DEFAULT 0,
+       "errorMessage"     TEXT NOT NULL DEFAULT '',
+       "progressPct"      INTEGER NOT NULL DEFAULT 0,
+       "progressPhase"    TEXT NOT NULL DEFAULT '',
+       "assignedWorkerId" TEXT NOT NULL DEFAULT '',
+       "createdAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "updatedAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       "startedAt"        TIMESTAMPTZ DEFAULT NULL,
+       "completedAt"      TIMESTAMPTZ DEFAULT NULL,
+       deleted            BOOLEAN NOT NULL DEFAULT false
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_segment_jobs_pending ON genshape3d_segment_jobs (status, "createdAt") WHERE deleted = false`,
+    `CREATE INDEX IF NOT EXISTS idx_segment_jobs_source ON genshape3d_segment_jobs ("sourceJobId", "createdAt" DESC) WHERE deleted = false`,
+
     // Asset lineage: derivatives (refine/rebuild outputs) are VERSIONS of the
     // same asset identity, not new assets. rootJobId groups a lineage (a
     // fresh generation is its own root), version orders it, versionLabel
