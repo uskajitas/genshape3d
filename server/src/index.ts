@@ -209,7 +209,7 @@ const BG_CLAUSE: Record<string, string> = {
 // also injects the COMPETING angles into the negative prompt (VIEW_NEGATIVE).
 const VIEW_CLAUSE: Record<string, string> = {
   front:   'strict front view, the subject directly facing the camera head-on, fully frontal and symmetrical, camera at eye level',
-  three_q: 'three-quarter view (3/4 view), the subject rotated about 45 degrees toward one side so BOTH its front and one side face the camera at the same time, the front of the subject clearly still visible but angled — the classic 3/4 product-shot angle, halfway between a straight-on front and a full side profile',
+  three_q: 'three-quarter view (3/4 view), the subject rotated about 45 degrees toward one side so BOTH its front and one side face the camera at the same time, the front of the subject clearly still visible but angled — the classic 3/4 product-shot angle, halfway between a straight-on front and a full side profile; for characters and creatures: FACING TOWARD the camera turned 45 degrees, face and chest fully visible, absolutely never seen from behind or over the shoulder',
   side:    'strict side profile view, the subject turned to face fully sideways (90 degrees), camera perpendicular to the subject so only one side is visible — NOT front-facing and NOT a 3/4 angle',
   back:    'strict back view, camera directly behind the subject, only the back is visible',
   top:     'strict top-down view, camera looking straight down from directly above the subject',
@@ -221,7 +221,7 @@ const VIEW_CLAUSE: Record<string, string> = {
 // negative prompt so the model doesn't fall back to its front-facing default.
 const VIEW_NEGATIVE: Record<string, string> = {
   front:   'three-quarter view, 3/4 view, side profile, back view, top-down view',
-  three_q: 'front-facing, head-on frontal view, flat side profile, back view, top-down view',
+  three_q: 'front-facing, head-on frontal view, flat side profile, back view, seen from behind, over-the-shoulder view, back turned to camera, top-down view',
   side:    'front-facing, head-on frontal view, three-quarter view, 3/4 view, back view, top-down view',
   back:    'front-facing, three-quarter view, side profile, top-down view',
   top:     'front view, side view, eye-level view',
