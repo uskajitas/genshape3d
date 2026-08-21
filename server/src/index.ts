@@ -1175,14 +1175,23 @@ app.post('/api/refine', async (req, res) => {
     keepFrac: 0.02,
     // true = Poisson surface rebuild (discard original topology entirely)
     rebuild: ops.rebuild === true,
+    // part-scoped cleanup: remesh only one part's faces. partRle is the
+    // face->part RLE from the segment tool; it refers to the canonical
+    // segmented GLB, which the caller passes as sourceModelUrl.
+    ...(Array.isArray(ops.partRle) && ops.partRle.length
+      ? { partRle: ops.partRle, partIndex: Math.max(0, parseInt(ops.partIndex) || 0) }
+      : {}),
   };
+  const sourceModelUrl =
+    (typeof req.body?.sourceModelUrl === 'string' && req.body.sourceModelUrl.trim()) ||
+    source.resultUrl;
   try {
     const id = randomUUID();
     const { rows } = await dbQuery(
       `INSERT INTO genshape3d_refine_jobs
          (id, "userEmail", "sourceJobId", "sourceModelUrl", operations)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [id, email, source.id, source.resultUrl, JSON.stringify(operations)],
+      [id, email, source.id, sourceModelUrl, JSON.stringify(operations)],
     );
     res.json({ refineJob: rows[0] });
   } catch (e: any) {
