@@ -1056,9 +1056,16 @@ app.get('/api/jobs', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'email required' });
   const jobs = await getJobsByUser(email);
   // Edge-served URLs so thumbnails and GLB downloads skip the tunnel.
+  const toKey = (u: string) => {
+    if (!u.startsWith('http')) return u;
+    const marker = `/${process.env.R2_BUCKET || 'genshape3d'}/`;
+    const idx = u.indexOf(marker);
+    return idx === -1 ? u : u.slice(idx + marker.length);
+  };
   const signed = await Promise.all(jobs.map(async (j: any) => ({
     ...j,
-    thumbSignedUrl: j.thumbUrl ? await presignR2Get(j.thumbUrl).catch(() => '') : '',
+    thumbSignedUrl: j.thumbUrl ? await presignR2Get(toKey(j.thumbUrl)).catch(() => '') : '',
+    resultSignedUrl: j.resultUrl ? await presignR2Get(toKey(j.resultUrl)).catch(() => '') : '',
   })));
   res.json({ jobs: signed });
 });
