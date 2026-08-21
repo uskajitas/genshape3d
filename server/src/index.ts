@@ -116,6 +116,23 @@ app.get('/api/image', async (req, res) => {
   }
 });
 
+app.get('/files/:name', async (req, res) => {
+  const m = /^([A-Za-z0-9_-]+)\.(bin|jpg|glb)$/.exec(req.params.name || '');
+  if (!m) return res.status(400).json({ error: 'bad name' });
+  let key = '';
+  try { key = Buffer.from(m[1], 'base64url').toString('utf8'); }
+  catch { return res.status(400).json({ error: 'bad name' }); }
+  try {
+    const obj = await getR2Stream(key);
+    res.setHeader('Content-Type', m[2] === 'jpg' ? 'image/jpeg' : 'model/gltf-binary');
+    // immutable — R2 keys are content-unique; lets Cloudflare edge-cache it
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    (obj.Body as any).pipe(res);
+  } catch {
+    res.status(404).json({ error: 'not found' });
+  }
+});
+
 app.get('/api/mesh', async (req, res) => {
   let key = req.query.key as string;
   if (!key) return res.status(400).json({ error: 'key required' });
@@ -1067,6 +1084,11 @@ app.get('/api/jobs', async (req, res) => {
     thumbSignedUrl: j.thumbUrl ? await presignR2Get(toKey(j.thumbUrl)).catch(() => '') : '',
     resultSignedUrl: j.resultUrl ? await presignR2Get(toKey(j.resultUrl)).catch(() => '') : '',
     previewSignedUrl: j.previewUrl ? await presignR2Get(toKey(j.previewUrl)).catch(() => '') : '',
+    // Cloudflare-edge-cacheable path (no bucket CORS needed): first fetch
+    // streams once through the tunnel, then it's cached at the edge.
+    previewFileUrl: j.previewUrl
+      ? `https://api.genshape3d.com/files/${Buffer.from(toKey(j.previewUrl)).toString('base64url')}.bin`
+      : '',
   })));
   res.json({ jobs: signed });
 });
