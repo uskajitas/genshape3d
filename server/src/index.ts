@@ -1089,6 +1089,9 @@ app.get('/api/jobs', async (req, res) => {
     previewFileUrl: j.previewUrl
       ? `https://api.genshape3d.com/files/${Buffer.from(toKey(j.previewUrl)).toString('base64url')}.bin`
       : '',
+    thumbFileUrl: j.thumbUrl
+      ? `https://api.genshape3d.com/files/${Buffer.from(toKey(j.thumbUrl)).toString('base64url')}.jpg`
+      : '',
   })));
   res.json({ jobs: signed });
 });
