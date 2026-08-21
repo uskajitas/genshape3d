@@ -268,6 +268,9 @@ const SCALE_CLAUSE: Record<string, string> = {
 const STYLE_CLAUSE: Record<string, string> = {
   photoreal: 'studio product photography, photorealistic, in full natural colour, richly coloured with realistic material colours and finishes, tack sharp, crisp edges, high detail, 8k resolution',
   clay:      'matte clay render, smooth neutral surface, even lighting, sharp edges, crisp',
+  // hard-surface template: engineered/man-made subjects need straight
+  // parallel edges and undistorted flat faces or the 3D step reproduces wobble
+  product:   'clean studio product render of a man-made object, perfectly straight parallel edges, flat undistorted surfaces, precise engineered geometry, uniform diffuse lighting, no lens distortion, no perspective warp, tack sharp, high detail',
   neutral:   'flat shaded neutral material, no textures, even lighting, sharp, crisp',
   toon:      'toon-shaded 3D model render, clean cel shading, vibrant saturated colours, crisp outlines, sharp',
   none:      '',
