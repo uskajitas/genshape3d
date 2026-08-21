@@ -65,9 +65,16 @@ import {
 const app = express();
 const port = process.env.PORT || 8110;
 const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
+// ugen3d loads heavy assets (GLBs, images) DIRECTLY from this API instead of
+// relaying them through its own server — halves the tunnel bandwidth per
+// model. Keep this list in sync with the ugen3d client's G3D_DIRECT base.
+const allowedOrigins = [clientOrigin, 'https://ugen3d.com', 'http://localhost:3230'];
 
 app.use(cors({
-  origin: clientOrigin,
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(null, false);
+  },
   credentials: true,
   // Expose the X-Final-Prompt / X-Seed headers from /api/text2image so the
   // browser can read them to display the composed prompt in the UI.
