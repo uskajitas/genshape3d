@@ -1666,6 +1666,57 @@ app.post('/api/jobs/:id/segmentation', async (req, res) => {
   }
 });
 
+// Materialize — register a client-baked GLB (per-part PBR materials, and/or
+// textures) as a NEW VERSION of an asset lineage. The Segment tool exports
+// the GLB with three's GLTFExporter and POSTs the bytes here; we store it in
+// R2 and insert a derivative genshape3d_jobs row (model 'materials'), exactly
+// like the refine worker does for cleaned meshes. Source is never modified.
+app.post('/api/jobs/:id/materialize',
+  express.raw({ type: 'model/gltf-binary', limit: '96mb' }),
+  async (req, res) => {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const bytes = req.body as Buffer;
+    if (!Buffer.isBuffer(bytes) || bytes.length < 20) {
+      return res.status(400).json({ error: 'GLB body required (model/gltf-binary)' });
+    }
+    try {
+      const source = await getJobById(req.params.id);
+      if (!source) return res.status(404).json({ error: 'source job not found' });
+      if (source.userEmail !== email && !(await isAdmin(email))) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      const { url: resultUrl } = await uploadToR2(bytes, 'materials.glb', 'model/gltf-binary');
+
+      const rootJobId = (source as any).rootJobId || source.id;
+      const { rows: verRows } = await dbQuery(
+        `SELECT COALESCE(MAX(version), 1) + 1 AS next FROM genshape3d_jobs WHERE "rootJobId" = $1`,
+        [rootJobId],
+      );
+      const nextVersion = verRows[0]?.next || 2;
+      const newId = randomUUID();
+      const { rows } = await dbQuery(
+        `INSERT INTO genshape3d_jobs
+           (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl",
+            "createdAt", "updatedAt", "startedAt", "completedAt",
+            model, "assignedWorkerId", "doTexture", "progressPct", "progressPhase",
+            "rootJobId", version, "versionLabel", "thumbUrl")
+         VALUES ($1,$2,$3,$4,$5,'Realistic','done',$6, NOW(),NOW(),NOW(),NOW(),
+                 'materials','', false, 100,'done', $7,$8,'materials',$9)
+         RETURNING *`,
+        [
+          newId, email, (source as any).imageUrl || '', source.name || 'Model',
+          (source as any).prompt || '', resultUrl, rootJobId, nextVersion,
+          (source as any).thumbUrl || '',
+        ],
+      );
+      res.json({ job: rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 app.post('/api/jobs/:id/thumbnail', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const dataUrl = String(req.body?.dataUrl || '');
