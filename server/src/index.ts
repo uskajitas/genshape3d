@@ -1873,6 +1873,43 @@ app.post('/api/jobs/:id/thumbnail', async (req, res) => {
   }
 });
 
+// Organisation tags — flat, multi-assign, lowercase-trimmed. "a/b" renders
+// as category/subcategory in the Assets page. Same shape for jobs and images.
+const cleanTags = (raw: any): string[] =>
+  (Array.isArray(raw) ? raw : [])
+    .map((t) => String(t).trim().toLowerCase().slice(0, 40))
+    .filter(Boolean)
+    .filter((t, i, a) => a.indexOf(t) === i)
+    .slice(0, 12);
+
+app.patch('/api/jobs/:id/tags', async (req, res) => {
+  try {
+    const tags = cleanTags(req.body?.tags);
+    const { rows } = await dbQuery(
+      `UPDATE genshape3d_jobs SET tags = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING id, tags`,
+      [tags, req.params.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'job not found' });
+    res.json({ ok: true, tags: rows[0].tags });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/text2image/assets/:id/tags', async (req, res) => {
+  try {
+    const tags = cleanTags(req.body?.tags);
+    const { rows } = await dbQuery(
+      `UPDATE genshape3d_text2image_assets SET tags = $1 WHERE id = $2 RETURNING id, tags`,
+      [tags, req.params.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'asset not found' });
+    res.json({ ok: true, tags: rows[0].tags });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.patch('/api/jobs/:id/name', async (req, res) => {
   const { name } = req.body as { name?: string };
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
