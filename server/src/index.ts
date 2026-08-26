@@ -1829,7 +1829,10 @@ app.post('/api/jobs/:id/materialize',
                  $10,'', false, 100,'done', $7,$8,$10,$9)
          RETURNING *`,
         [
-          newId, email, (source as any).imageUrl || '', source.name || 'Model',
+          newId, email, (source as any).imageUrl || '',
+          // caller can christen the new version (Rig tool: the character's
+          // name as it will appear in BSI); falls back to the source's name
+          String(req.query.name || '').trim().slice(0, 120) || source.name || 'Model',
           (source as any).prompt || '', resultUrl, rootJobId, nextVersion,
           (source as any).thumbUrl || '', kind,
         ],
