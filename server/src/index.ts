@@ -1666,16 +1666,18 @@ app.post('/api/jobs/:id/segmentation', async (req, res) => {
   }
 });
 
-// Materialize — register a client-baked GLB (per-part PBR materials, and/or
-// textures) as a NEW VERSION of an asset lineage. The Segment tool exports
-// the GLB with three's GLTFExporter and POSTs the bytes here; we store it in
-// R2 and insert a derivative genshape3d_jobs row (model 'materials'), exactly
-// like the refine worker does for cleaned meshes. Source is never modified.
+// Materialize — register a client-baked GLB (per-part PBR materials, textures,
+// or a face rig) as a NEW VERSION of an asset lineage. The Segment tool exports
+// the GLB with three's GLTFExporter and POSTs the bytes here (kind=materials);
+// the Rig tool saves rigged characters the same way (kind=rigged). We store it
+// in R2 and insert a derivative genshape3d_jobs row, exactly like the refine
+// worker does for cleaned meshes. Source is never modified.
 app.post('/api/jobs/:id/materialize',
   express.raw({ type: 'model/gltf-binary', limit: '96mb' }),
   async (req, res) => {
     const email = String(req.query.email || '').trim();
     if (!email) return res.status(400).json({ error: 'email required' });
+    const kind = String(req.query.kind || '') === 'rigged' ? 'rigged' : 'materials';
     const bytes = req.body as Buffer;
     if (!Buffer.isBuffer(bytes) || bytes.length < 20) {
       return res.status(400).json({ error: 'GLB body required (model/gltf-binary)' });
@@ -1686,7 +1688,7 @@ app.post('/api/jobs/:id/materialize',
       if (source.userEmail !== email && !(await isAdmin(email))) {
         return res.status(403).json({ error: 'Forbidden' });
       }
-      const { url: resultUrl } = await uploadToR2(bytes, 'materials.glb', 'model/gltf-binary');
+      const { url: resultUrl } = await uploadToR2(bytes, `${kind}.glb`, 'model/gltf-binary');
 
       const rootJobId = (source as any).rootJobId || source.id;
       const { rows: verRows } = await dbQuery(
@@ -1702,12 +1704,12 @@ app.post('/api/jobs/:id/materialize',
             model, "assignedWorkerId", "doTexture", "progressPct", "progressPhase",
             "rootJobId", version, "versionLabel", "thumbUrl")
          VALUES ($1,$2,$3,$4,$5,'Realistic','done',$6, NOW(),NOW(),NOW(),NOW(),
-                 'materials','', false, 100,'done', $7,$8,'materials',$9)
+                 $10,'', false, 100,'done', $7,$8,$10,$9)
          RETURNING *`,
         [
           newId, email, (source as any).imageUrl || '', source.name || 'Model',
           (source as any).prompt || '', resultUrl, rootJobId, nextVersion,
-          (source as any).thumbUrl || '',
+          (source as any).thumbUrl || '', kind,
         ],
       );
       res.json({ job: rows[0] });
