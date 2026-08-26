@@ -378,6 +378,8 @@ interface T2IRequest {
   refImage?: string;
   /** all reference photos — 2+ routes to the multi-image Kontext endpoint */
   refImages?: string[];
+  /** Kontext guidance override — batches jitter it for variety */
+  guidance?: number;
 }
 
 const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
@@ -460,7 +462,7 @@ const callFalKontext = async (req: T2IRequest): Promise<{ buf: Buffer; contentTy
       prompt: req.prompt,
       ...(multi ? { image_urls: imgs } : { image_url: imgs[0] }),   // fal accepts data URIs
       seed: req.seed,
-      guidance_scale: 3.5,
+      guidance_scale: req.guidance ?? 3.5,
       aspect_ratio: aspect,
       output_format: 'jpeg',
       safety_tolerance: '2',
@@ -715,7 +717,9 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
   if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
 
   try {
-    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImages });
+    const guidance = Number.isFinite(Number(b.guidance))
+      ? Math.max(1, Math.min(8, Number(b.guidance))) : undefined;
+    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImages, guidance });
 
     const email = String(b.email || '').trim();
     let assetId = '';
