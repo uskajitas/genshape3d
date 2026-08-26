@@ -376,6 +376,8 @@ interface T2IRequest {
   seed: number;
   /** reference photo as a data URI — only image-conditioned providers use it */
   refImage?: string;
+  /** all reference photos — 2+ routes to the multi-image Kontext endpoint */
+  refImages?: string[];
 }
 
 const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
@@ -439,19 +441,24 @@ const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro
 const callFalKontext = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
   const key = process.env.FAL_KEY;
   if (!key) throw new Error('FAL_KEY not configured');
-  if (!req.refImage) throw new Error('FLUX Kontext needs a reference image');
+  const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
+  if (!imgs.length) throw new Error('FLUX Kontext needs a reference image');
   const ratio = req.width / req.height;
   const aspect =
     ratio > 1.5  ? '16:9' :
     ratio > 1.1  ? '4:3'  :
     ratio < 0.67 ? '9:16' :
     ratio < 0.91 ? '3:4'  : '1:1';
-  const fr = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
+  // 1 photo → standard Kontext edit; 2+ → the multi-image endpoint, which
+  // COMBINES the references (person + style/outfit/etc.) per the prompt
+  const multi = imgs.length > 1;
+  const endpoint = multi ? 'fal-ai/flux-pro/kontext/max/multi' : 'fal-ai/flux-pro/kontext';
+  const fr = await fetch(`https://fal.run/${endpoint}`, {
     method: 'POST',
     headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt: req.prompt,
-      image_url: req.refImage,          // fal accepts data URIs
+      ...(multi ? { image_urls: imgs } : { image_url: imgs[0] }),   // fal accepts data URIs
       seed: req.seed,
       guidance_scale: 3.5,
       aspect_ratio: aspect,
@@ -695,9 +702,10 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
   const b = req.body || {};
   const prompt = String(b.prompt || '').trim();
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
-  const refImage = String(b.refImage || '');
-  if (!/^data:image\/(png|jpeg|webp);base64,/.test(refImage)) {
-    return res.status(400).json({ error: 'refImage must be a png/jpeg/webp data URI' });
+  const refImages: string[] = (Array.isArray(b.refImages) ? b.refImages : [b.refImage])
+    .map((x: any) => String(x || '')).filter(Boolean).slice(0, 5);
+  if (!refImages.length || refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
+    return res.status(400).json({ error: 'refImages must be png/jpeg/webp data URIs' });
   }
   const w = Math.max(256, Math.min(1536, parseInt(b.w) || 1024));
   const h = Math.max(256, Math.min(1536, parseInt(b.h) || 1024));
@@ -707,7 +715,7 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
   if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
 
   try {
-    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImage });
+    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImages });
 
     const email = String(b.email || '').trim();
     let assetId = '';
@@ -722,7 +730,7 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
           name: smartAssetName(prompt),
           prompt,
           finalPrompt: prompt,
-          params: { w, h, withReference: true },
+          params: { w, h, withReference: true, refCount: refImages.length },
           provider,
           imageKey,
           seed,
