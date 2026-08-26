@@ -89,7 +89,15 @@ app.post(
   stripeWebhook,
 );
 
-app.use(express.json());
+// Global JSON parsing — but NOT for the reference-image generation route:
+// its body carries a photo as a data URI, far over the default 100kb limit,
+// and this global parser would 413 it before the route's own 25mb parser
+// (declared on the route) ever runs.
+const globalJson = express.json();
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path === '/api/text2image') return next();
+  return globalJson(req, res, next);
+});
 
 // Other billing routes (after express.json is set up).
 app.get('/api/billing/packs', listPacks);
