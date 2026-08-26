@@ -366,6 +366,8 @@ interface T2IRequest {
   width: number;
   height: number;
   seed: number;
+  /** reference photo as a data URI — only image-conditioned providers use it */
+  refImage?: string;
 }
 
 const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
@@ -421,6 +423,42 @@ const callFalEndpoint = async (
 
 const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
 const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
+
+// FLUX Kontext — image-CONDITIONED generation: the prompt is an instruction
+// applied to the user's reference photo ("make this person a Pixar-style 3D
+// character, keep their features"). This is what the Image References UI
+// feeds; identity survives because the photo, not noise, is the start point.
+const callFalKontext = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+  if (!req.refImage) throw new Error('FLUX Kontext needs a reference image');
+  const ratio = req.width / req.height;
+  const aspect =
+    ratio > 1.5  ? '16:9' :
+    ratio > 1.1  ? '4:3'  :
+    ratio < 0.67 ? '9:16' :
+    ratio < 0.91 ? '3:4'  : '1:1';
+  const fr = await fetch('https://fal.run/fal-ai/flux-pro/kontext', {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: req.prompt,
+      image_url: req.refImage,          // fal accepts data URIs
+      seed: req.seed,
+      guidance_scale: 3.5,
+      aspect_ratio: aspect,
+      output_format: 'jpeg',
+      safety_tolerance: '2',
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal kontext ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const imgUrl = data.images?.[0]?.url;
+  if (!imgUrl) throw new Error('fal kontext returned no image');
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  return { buf: Buffer.from(await ir.arrayBuffer()), contentType: ir.headers.get('content-type') || 'image/jpeg' };
+};
 
 // ── Flux image-to-image caller (DEAD — kept for reference) ─────────────────
 //
@@ -534,6 +572,7 @@ const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; 
   pollinations:       callPollinations,
   'fal-flux-schnell': callFalFluxSchnell,
   'fal-flux-pro':     callFalFluxPro,
+  'fal-flux-kontext': callFalKontext,
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
@@ -636,6 +675,69 @@ app.get('/api/text2image', async (req, res) => {
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image]', provider, e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST variant — JSON body carrying a reference photo (data URI) for
+// image-conditioned providers (FLUX Kontext). The prompt is passed RAW: it's
+// an edit instruction on the photo, so the clay/three-quarter composition the
+// GET route applies would fight the reference instead of helping it.
+app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) => {
+  const b = req.body || {};
+  const prompt = String(b.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  const refImage = String(b.refImage || '');
+  if (!/^data:image\/(png|jpeg|webp);base64,/.test(refImage)) {
+    return res.status(400).json({ error: 'refImage must be a png/jpeg/webp data URI' });
+  }
+  const w = Math.max(256, Math.min(1536, parseInt(b.w) || 1024));
+  const h = Math.max(256, Math.min(1536, parseInt(b.h) || 1024));
+  const seed = Number.isFinite(Number(b.seed)) ? Number(b.seed) : Math.floor(Math.random() * 1_000_000);
+  const provider = String(b.provider || 'fal-flux-kontext');
+  const fn = T2I_PROVIDERS[provider];
+  if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
+
+  try {
+    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImage });
+
+    const email = String(b.email || '').trim();
+    let assetId = '';
+    let imageKey = '';
+    if (email) {
+      try {
+        const ext = contentType.includes('png') ? '.png' : '.jpg';
+        const uploaded = await uploadToR2(buf, `t2i-${Date.now()}${ext}`, contentType);
+        imageKey = uploaded.key;
+        const asset = await createAsset({
+          userEmail: email,
+          name: smartAssetName(prompt),
+          prompt,
+          finalPrompt: prompt,
+          params: { w, h, withReference: true },
+          provider,
+          imageKey,
+          seed,
+          parentAssetId: null,
+          viewLabel: 'front',
+          readyFor3D: true,
+        });
+        assetId = asset.id;
+      } catch (saveErr: any) {
+        console.error('[text2image POST] save failed:', saveErr.message);
+      }
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Final-Prompt', encodeURIComponent(prompt));
+    res.setHeader('X-Seed', String(seed));
+    res.setHeader('X-Provider', provider);
+    if (assetId)  res.setHeader('X-Asset-Id', assetId);
+    if (imageKey) res.setHeader('X-Image-Key', encodeURIComponent(imageKey));
+    res.send(buf);
+  } catch (e: any) {
+    console.error('[text2image POST]', provider, e.message);
     res.status(502).json({ error: e.message });
   }
 });
