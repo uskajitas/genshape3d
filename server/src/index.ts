@@ -68,7 +68,12 @@ const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
 // ugen3d loads heavy assets (GLBs, images) DIRECTLY from this API instead of
 // relaying them through its own server — halves the tunnel bandwidth per
 // model. Keep this list in sync with the ugen3d client's G3D_DIRECT base.
-const allowedOrigins = [clientOrigin, 'https://ugen3d.com', 'http://localhost:3230'];
+const allowedOrigins = [
+  clientOrigin, 'https://ugen3d.com', 'http://localhost:3230',
+  // BSI renders rigged ugen3d characters as talking assistant avatars —
+  // it lists rigged jobs and fetches their GLBs directly from this API
+  'https://bsi.uskiano.com', 'http://localhost:3220',
+];
 
 app.use(cors({
   origin: (origin, cb) => {
