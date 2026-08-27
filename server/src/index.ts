@@ -590,11 +590,39 @@ const callOpenAIDallE3 = async (req: T2IRequest): Promise<{ buf: Buffer; content
   return { buf, contentType: ir.headers.get('content-type') || 'image/png' };
 };
 
+// Nano Banana (Gemini 2.5 Flash Image) via fal — the iterative EDITOR: give
+// it the current image + an instruction and it returns the updated image with
+// identity intact. No images = plain generation. Same FAL_KEY as the rest.
+const callNanoBanana = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+  const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
+  const endpoint = imgs.length ? 'fal-ai/gemini-25-flash-image/edit' : 'fal-ai/gemini-25-flash-image';
+  const fr = await fetch(`https://fal.run/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: req.prompt,
+      ...(imgs.length ? { image_urls: imgs } : {}),
+      num_images: 1,
+      output_format: 'jpeg',
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal nano-banana ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const imgUrl = data.images?.[0]?.url;
+  if (!imgUrl) throw new Error('nano-banana returned no image');
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  return { buf: Buffer.from(await ir.arrayBuffer()), contentType: ir.headers.get('content-type') || 'image/jpeg' };
+};
+
 const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; contentType: string }>> = {
   pollinations:       callPollinations,
   'fal-flux-schnell': callFalFluxSchnell,
   'fal-flux-pro':     callFalFluxPro,
   'fal-flux-kontext': callFalKontext,
+  'nano-banana':      callNanoBanana,
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
@@ -709,15 +737,21 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
   const b = req.body || {};
   const prompt = String(b.prompt || '').trim();
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  const provider0 = String(b.provider || 'fal-flux-kontext');
   const refImages: string[] = (Array.isArray(b.refImages) ? b.refImages : [b.refImage])
     .map((x: any) => String(x || '')).filter(Boolean).slice(0, 5);
-  if (!refImages.length || refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
+  if (refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
     return res.status(400).json({ error: 'refImages must be png/jpeg/webp data URIs' });
+  }
+  // Kontext EDITS an image, so one is mandatory; nano-banana also generates
+  // from nothing, so an empty list is fine there
+  if (!refImages.length && provider0 !== 'nano-banana') {
+    return res.status(400).json({ error: 'refImages required for this provider' });
   }
   const w = Math.max(256, Math.min(1536, parseInt(b.w) || 1024));
   const h = Math.max(256, Math.min(1536, parseInt(b.h) || 1024));
   const seed = Number.isFinite(Number(b.seed)) ? Number(b.seed) : Math.floor(Math.random() * 1_000_000);
-  const provider = String(b.provider || 'fal-flux-kontext');
+  const provider = provider0;
   const fn = T2I_PROVIDERS[provider];
   if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
 
@@ -743,7 +777,8 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
           provider,
           imageKey,
           seed,
-          parentAssetId: null,
+          // edit chains remember their source, so lineage survives
+          parentAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
           viewLabel: 'front',
           readyFor3D: true,
         });
