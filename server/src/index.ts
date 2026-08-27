@@ -117,16 +117,31 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 // ── Image proxy from R2 ───────────────────────────────────────────────────────
 
 app.get('/api/image', async (req, res) => {
-  const key = req.query.key as string;
+  let key = req.query.key as string;
   if (!key) return res.status(400).json({ error: 'key required' });
-  try {
-    const obj = await getR2Stream(key);
-    res.setHeader('Content-Type', (obj.ContentType as string) || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    (obj.Body as any).pipe(res);
-  } catch {
-    res.status(404).json({ error: 'not found' });
+  // Tolerate the two shapes callers actually send, the way /api/mesh already
+  // does: a full R2 url, and a key that arrived percent-encoded a second time
+  // (X-Image-Key is encoded at the source, so a client that encodes it again
+  // asks for `uploads%2F…`). Both used to 404 on a perfectly good object.
+  if (key.startsWith('http')) {
+    const bucket = process.env.R2_BUCKET || 'genshape3d';
+    const marker = `/${bucket}/`;
+    const idx = key.indexOf(marker);
+    if (idx !== -1) key = key.slice(idx + marker.length);
   }
+  const tries = [key];
+  if (/%2F|%3A|%20/i.test(key)) {
+    try { tries.push(decodeURIComponent(key)); } catch { /* not decodable */ }
+  }
+  for (const k of tries) {
+    try {
+      const obj = await getR2Stream(k);
+      res.setHeader('Content-Type', (obj.ContentType as string) || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return (obj.Body as any).pipe(res);
+    } catch { /* try the next spelling of the key */ }
+  }
+  res.status(404).json({ error: 'not found' });
 });
 
 app.get('/files/:name', async (req, res) => {
