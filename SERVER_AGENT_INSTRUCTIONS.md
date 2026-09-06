@@ -77,8 +77,9 @@ Auto-deploy watcher caught the push; Vite HMR live-reloaded
 - Local: `http://localhost:3110/` → 200
 - Public: `https://genshape3d.com/` → 200
 
-(Auto-deploy + Vite HMR now mean the i7 agent doesn't need to be told
-about client pushes either. See `agent_skill/memory/infra_auto_deploy.md`.)
+(That auto-deploy watcher is RETIRED as of 2026-09-04 — this entry is
+historical. Current deploys go through `agent_skill/deploy/deploy-db.sh`;
+see the top of this file.)
 
 ---
 
