@@ -247,6 +247,11 @@ export async function initDb(): Promise<void> {
     // user can re-edit from scratch or revert.
     `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS "originalImageKey" TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_t2i_parent ON genshape3d_text2image_assets ("parentAssetId")`,
+    // User-defined organisation tags (flat, multi-assign; "a/b" reads as a
+    // category/subcategory in the Assets page filter). Facets scale where
+    // folder trees rot — see the Assets page.
+    `ALTER TABLE genshape3d_jobs              ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`,
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`,
     // Job-side extension for multi-view 3D submissions. Empty array = single-image
     // (legacy) job. Worker reads this to decide between v2.0 and v2.0-MV pipelines.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "auxImageUrls" JSONB NOT NULL DEFAULT '[]'::jsonb`,

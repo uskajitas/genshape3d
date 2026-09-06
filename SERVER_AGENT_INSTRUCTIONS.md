@@ -8,19 +8,26 @@ This file is for **genuinely stuck human-action tasks only**. Examples:
 - A Stripe / Firebase console setting requiring his hands.
 
 **It is NOT for:**
-- "Please pull and restart the server" — auto-deploy on i7 does that
-  in ~60s. See `F:/cloudflare/.pm2-logs/auto-deploy.log`.
-- "Vite client needs to restart" — Vite HMR handles that.
-- "Migration needs to run" — `initDb()` runs on every server boot and
-  auto-deploy restarts the server on every push.
-- "Server returns 530" — first check `auto-deploy.log` and the
-  cloudflared service state. Only file a task if you've isolated it
-  to something that needs the user's hands.
+- "Please pull and restart the server" — there is no watcher (the old
+  auto-deploy poller is RETIRED, 2026-09-04). Run
+  `agent_skill/deploy/deploy-db.sh genshape3d` yourself; it pulls,
+  builds, restarts, and verifies, then prints a receipt.
+- "Vite client needs to restart" — there's no Vite dev server in
+  production; the client is a static build. Run `deploy-db.sh` to
+  rebuild and redeploy it.
+- "Migration needs to run" — `initDb()` runs on every server boot, and
+  `deploy-db.sh` restarts the server, so deploying runs it.
+- "Server returns 530" — first check the deploy receipt (run
+  `deploy-db.sh` and read what it says) and the cloudflared service
+  state. Only file a task if you've isolated it to something that needs
+  the user's hands.
 
 If you're a non-i7 agent and your "task" is really "I want my push to
-be live in production" — that already happens automatically. Just push,
-wait 70 seconds, and curl the public endpoint to confirm. Don't write
-in this file.
+be live in production" — run it yourself:
+`cd agent_skill/deploy && ./deploy-db.sh genshape3d`. It needs nothing
+new (same DB access every bot already has), waits for the real deploy,
+and prints a receipt with local/public verification. Don't write in
+this file for that.
 
 Multiple commits' worth of follow-ups stacked here. **Do the most recent
 section first** (top of the file) — older sections may already be partly done.

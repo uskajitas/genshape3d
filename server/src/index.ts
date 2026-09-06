@@ -68,7 +68,12 @@ const clientOrigin = process.env.CLIENT_ORIGIN_URL || 'http://localhost:3110';
 // ugen3d loads heavy assets (GLBs, images) DIRECTLY from this API instead of
 // relaying them through its own server — halves the tunnel bandwidth per
 // model. Keep this list in sync with the ugen3d client's G3D_DIRECT base.
-const allowedOrigins = [clientOrigin, 'https://ugen3d.com', 'http://localhost:3230'];
+const allowedOrigins = [
+  clientOrigin, 'https://ugen3d.com', 'http://localhost:3230',
+  // BSI renders rigged ugen3d characters as talking assistant avatars —
+  // it lists rigged jobs and fetches their GLBs directly from this API
+  'https://bsi.uskiano.com', 'http://localhost:3220',
+];
 
 app.use(cors({
   origin: (origin, cb) => {
@@ -89,7 +94,15 @@ app.post(
   stripeWebhook,
 );
 
-app.use(express.json());
+// Global JSON parsing — but NOT for the reference-image generation route:
+// its body carries a photo as a data URI, far over the default 100kb limit,
+// and this global parser would 413 it before the route's own 25mb parser
+// (declared on the route) ever runs.
+const globalJson = express.json();
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.path === '/api/text2image') return next();
+  return globalJson(req, res, next);
+});
 
 // Other billing routes (after express.json is set up).
 app.get('/api/billing/packs', listPacks);
@@ -104,16 +117,31 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 // ── Image proxy from R2 ───────────────────────────────────────────────────────
 
 app.get('/api/image', async (req, res) => {
-  const key = req.query.key as string;
+  let key = req.query.key as string;
   if (!key) return res.status(400).json({ error: 'key required' });
-  try {
-    const obj = await getR2Stream(key);
-    res.setHeader('Content-Type', (obj.ContentType as string) || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    (obj.Body as any).pipe(res);
-  } catch {
-    res.status(404).json({ error: 'not found' });
+  // Tolerate the two shapes callers actually send, the way /api/mesh already
+  // does: a full R2 url, and a key that arrived percent-encoded a second time
+  // (X-Image-Key is encoded at the source, so a client that encodes it again
+  // asks for `uploads%2F…`). Both used to 404 on a perfectly good object.
+  if (key.startsWith('http')) {
+    const bucket = process.env.R2_BUCKET || 'genshape3d';
+    const marker = `/${bucket}/`;
+    const idx = key.indexOf(marker);
+    if (idx !== -1) key = key.slice(idx + marker.length);
   }
+  const tries = [key];
+  if (/%2F|%3A|%20/i.test(key)) {
+    try { tries.push(decodeURIComponent(key)); } catch { /* not decodable */ }
+  }
+  for (const k of tries) {
+    try {
+      const obj = await getR2Stream(k);
+      res.setHeader('Content-Type', (obj.ContentType as string) || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return (obj.Body as any).pipe(res);
+    } catch { /* try the next spelling of the key */ }
+  }
+  res.status(404).json({ error: 'not found' });
 });
 
 app.get('/files/:name', async (req, res) => {
@@ -366,6 +394,12 @@ interface T2IRequest {
   width: number;
   height: number;
   seed: number;
+  /** reference photo as a data URI — only image-conditioned providers use it */
+  refImage?: string;
+  /** all reference photos — 2+ routes to the multi-image Kontext endpoint */
+  refImages?: string[];
+  /** Kontext guidance override — batches jitter it for variety */
+  guidance?: number;
 }
 
 const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
@@ -421,6 +455,47 @@ const callFalEndpoint = async (
 
 const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
 const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
+
+// FLUX Kontext — image-CONDITIONED generation: the prompt is an instruction
+// applied to the user's reference photo ("make this person a Pixar-style 3D
+// character, keep their features"). This is what the Image References UI
+// feeds; identity survives because the photo, not noise, is the start point.
+const callFalKontext = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+  const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
+  if (!imgs.length) throw new Error('FLUX Kontext needs a reference image');
+  const ratio = req.width / req.height;
+  const aspect =
+    ratio > 1.5  ? '16:9' :
+    ratio > 1.1  ? '4:3'  :
+    ratio < 0.67 ? '9:16' :
+    ratio < 0.91 ? '3:4'  : '1:1';
+  // 1 photo → standard Kontext edit; 2+ → the multi-image endpoint, which
+  // COMBINES the references (person + style/outfit/etc.) per the prompt
+  const multi = imgs.length > 1;
+  const endpoint = multi ? 'fal-ai/flux-pro/kontext/max/multi' : 'fal-ai/flux-pro/kontext';
+  const fr = await fetch(`https://fal.run/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: req.prompt,
+      ...(multi ? { image_urls: imgs } : { image_url: imgs[0] }),   // fal accepts data URIs
+      seed: req.seed,
+      guidance_scale: req.guidance ?? 3.5,
+      aspect_ratio: aspect,
+      output_format: 'jpeg',
+      safety_tolerance: '2',
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal kontext ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const imgUrl = data.images?.[0]?.url;
+  if (!imgUrl) throw new Error('fal kontext returned no image');
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  return { buf: Buffer.from(await ir.arrayBuffer()), contentType: ir.headers.get('content-type') || 'image/jpeg' };
+};
 
 // ── Flux image-to-image caller (DEAD — kept for reference) ─────────────────
 //
@@ -530,10 +605,39 @@ const callOpenAIDallE3 = async (req: T2IRequest): Promise<{ buf: Buffer; content
   return { buf, contentType: ir.headers.get('content-type') || 'image/png' };
 };
 
+// Nano Banana (Gemini 2.5 Flash Image) via fal — the iterative EDITOR: give
+// it the current image + an instruction and it returns the updated image with
+// identity intact. No images = plain generation. Same FAL_KEY as the rest.
+const callNanoBanana = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error('FAL_KEY not configured');
+  const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
+  const endpoint = imgs.length ? 'fal-ai/gemini-25-flash-image/edit' : 'fal-ai/gemini-25-flash-image';
+  const fr = await fetch(`https://fal.run/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: req.prompt,
+      ...(imgs.length ? { image_urls: imgs } : {}),
+      num_images: 1,
+      output_format: 'jpeg',
+    }),
+  });
+  if (!fr.ok) throw new Error(`fal nano-banana ${fr.status} ${await fr.text().catch(() => '')}`);
+  const data = await fr.json() as { images?: { url: string }[] };
+  const imgUrl = data.images?.[0]?.url;
+  if (!imgUrl) throw new Error('nano-banana returned no image');
+  const ir = await fetch(imgUrl);
+  if (!ir.ok) throw new Error(`fal cdn ${ir.status}`);
+  return { buf: Buffer.from(await ir.arrayBuffer()), contentType: ir.headers.get('content-type') || 'image/jpeg' };
+};
+
 const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; contentType: string }>> = {
   pollinations:       callPollinations,
   'fal-flux-schnell': callFalFluxSchnell,
   'fal-flux-pro':     callFalFluxPro,
+  'fal-flux-kontext': callFalKontext,
+  'nano-banana':      callNanoBanana,
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
@@ -636,6 +740,79 @@ app.get('/api/text2image', async (req, res) => {
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image]', provider, e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// POST variant — JSON body carrying a reference photo (data URI) for
+// image-conditioned providers (FLUX Kontext). The prompt is passed RAW: it's
+// an edit instruction on the photo, so the clay/three-quarter composition the
+// GET route applies would fight the reference instead of helping it.
+app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) => {
+  const b = req.body || {};
+  const prompt = String(b.prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  const provider0 = String(b.provider || 'fal-flux-kontext');
+  const refImages: string[] = (Array.isArray(b.refImages) ? b.refImages : [b.refImage])
+    .map((x: any) => String(x || '')).filter(Boolean).slice(0, 5);
+  if (refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
+    return res.status(400).json({ error: 'refImages must be png/jpeg/webp data URIs' });
+  }
+  // Kontext EDITS an image, so one is mandatory; nano-banana also generates
+  // from nothing, so an empty list is fine there
+  if (!refImages.length && provider0 !== 'nano-banana') {
+    return res.status(400).json({ error: 'refImages required for this provider' });
+  }
+  const w = Math.max(256, Math.min(1536, parseInt(b.w) || 1024));
+  const h = Math.max(256, Math.min(1536, parseInt(b.h) || 1024));
+  const seed = Number.isFinite(Number(b.seed)) ? Number(b.seed) : Math.floor(Math.random() * 1_000_000);
+  const provider = provider0;
+  const fn = T2I_PROVIDERS[provider];
+  if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
+
+  try {
+    const guidance = Number.isFinite(Number(b.guidance))
+      ? Math.max(1, Math.min(8, Number(b.guidance))) : undefined;
+    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImages, guidance });
+
+    const email = String(b.email || '').trim();
+    let assetId = '';
+    let imageKey = '';
+    if (email) {
+      try {
+        const ext = contentType.includes('png') ? '.png' : '.jpg';
+        const uploaded = await uploadToR2(buf, `t2i-${Date.now()}${ext}`, contentType);
+        imageKey = uploaded.key;
+        const asset = await createAsset({
+          userEmail: email,
+          name: smartAssetName(prompt),
+          prompt,
+          finalPrompt: prompt,
+          params: { w, h, withReference: true, refCount: refImages.length },
+          provider,
+          imageKey,
+          seed,
+          // edit chains remember their source, so lineage survives
+          parentAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
+          viewLabel: 'front',
+          readyFor3D: true,
+        });
+        assetId = asset.id;
+      } catch (saveErr: any) {
+        console.error('[text2image POST] save failed:', saveErr.message);
+      }
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Final-Prompt', encodeURIComponent(prompt));
+    res.setHeader('X-Seed', String(seed));
+    res.setHeader('X-Provider', provider);
+    if (assetId)  res.setHeader('X-Asset-Id', assetId);
+    if (imageKey) res.setHeader('X-Image-Key', encodeURIComponent(imageKey));
+    res.send(buf);
+  } catch (e: any) {
+    console.error('[text2image POST]', provider, e.message);
     res.status(502).json({ error: e.message });
   }
 });
@@ -1666,6 +1843,62 @@ app.post('/api/jobs/:id/segmentation', async (req, res) => {
   }
 });
 
+// Materialize — register a client-baked GLB (per-part PBR materials, textures,
+// or a face rig) as a NEW VERSION of an asset lineage. The Segment tool exports
+// the GLB with three's GLTFExporter and POSTs the bytes here (kind=materials);
+// the Rig tool saves rigged characters the same way (kind=rigged). We store it
+// in R2 and insert a derivative genshape3d_jobs row, exactly like the refine
+// worker does for cleaned meshes. Source is never modified.
+app.post('/api/jobs/:id/materialize',
+  express.raw({ type: 'model/gltf-binary', limit: '96mb' }),
+  async (req, res) => {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const kind = String(req.query.kind || '') === 'rigged' ? 'rigged' : 'materials';
+    const bytes = req.body as Buffer;
+    if (!Buffer.isBuffer(bytes) || bytes.length < 20) {
+      return res.status(400).json({ error: 'GLB body required (model/gltf-binary)' });
+    }
+    try {
+      const source = await getJobById(req.params.id);
+      if (!source) return res.status(404).json({ error: 'source job not found' });
+      if (source.userEmail !== email && !(await isAdmin(email))) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      const { url: resultUrl } = await uploadToR2(bytes, `${kind}.glb`, 'model/gltf-binary');
+
+      const rootJobId = (source as any).rootJobId || source.id;
+      const { rows: verRows } = await dbQuery(
+        `SELECT COALESCE(MAX(version), 1) + 1 AS next FROM genshape3d_jobs WHERE "rootJobId" = $1`,
+        [rootJobId],
+      );
+      const nextVersion = verRows[0]?.next || 2;
+      const newId = randomUUID();
+      const { rows } = await dbQuery(
+        `INSERT INTO genshape3d_jobs
+           (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl",
+            "createdAt", "updatedAt", "startedAt", "completedAt",
+            model, "assignedWorkerId", "doTexture", "progressPct", "progressPhase",
+            "rootJobId", version, "versionLabel", "thumbUrl")
+         VALUES ($1,$2,$3,$4,$5,'Realistic','done',$6, NOW(),NOW(),NOW(),NOW(),
+                 $10,'', false, 100,'done', $7,$8,$10,$9)
+         RETURNING *`,
+        [
+          newId, email, (source as any).imageUrl || '',
+          // caller can christen the new version (Rig tool: the character's
+          // name as it will appear in BSI); falls back to the source's name
+          String(req.query.name || '').trim().slice(0, 120) || source.name || 'Model',
+          (source as any).prompt || '', resultUrl, rootJobId, nextVersion,
+          (source as any).thumbUrl || '', kind,
+        ],
+      );
+      res.json({ job: rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 app.post('/api/jobs/:id/thumbnail', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const dataUrl = String(req.body?.dataUrl || '');
@@ -1685,6 +1918,43 @@ app.post('/api/jobs/:id/thumbnail', async (req, res) => {
     const key = (uploaded as any).key || uploaded.url;
     await dbQuery(`UPDATE genshape3d_jobs SET "thumbUrl"=$1, "updatedAt"=NOW() WHERE id=$2`, [key, job.id]);
     res.json({ ok: true, thumbUrl: key });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Organisation tags — flat, multi-assign, lowercase-trimmed. "a/b" renders
+// as category/subcategory in the Assets page. Same shape for jobs and images.
+const cleanTags = (raw: any): string[] =>
+  (Array.isArray(raw) ? raw : [])
+    .map((t) => String(t).trim().toLowerCase().slice(0, 40))
+    .filter(Boolean)
+    .filter((t, i, a) => a.indexOf(t) === i)
+    .slice(0, 12);
+
+app.patch('/api/jobs/:id/tags', async (req, res) => {
+  try {
+    const tags = cleanTags(req.body?.tags);
+    const { rows } = await dbQuery(
+      `UPDATE genshape3d_jobs SET tags = $1, "updatedAt" = NOW() WHERE id = $2 RETURNING id, tags`,
+      [tags, req.params.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'job not found' });
+    res.json({ ok: true, tags: rows[0].tags });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/text2image/assets/:id/tags', async (req, res) => {
+  try {
+    const tags = cleanTags(req.body?.tags);
+    const { rows } = await dbQuery(
+      `UPDATE genshape3d_text2image_assets SET tags = $1 WHERE id = $2 RETURNING id, tags`,
+      [tags, req.params.id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'asset not found' });
+    res.json({ ok: true, tags: rows[0].tags });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
