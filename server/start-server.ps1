@@ -57,8 +57,8 @@ if ($stale) { Start-Sleep -Seconds 4 }
 
 # (3) Wait for :8110 to be free in the kernel (TIME_WAIT after the kills).
 if (-not (_portFree 8110 30)) {
-    # 30 s timeout. Bail loudly so the auto-deploy watcher / external monitor
-    # can see we never came up, rather than silently respawning forever.
+    # 30 s timeout. Bail loudly so PM2 / an external monitor can see we
+    # never came up, rather than silently respawning forever.
     Add-Content -Path $errLog -Value "[$(Get-Date -Format o)] start-server.ps1: :8110 still busy after 30 s, refusing to launch"
     exit 2
 }
