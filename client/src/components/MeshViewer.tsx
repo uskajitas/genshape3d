@@ -45,6 +45,27 @@ function normalizeMaterial(m: THREE.Material) {
   if (m.transparent && m.opacity >= 1) m.transparent = false;
   m.depthWrite = true;
   m.needsUpdate = true;
+  repairBareMetal(m);
+}
+
+// The exporter (trimesh) writes `roughnessFactor` but never `metallicFactor`,
+// and glTF's default for a missing one is 1.0 — so every generated model
+// arrives declaring itself solid metal. Read back from finished jobs across
+// hunyuan3d, hunyuan3d-2-1 and triposr: metallicFactor absent, roughness 0.90.
+// Metal takes its colour from reflections rather than from its own texture,
+// which is why the result looks shiny and washed out.
+//
+// Only metalness EXACTLY 1 with NO metalness map is repaired: that pair is the
+// signature of the missing factor. Models that went through the ORM bake carry
+// a metalness map alongside metallicFactor 1.0 — there the texture holds the
+// real value per pixel, and those are correct already.
+function repairBareMetal(m: THREE.Material) {
+  const s = m as THREE.MeshStandardMaterial;
+  if (!s.isMeshStandardMaterial) return;
+  if (s.metalness === 1 && !s.metalnessMap) {
+    s.metalness = 0;
+    s.needsUpdate = true;
+  }
 }
 
 // Apply a view mode to a single mesh. origMaterial must already be stored.
