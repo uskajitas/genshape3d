@@ -748,71 +748,137 @@ app.get('/api/text2image', async (req, res) => {
 // image-conditioned providers (FLUX Kontext). The prompt is passed RAW: it's
 // an edit instruction on the photo, so the clay/three-quarter composition the
 // GET route applies would fight the reference instead of helping it.
-app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) => {
-  const b = req.body || {};
-  const prompt = String(b.prompt || '').trim();
-  if (!prompt) return res.status(400).json({ error: 'prompt required' });
-  const provider0 = String(b.provider || 'fal-flux-kontext');
+// ── one generation, as a function ─────────────────────────────────────────
+// Shared by the two routes below: the original one that answers with the
+// image bytes, and the job one that answers immediately and stores the
+// result. Both do exactly the same work — extracted so they cannot diverge.
+type T2IParsed = {
+  prompt: string; provider: string; refImages: string[];
+  w: number; h: number; seed: number; guidance?: number;
+  email: string; sourceAssetId: string | null;
+};
+
+function parseT2I(b: any): { error: string } | { p: T2IParsed } {
+  const prompt = String(b?.prompt || '').trim();
+  if (!prompt) return { error: 'prompt required' };
+  const provider = String(b.provider || 'fal-flux-kontext');
   const refImages: string[] = (Array.isArray(b.refImages) ? b.refImages : [b.refImage])
     .map((x: any) => String(x || '')).filter(Boolean).slice(0, 5);
   if (refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
-    return res.status(400).json({ error: 'refImages must be png/jpeg/webp data URIs' });
+    return { error: 'refImages must be png/jpeg/webp data URIs' };
   }
-  // Kontext EDITS an image, so one is mandatory; nano-banana also generates
-  // from nothing, so an empty list is fine there
-  if (!refImages.length && provider0 !== 'nano-banana') {
-    return res.status(400).json({ error: 'refImages required for this provider' });
+  if (!refImages.length && provider !== 'nano-banana') {
+    return { error: 'refImages required for this provider' };
   }
-  const w = Math.max(256, Math.min(1536, parseInt(b.w) || 1024));
-  const h = Math.max(256, Math.min(1536, parseInt(b.h) || 1024));
-  const seed = Number.isFinite(Number(b.seed)) ? Number(b.seed) : Math.floor(Math.random() * 1_000_000);
-  const provider = provider0;
-  const fn = T2I_PROVIDERS[provider];
-  if (!fn) return res.status(400).json({ error: `unknown provider: ${provider}` });
+  if (!T2I_PROVIDERS[provider]) return { error: `unknown provider: ${provider}` };
+  return { p: {
+    prompt, provider, refImages,
+    w: Math.max(256, Math.min(1536, parseInt(b.w) || 1024)),
+    h: Math.max(256, Math.min(1536, parseInt(b.h) || 1024)),
+    seed: Number.isFinite(Number(b.seed)) ? Number(b.seed) : Math.floor(Math.random() * 1_000_000),
+    guidance: Number.isFinite(Number(b.guidance)) ? Math.max(1, Math.min(8, Number(b.guidance))) : undefined,
+    email: String(b.email || '').trim(),
+    sourceAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
+  } };
+}
 
-  try {
-    const guidance = Number.isFinite(Number(b.guidance))
-      ? Math.max(1, Math.min(8, Number(b.guidance))) : undefined;
-    const { buf, contentType } = await fn({ prompt, negative: '', width: w, height: h, seed, refImages, guidance });
-
-    const email = String(b.email || '').trim();
-    let assetId = '';
-    let imageKey = '';
-    if (email) {
-      try {
-        const ext = contentType.includes('png') ? '.png' : '.jpg';
-        const uploaded = await uploadToR2(buf, `t2i-${Date.now()}${ext}`, contentType);
-        imageKey = uploaded.key;
-        const asset = await createAsset({
-          userEmail: email,
-          name: smartAssetName(prompt),
-          prompt,
-          finalPrompt: prompt,
-          params: { w, h, withReference: true, refCount: refImages.length },
-          provider,
-          imageKey,
-          seed,
-          // edit chains remember their source, so lineage survives
-          parentAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
-          viewLabel: 'front',
-          readyFor3D: true,
-        });
-        assetId = asset.id;
-      } catch (saveErr: any) {
-        console.error('[text2image POST] save failed:', saveErr.message);
-      }
+async function runT2I(p: T2IParsed) {
+  const { buf, contentType } = await T2I_PROVIDERS[p.provider]({
+    prompt: p.prompt, negative: '', width: p.w, height: p.h,
+    seed: p.seed, refImages: p.refImages, guidance: p.guidance,
+  });
+  let assetId = '', imageKey = '';
+  if (p.email) {
+    try {
+      const ext = contentType.includes('png') ? '.png' : '.jpg';
+      const uploaded = await uploadToR2(buf, `t2i-${Date.now()}${ext}`, contentType);
+      imageKey = uploaded.key;
+      const asset = await createAsset({
+        userEmail: p.email,
+        name: smartAssetName(p.prompt),
+        prompt: p.prompt,
+        finalPrompt: p.prompt,
+        params: { w: p.w, h: p.h, withReference: true, refCount: p.refImages.length },
+        provider: p.provider,
+        imageKey,
+        seed: p.seed,
+        parentAssetId: p.sourceAssetId,
+        viewLabel: 'front',
+        readyFor3D: true,
+      });
+      assetId = asset.id;
+    } catch (saveErr: any) {
+      console.error('[text2image] save failed:', saveErr.message);
     }
+  }
+  return { buf, contentType, assetId, imageKey };
+}
 
+// ── generation as a JOB ───────────────────────────────────────────────────
+// A picture takes anywhere from ten seconds to over two minutes, and every
+// proxy between here and a browser gives up at some point — Cloudflare at a
+// hundred seconds, with an error page a cross-origin caller cannot even read
+// (the browser reports the bare words "failed to fetch"). So the slow work
+// stops being an HTTP request that someone has to hold open: start it, get an
+// id back straight away, and ask how it went. Nothing is held open, so
+// nothing can time out. The old route stays exactly as it was.
+type T2IJob = {
+  status: 'running' | 'done' | 'error';
+  started: number;
+  assetId?: string; imageKey?: string; seed?: number; provider?: string;
+  error?: string;
+};
+const t2iJobs = new Map<string, T2IJob>();
+
+app.post('/api/text2image/start', express.json({ limit: '25mb' }), (req, res) => {
+  const parsed = parseT2I(req.body || {});
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+  const p = parsed.p;
+  // finished jobs are answers waiting to be collected; an hour is long enough
+  // for any tab to come back and ask, and short enough to not be a leak
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [k, j] of t2iJobs) if (j.started < cutoff) t2iJobs.delete(k);
+
+  const jobId = `t2i_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  t2iJobs.set(jobId, { status: 'running', started: Date.now() });
+  res.status(202).json({ jobId });
+
+  // deliberately not awaited: the reply has already gone
+  runT2I(p).then(({ assetId, imageKey }) => {
+    t2iJobs.set(jobId, {
+      status: 'done', started: Date.now(),
+      assetId, imageKey, seed: p.seed, provider: p.provider,
+    });
+  }).catch((e: any) => {
+    console.error('[text2image job]', p.provider, e.message);
+    t2iJobs.set(jobId, { status: 'error', started: Date.now(), error: e.message });
+  });
+});
+
+app.get('/api/text2image/job/:id', (req, res) => {
+  const j = t2iJobs.get(String(req.params.id));
+  // an id we have never heard of, or one already reaped: say so plainly rather
+  // than leaving a client polling something that will never answer
+  if (!j) return res.status(404).json({ error: 'no such job' });
+  res.json(j);
+});
+
+app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) => {
+  const parsed = parseT2I(req.body || {});
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+  const p = parsed.p;
+  try {
+    const { buf, contentType, assetId, imageKey } = await runT2I(p);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Final-Prompt', encodeURIComponent(prompt));
-    res.setHeader('X-Seed', String(seed));
-    res.setHeader('X-Provider', provider);
+    res.setHeader('X-Final-Prompt', encodeURIComponent(p.prompt));
+    res.setHeader('X-Seed', String(p.seed));
+    res.setHeader('X-Provider', p.provider);
     if (assetId)  res.setHeader('X-Asset-Id', assetId);
     if (imageKey) res.setHeader('X-Image-Key', encodeURIComponent(imageKey));
     res.send(buf);
   } catch (e: any) {
-    console.error('[text2image POST]', provider, e.message);
+    console.error('[text2image POST]', p.provider, e.message);
     res.status(502).json({ error: e.message });
   }
 });
