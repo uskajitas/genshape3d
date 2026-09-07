@@ -94,13 +94,18 @@ app.post(
   stripeWebhook,
 );
 
-// Global JSON parsing — but NOT for the reference-image generation route:
-// its body carries a photo as a data URI, far over the default 100kb limit,
-// and this global parser would 413 it before the route's own 25mb parser
-// (declared on the route) ever runs.
+// Global JSON parsing — but NOT for the generation routes: their bodies
+// carry photos as data URIs, far over the default 100kb limit, and this
+// global parser would 413 them before the route's own 25mb parser (declared
+// on the route) ever runs.
+// Listed, not prefix-matched: the other /api/text2image/* routes — rename,
+// delete, edit-bg — carry small bodies and DEPEND on this parser. A route
+// added here without its own parser gets an empty body; a big route left out
+// of here gets a 413. Both are silent, so the list is the contract.
+const BIG_BODY_POSTS = new Set(['/api/text2image', '/api/text2image/start']);
 const globalJson = express.json();
 app.use((req, res, next) => {
-  if (req.method === 'POST' && req.path === '/api/text2image') return next();
+  if (req.method === 'POST' && BIG_BODY_POSTS.has(req.path)) return next();
   return globalJson(req, res, next);
 });
 
