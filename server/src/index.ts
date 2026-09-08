@@ -647,6 +647,13 @@ const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; 
   'openai-dall-e-3':  callOpenAIDallE3,
 };
 
+// Providers whose implementation genuinely cannot run without a reference
+// image. Kontext transforms a supplied photo and throws without one. Everything
+// else here is text-to-image: pollinations / flux schnell / flux pro / hf /
+// dall-e-3 ignore refImages outright, and nano-banana tolerates their absence.
+// Keep this in sync when adding a provider — see parseT2I.
+const REF_REQUIRED_PROVIDERS = new Set(['fal-flux-kontext']);
+
 app.get('/api/text2image', async (req, res) => {
   const prompt = String(req.query.prompt || '').trim();
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -772,7 +779,15 @@ function parseT2I(b: any): { error: string } | { p: T2IParsed } {
   if (refImages.some(r => !/^data:image\/(png|jpeg|webp);base64,/.test(r))) {
     return { error: 'refImages must be png/jpeg/webp data URIs' };
   }
-  if (!refImages.length && provider !== 'nano-banana') {
+  // Only providers that actually CONSUME a reference image may demand one.
+  // The old rule was inverted (everything except nano-banana required a ref),
+  // which blocked the pure text-to-image providers — pollinations, flux
+  // schnell/pro, hf, dall-e-3 — from ever being called without one, even
+  // though their implementations ignore refImages entirely. That left
+  // nano-banana as the only key-free-form entry point, so a locked/empty fal
+  // account took text-to-image down completely instead of falling back to a
+  // provider that still works.
+  if (!refImages.length && REF_REQUIRED_PROVIDERS.has(provider)) {
     return { error: 'refImages required for this provider' };
   }
   if (!T2I_PROVIDERS[provider]) return { error: `unknown provider: ${provider}` };
