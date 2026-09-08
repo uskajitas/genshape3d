@@ -770,7 +770,12 @@ app.get('/api/text2image', async (req, res) => {
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image]', provider, e.message);
-    res.status(502).json({ error: e.message });
+    // 424, not 502. Cloudflare REPLACES an origin 5xx with its own error
+    // page — "the origin returned an invalid or incomplete response" — and
+    // the real reason ("out of credit", "no such model") never reaches
+    // anyone. A 4xx passes through untouched, and the caller still sees a
+    // failure. This is why a broken provider looked like a broken server.
+    res.status(424).json({ error: e.message });
   }
 });
 
@@ -917,7 +922,12 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image POST]', p.provider, e.message);
-    res.status(502).json({ error: e.message });
+    // 424, not 502. Cloudflare REPLACES an origin 5xx with its own error
+    // page — "the origin returned an invalid or incomplete response" — and
+    // the real reason ("out of credit", "no such model") never reaches
+    // anyone. A 4xx passes through untouched, and the caller still sees a
+    // failure. This is why a broken provider looked like a broken server.
+    res.status(424).json({ error: e.message });
   }
 });
 
