@@ -49,6 +49,23 @@ export async function presignR2Get(key: string, expiresIn = 3600): Promise<strin
   return getSignedUrl(getS3() as any, new GetObjectCommand({ Bucket: bucket, Key: key }) as any, { expiresIn });
 }
 
+// Bucket public read access turned on 2026-09-10 — this is now the preferred
+// way to hand a browser a model/image URL. Takes either a raw R2 key or a
+// full URL (private r2.cloudflarestorage.com style, or already-public) and
+// always returns the direct public link: no signing round-trip, no 1h
+// expiry, and the browser fetches straight from Cloudflare's edge instead of
+// this server relaying every byte through its tunnel.
+export function publicR2Url(raw: string): string {
+  if (!raw) return raw;
+  const bucket = process.env.R2_BUCKET || 'genshape3d';
+  const publicUrl = process.env.R2_PUBLIC_URL || `${process.env.R2_ENDPOINT}/${bucket}`;
+  if (raw.startsWith(publicUrl)) return raw;                 // already public
+  const marker = `/${bucket}/`;
+  const idx = raw.indexOf(marker);
+  const key = idx !== -1 ? raw.slice(idx + marker.length) : raw;  // strip any other host
+  return `${publicUrl}/${key}`;
+}
+
 export async function getR2Stream(key: string) {
   const bucket = process.env.R2_BUCKET || 'genshape3d';
   const result = await getS3().send(new GetObjectCommand({ Bucket: bucket, Key: key }));

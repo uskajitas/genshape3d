@@ -447,7 +447,7 @@ const callFalEndpoint = async (
       enable_safety_checker: true,
     }),
   });
-  if (!fr.ok) throw new Error(`fal.ai ${fr.status} ${await fr.text().catch(() => '')}`);
+  if (!fr.ok) throw await falFailure('fal.ai', fr);
   const data = await fr.json() as { images?: { url: string }[] };
   const imgUrl = data.images?.[0]?.url;
   if (!imgUrl) throw new Error('fal.ai returned no image');
@@ -457,6 +457,24 @@ const callFalEndpoint = async (
   const buf = Buffer.from(await ir.arrayBuffer());
   return { buf, contentType: ir.headers.get('content-type') || 'image/jpeg' };
 };
+
+/** Turn a fal.ai failure into something a person can act on.
+ *
+ *  The raw body is developer text — `403 {"detail":"User is locked. Reason:
+ *  TOP_UP."}` means the ACCOUNT HAS RUN OUT OF CREDIT, which is not obvious
+ *  from the words and is not something retrying will fix. Every image
+ *  provider here bills to the same fal key, so when this fires, all of them
+ *  are down together and the answer is always the same: top the account up.
+ */
+async function falFailure(what: string, r: Response): Promise<Error> {
+  const body = await r.text().catch(() => '');
+  if (r.status === 403 && /locked|TOP_UP/i.test(body)) {
+    return new Error('the image service is out of credit — top up the fal.ai account and this works again');
+  }
+  if (r.status === 401) return new Error('the image service rejected our key — it may have been rotated');
+  if (r.status === 429) return new Error('the image service is rate limiting us — try again in a moment');
+  return new Error(`${what} ${r.status} ${body}`);
+}
 
 const callFalFluxSchnell = (req: T2IRequest) => callFalEndpoint('fal-ai/flux/schnell',  4,  req);
 const callFalFluxPro     = (req: T2IRequest) => callFalEndpoint('fal-ai/flux-pro/v1.1', 28, req);
@@ -493,7 +511,7 @@ const callFalKontext = async (req: T2IRequest): Promise<{ buf: Buffer; contentTy
       safety_tolerance: '2',
     }),
   });
-  if (!fr.ok) throw new Error(`fal kontext ${fr.status} ${await fr.text().catch(() => '')}`);
+  if (!fr.ok) throw await falFailure('fal kontext', fr);
   const data = await fr.json() as { images?: { url: string }[] };
   const imgUrl = data.images?.[0]?.url;
   if (!imgUrl) throw new Error('fal kontext returned no image');
@@ -535,7 +553,7 @@ async function callFalImageToImage(args: {
       enable_safety_checker: true,
     }),
   });
-  if (!fr.ok) throw new Error(`fal.ai i2i ${fr.status} ${await fr.text().catch(() => '')}`);
+  if (!fr.ok) throw await falFailure('fal.ai i2i', fr);
   const data = await fr.json() as { images?: { url: string }[] };
   const url = data.images?.[0]?.url;
   if (!url) throw new Error('fal.ai i2i returned no image');
@@ -628,7 +646,7 @@ const callNanoBanana = async (req: T2IRequest): Promise<{ buf: Buffer; contentTy
       output_format: 'jpeg',
     }),
   });
-  if (!fr.ok) throw new Error(`fal nano-banana ${fr.status} ${await fr.text().catch(() => '')}`);
+  if (!fr.ok) throw await falFailure('fal nano-banana', fr);
   const data = await fr.json() as { images?: { url: string }[] };
   const imgUrl = data.images?.[0]?.url;
   if (!imgUrl) throw new Error('nano-banana returned no image');
@@ -752,7 +770,12 @@ app.get('/api/text2image', async (req, res) => {
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image]', provider, e.message);
-    res.status(502).json({ error: e.message });
+    // 424, not 502. Cloudflare REPLACES an origin 5xx with its own error
+    // page — "the origin returned an invalid or incomplete response" — and
+    // the real reason ("out of credit", "no such model") never reaches
+    // anyone. A 4xx passes through untouched, and the caller still sees a
+    // failure. This is why a broken provider looked like a broken server.
+    res.status(424).json({ error: e.message });
   }
 });
 
@@ -899,7 +922,12 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
     res.send(buf);
   } catch (e: any) {
     console.error('[text2image POST]', p.provider, e.message);
-    res.status(502).json({ error: e.message });
+    // 424, not 502. Cloudflare REPLACES an origin 5xx with its own error
+    // page — "the origin returned an invalid or incomplete response" — and
+    // the real reason ("out of credit", "no such model") never reaches
+    // anyone. A 4xx passes through untouched, and the caller still sees a
+    // failure. This is why a broken provider looked like a broken server.
+    res.status(424).json({ error: e.message });
   }
 });
 
