@@ -46,7 +46,7 @@ import {
   listAppUsers, setUserRole, deductCredit,
   isAdminEmail, isAdmin, UserRole,
 } from './usersRepo';
-import { uploadToR2, getR2Stream, presignR2Get } from './r2';
+import { uploadToR2, getR2Stream, presignR2Get, publicR2Url } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
 import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
@@ -938,12 +938,13 @@ app.get('/api/text2image/assets', async (req, res) => {
   if (!email) return res.status(400).json({ error: 'email required' });
   try {
     const assets = await listAssetsByUser(email);
-    // signedUrl: direct-from-R2 image URL (edge-served) so clients skip the
-    // slow tunnel streaming path. Signing is local crypto — effectively free.
-    const signed = await Promise.all(assets.map(async (a) => ({
+    // signedUrl: direct-from-R2, edge-served public link — the bucket's
+    // public access (r2.dev) replaced presigning 2026-09-10, so clients skip
+    // both the slow tunnel streaming path AND the signed-URL 1h expiry.
+    const signed = assets.map((a) => ({
       ...a,
-      signedUrl: a.imageKey ? await presignR2Get(a.imageKey).catch(() => '') : '',
-    })));
+      signedUrl: a.imageKey ? publicR2Url(a.imageKey) : '',
+    }));
     res.json({ assets: signed });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -1366,27 +1367,19 @@ app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
   const jobs = await getJobsByUser(email);
-  // Edge-served URLs so thumbnails and GLB downloads skip the tunnel.
-  const toKey = (u: string) => {
-    if (!u.startsWith('http')) return u;
-    const marker = `/${process.env.R2_BUCKET || 'genshape3d'}/`;
-    const idx = u.indexOf(marker);
-    return idx === -1 ? u : u.slice(idx + marker.length);
-  };
-  const signed = await Promise.all(jobs.map(async (j: any) => ({
+  // Public bucket direct links (r2.dev, turned on 2026-09-10) so thumbnails
+  // and GLB downloads skip the tunnel entirely — browser talks straight to
+  // Cloudflare's edge. Field names kept as *SignedUrl for every existing
+  // caller (ugen3d, BSI) that already prefers them; they're just plain
+  // public URLs now, not presigned ones.
+  const signed = jobs.map((j: any) => ({
     ...j,
-    thumbSignedUrl: j.thumbUrl ? await presignR2Get(toKey(j.thumbUrl)).catch(() => '') : '',
-    resultSignedUrl: j.resultUrl ? await presignR2Get(toKey(j.resultUrl)).catch(() => '') : '',
-    previewSignedUrl: j.previewUrl ? await presignR2Get(toKey(j.previewUrl)).catch(() => '') : '',
-    // Cloudflare-edge-cacheable path (no bucket CORS needed): first fetch
-    // streams once through the tunnel, then it's cached at the edge.
-    previewFileUrl: j.previewUrl
-      ? `https://api.genshape3d.com/files/${Buffer.from(toKey(j.previewUrl)).toString('base64url')}.bin`
-      : '',
-    thumbFileUrl: j.thumbUrl
-      ? `https://api.genshape3d.com/files/${Buffer.from(toKey(j.thumbUrl)).toString('base64url')}.jpg`
-      : '',
-  })));
+    thumbSignedUrl: j.thumbUrl ? publicR2Url(j.thumbUrl) : '',
+    resultSignedUrl: j.resultUrl ? publicR2Url(j.resultUrl) : '',
+    previewSignedUrl: j.previewUrl ? publicR2Url(j.previewUrl) : '',
+    previewFileUrl: j.previewUrl ? publicR2Url(j.previewUrl) : '',
+    thumbFileUrl: j.thumbUrl ? publicR2Url(j.thumbUrl) : '',
+  }));
   res.json({ jobs: signed });
 });
 
