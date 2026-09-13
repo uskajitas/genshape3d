@@ -1356,6 +1356,13 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
       preferredWorkerId: (await isAdmin(email)) ? (req.body.preferredWorkerId || '') : '',
       groupId:          (req.body.groupId as string)         || null,
     });
+    // Which app made this model ('ugen3d', 'bsi', …). Set separately so the
+    // large createJob insert stays untouched. Empty = the user's own work.
+    const src = String(req.body.source || '').trim().slice(0, 40);
+    if (src) {
+      await dbQuery('UPDATE genshape3d_jobs SET source = $1 WHERE id = $2', [src, job.id]);
+      (job as any).source = src;
+    }
     res.json({ job, warnings: qcWarnings });
   } catch (err: any) {
     console.error('Upload error:', err);

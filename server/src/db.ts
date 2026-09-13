@@ -224,6 +224,10 @@ export async function initDb(): Promise<void> {
     // Soft-delete: never drop a row that took GPU time. Hide from listings
     // when "deleted" = true.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,
+    // Which app asked for this model — 'ugen3d', 'bsi', etc. Empty = the user's
+    // own ugen3d work. Lets ugen3d group models from other apps under
+    // "External assets". Set at /api/upload from the request's `source`.
+    `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_text2image_assets   ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,
     // Content hash of the input image. Used by /api/upload to dedupe — if
     // the same user submits the same image bytes with the same params, we
