@@ -27,6 +27,7 @@ export interface T2IAsset {
    *  Points to the original R2 key so we can re-edit / revert. */
   originalImageKey: string | null;
   tags?: string[];
+  source?: string;
 }
 
 const rowToAsset = (r: any): T2IAsset => ({
@@ -47,6 +48,7 @@ const rowToAsset = (r: any): T2IAsset => ({
   // Tags are set after creation (PATCH …/tags); the list has to carry them
   // or no client can ever see them.
   tags:        Array.isArray(r.tags) ? r.tags : [],
+  source:      r.source || '',
 });
 
 // Caller-side shape: most fields required, but originalImageKey is set

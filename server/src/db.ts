@@ -229,6 +229,8 @@ export async function initDb(): Promise<void> {
     // "External assets". Set at /api/upload from the request's `source`.
     `ALTER TABLE genshape3d_jobs                ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_text2image_assets   ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false`,
+    // Same idea for images: which app asked for it. Set at /api/text2image from `source`.
+    `ALTER TABLE genshape3d_text2image_assets   ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''`,
     // Content hash of the input image. Used by /api/upload to dedupe — if
     // the same user submits the same image bytes with the same params, we
     // return the existing finished job instead of queueing a duplicate.

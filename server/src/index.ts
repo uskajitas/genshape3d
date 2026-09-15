@@ -755,6 +755,9 @@ app.get('/api/text2image', async (req, res) => {
             readyFor3D:    true,         // default ON — user can toggle off later
           });
           assetId = asset.id;
+          // Which app asked for this image ('centrikboard', 'bsi', …). Empty = the user's own.
+          const src = String(req.query.source || '').trim().slice(0, 40);
+          if (src) await dbQuery('UPDATE genshape3d_text2image_assets SET source = $1 WHERE id = $2', [src, asset.id]);
         }
       } catch (saveErr: any) {
         // Non-fatal: still return the image bytes so the user sees a result.
