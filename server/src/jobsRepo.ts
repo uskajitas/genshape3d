@@ -185,6 +185,17 @@ export async function getJobsByUser(userEmail: string): Promise<Job[]> {
   return rows;
 }
 
+/** Every app's jobs (source stamped, not the user's own), whoever made them.
+ *  App assets belong to the app, so any signed-in user of that app sees them. */
+export async function getExternalJobs(): Promise<Job[]> {
+  const { rows } = await dbQuery(
+    `SELECT * FROM genshape3d_jobs
+     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false AND "isBenchmark" = false AND archived = false
+     ORDER BY "createdAt" DESC`,
+  );
+  return rows;
+}
+
 export async function archiveJob(id: string): Promise<void> {
   await dbQuery(`UPDATE genshape3d_jobs SET archived = true, "updatedAt" = NOW() WHERE id = $1`, [id]);
 }

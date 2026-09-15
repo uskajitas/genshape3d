@@ -48,10 +48,10 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream, presignR2Get, publicR2Url } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, getJobById, getJobsByUser, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
+import { createJob, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
-import { createAsset, listAssetsByUser, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
+import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { mountWorkersApi } from './workersApi';
 import {
@@ -942,7 +942,7 @@ app.get('/api/text2image/assets', async (req, res) => {
   const email = String(req.query.email || '').trim();
   if (!email) return res.status(400).json({ error: 'email required' });
   try {
-    const assets = await listAssetsByUser(email);
+    const assets = req.query.external === '1' ? await listExternalAssets() : await listAssetsByUser(email);
     // signedUrl: direct-from-R2, edge-served public link — the bucket's
     // public access (r2.dev) replaced presigning 2026-09-10, so clients skip
     // both the slow tunnel streaming path AND the signed-URL 1h expiry.
@@ -1378,7 +1378,8 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
 app.get('/api/jobs', async (req, res) => {
   const email = req.query.email as string;
   if (!email) return res.status(400).json({ error: 'email required' });
-  const jobs = await getJobsByUser(email);
+  // external=1: every app's jobs, whoever made them (the Assets page's External tab).
+  const jobs = req.query.external === '1' ? await getExternalJobs() : await getJobsByUser(email);
   // Public bucket direct links (r2.dev, turned on 2026-09-10) so thumbnails
   // and GLB downloads skip the tunnel entirely — browser talks straight to
   // Cloudflare's edge. Field names kept as *SignedUrl for every existing
