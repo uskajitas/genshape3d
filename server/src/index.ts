@@ -73,6 +73,8 @@ const allowedOrigins = [
   // BSI renders rigged ugen3d characters as talking assistant avatars —
   // it lists rigged jobs and fetches their GLBs directly from this API
   'https://bsi.uskiano.com', 'http://localhost:3220',
+  // Same avatar-import feature, ported into the standalone assistant app
+  'https://assistant.uskiano.com', 'http://localhost:3270',
 ];
 
 app.use(cors({
