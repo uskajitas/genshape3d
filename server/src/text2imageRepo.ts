@@ -147,6 +147,16 @@ export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
   return r.rows.map(rowToAsset);
 }
 
+/** Every app's images (source stamped), whoever made them. */
+export async function listExternalAssets(): Promise<T2IAsset[]> {
+  const r = await dbQuery(
+    `SELECT * FROM genshape3d_text2image_assets
+     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false
+     ORDER BY created_at DESC LIMIT 1000`,
+  );
+  return r.rows.map(rowToAsset);
+}
+
 export async function renameAsset(id: string, name: string): Promise<void> {
   await dbQuery(
     `UPDATE genshape3d_text2image_assets SET name=$1 WHERE id=$2`,
