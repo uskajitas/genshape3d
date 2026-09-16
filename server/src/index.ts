@@ -171,12 +171,19 @@ app.get('/files/:name', async (req, res) => {
 app.get('/api/mesh', async (req, res) => {
   let key = req.query.key as string;
   if (!key) return res.status(400).json({ error: 'key required' });
-  // If a full URL was passed, extract just the key (everything after /<bucket>/)
+  // If a full URL was passed, extract just the key. Two shapes exist: the S3
+  // endpoint form (…/<bucket>/<key>) and the public R2 domain form
+  // (https://assets.genshape3d.com/<key>), which is what newer jobs record as
+  // their resultUrl — that one has no bucket segment, so the path IS the key.
   if (key.startsWith('http')) {
     const bucket = process.env.R2_BUCKET || 'genshape3d';
     const marker = `/${bucket}/`;
     const idx = key.indexOf(marker);
-    if (idx !== -1) key = key.slice(idx + marker.length);
+    if (idx !== -1) {
+      key = key.slice(idx + marker.length);
+    } else {
+      try { key = decodeURIComponent(new URL(key).pathname.replace(/^\/+/, '')); } catch { /* leave as is */ }
+    }
   }
   try {
     const obj = await getR2Stream(key);
