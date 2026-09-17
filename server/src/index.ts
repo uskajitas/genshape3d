@@ -140,6 +140,9 @@ app.get('/api/image', async (req, res) => {
   if (/%2F|%3A|%20/i.test(key)) {
     try { tries.push(decodeURIComponent(key)); } catch { /* not decodable */ }
   }
+  // a key that arrived with the bucket name in front (the worker's public
+  // URLs carry it as their first path segment) — the object is under the rest
+  for (const t of [...tries]) if (t.startsWith('genshape3d/')) tries.push(t.slice('genshape3d/'.length));
   for (const k of tries) {
     try {
       const obj = await getR2Stream(k);
