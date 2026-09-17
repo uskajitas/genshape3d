@@ -170,7 +170,8 @@ function routeWorker(model: string): string {
     case 'trellis2':
     case 'triposr':
     case 'sf3d':
-    case 'hi3dgen':         return 'win-3090';
+    case 'hi3dgen':
+    case 'multiview':       return 'win-3090';  // Zero123++ on the 3090, the Bench's sides
     default:                return 'i7-1080';
   }
 }
