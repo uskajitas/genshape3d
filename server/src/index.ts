@@ -1026,6 +1026,67 @@ app.post('/api/blob', express.raw({ type: () => true, limit: '96mb' }), async (r
   }
 });
 
+// ── the other sides of a picture, drawn on OUR GPU ──────────────────────
+// Zero123++ runs on the 3090 already (the worker uses it inside 3D jobs).
+// Here it is a job of its own: POST makes it, GET reports it, and when it
+// is done the drawn views become gallery assets under the source picture —
+// the same shape alt-views produces, without Replicate. The job row is
+// archived so it never shows in anyone's model list.
+app.post('/api/multiview', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const parentAssetId = String(req.body?.parentAssetId || '').trim();
+  if (!email || !parentAssetId) return res.status(400).json({ error: 'email and parentAssetId required' });
+  try {
+    const parent = await getAssetById(parentAssetId, email);
+    if (!parent) return res.status(404).json({ error: 'parent asset not found' });
+    const job = await createJob({
+      userEmail: email, imageUrl: publicR2Url(parent.imageKey), name: `[sides] ${parent.name || 'picture'}`,
+      prompt: parent.prompt || '', model: 'multiview', doTexture: false, preferredWorkerId: 'win-3090',
+    } as any);
+    await dbQuery(`UPDATE genshape3d_jobs SET archived = true, "rootJobId" = id WHERE id = $1`, [job.id]);
+    res.json({ job: { id: job.id, status: job.status } });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/multiview/:id', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  const parentAssetId = String(req.query.parentAssetId || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    const job = await getJobById(String(req.params.id));
+    if (!job || (job.userEmail !== email && !(await isAdmin(email)))) return res.status(404).json({ error: 'no such job' });
+    const out: any = { job: { id: job.id, status: job.status, progressPct: (job as any).progressPct, progressPhase: (job as any).progressPhase } };
+    if (job.status === 'done' && parentAssetId) {
+      // the worker names each view by label in its key: mv-auto/<jobId>/<label>.png
+      const urls: string[] = Array.isArray((job as any).auxImageUrls) ? (job as any).auxImageUrls : [];
+      const parent = await getAssetById(parentAssetId, email);
+      if (!parent) return res.status(404).json({ error: 'parent asset not found' });
+      const siblings = (await listAssetsByUser(email)).filter(a => a.parentAssetId === parent.id);
+      const assets: any[] = [];
+      for (const u of urls) {
+        const m = /mv-auto\/[^/]+\/([a-z_0-9]+)\.png$/i.exec(u); if (!m) continue;
+        const label = m[1]; if (!['side', 'back', 'left', 'three_q'].includes(label)) continue;
+        const key = u.replace(/^https?:\/\/[^/]+\//, '');
+        const have = siblings.find(a => a.imageKey === key);
+        if (have) { assets.push(have); continue; }
+        // a fresh drawing of a slot replaces the old one's picture
+        const existing = siblings.find(a => a.viewLabel === label && a.provider === 'local-zero123');
+        if (existing) { await replaceAssetImageKey(existing.id, key); assets.push(await getAssetById(existing.id, email)); continue; }
+        assets.push(await createAsset({
+          userEmail: email, name: `${parent.name} (${label})`, prompt: parent.prompt, finalPrompt: parent.finalPrompt, params: parent.params,
+          provider: 'local-zero123', imageKey: key, seed: null, parentAssetId: parent.id, viewLabel: label as any, readyFor3D: true,
+        }));
+      }
+      out.assets = assets;
+    }
+    res.json(out);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/text2image/alt-views', async (req, res) => {
   const { email, parentAssetId, viewLabel } = req.body as {
     email?: string; parentAssetId?: string; viewLabel?: string;
