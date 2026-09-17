@@ -1068,7 +1068,9 @@ app.get('/api/multiview/:id', async (req, res) => {
       for (const u of urls) {
         const m = /mv-auto\/[^/]+\/([a-z_0-9]+)\.png$/i.exec(u); if (!m) continue;
         const label = m[1]; if (!['side', 'back', 'left', 'three_q'].includes(label)) continue;
-        const key = u.replace(/^https?:\/\/[^/]+\//, '');
+        // the worker's public URL may carry the bucket name as its first path
+        // segment; the KEY never does (see /api/image and the public edge)
+        const key = u.replace(/^https?:\/\/[^/]+\//, '').replace(/^genshape3d\//, '');
         const have = siblings.find(a => a.imageKey === key);
         if (have) { assets.push(have); continue; }
         // a fresh drawing of a slot replaces the old one's picture
