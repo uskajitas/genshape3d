@@ -982,6 +982,50 @@ app.get('/api/text2image/assets', async (req, res) => {
 // The previous Flux-i2i implementation is gone — it could never reliably
 // rotate a subject. See server/src/multiViewProvider.ts for the model
 // integration.
+// ── a picture INTO the gallery, as it is ───────────────────────────────────
+// Everything else in the gallery was generated here. ugen3d's Bench starts
+// from any picture — a photo, a render from elsewhere — and the multi-view
+// and edit routes only work on gallery assets. So: upload one, get an asset.
+app.post('/api/text2image/assets/upload', upload.single('image'), async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email) return res.status(400).json({ error: 'email required' });
+  if (!req.file) return res.status(400).json({ error: 'image required' });
+  try {
+    const mime = req.file.mimetype || 'image/png';
+    const ext = mime.includes('jpeg') ? '.jpg' : mime.includes('webp') ? '.webp' : '.png';
+    const uploaded = await uploadToR2(req.file.buffer, `t2i-upload-${Date.now()}${ext}`, mime);
+    const name = String(req.body?.name || req.file.originalname || 'picture').replace(/\.[^.]+$/, '').slice(0, 120);
+    const asset = await createAsset({
+      userEmail: email, name, prompt: String(req.body?.prompt || ''), finalPrompt: '',
+      params: { uploaded: true }, provider: 'upload', imageKey: uploaded.key, seed: null,
+      parentAssetId: null, viewLabel: 'front', readyFor3D: true,
+    });
+    res.json({ asset });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── a file INTO storage, admin only ────────────────────────────────────────
+// The Bench produces intermediate meshes — a tidied mesh, a measured piece,
+// a hand-fixed patch — that are not jobs and not gallery images. They need a
+// home that survives deploys. One route: bytes in, key out; read back through
+// /api/mesh or the public edge like everything else.
+app.post('/api/blob', express.raw({ type: () => true, limit: '96mb' }), async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  const bytes = req.body as Buffer;
+  if (!Buffer.isBuffer(bytes) || bytes.length < 4) return res.status(400).json({ error: 'body required' });
+  try {
+    const name = String(req.query.name || 'blob.bin').replace(/[^\w.-]+/g, '_').slice(0, 80);
+    const type = String(req.query.type || req.header('content-type') || 'application/octet-stream');
+    const uploaded = await uploadToR2(bytes, `bench-${Date.now()}-${name}`, type);
+    res.json({ key: uploaded.key, url: publicR2Url(uploaded.key) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/text2image/alt-views', async (req, res) => {
   const { email, parentAssetId, viewLabel } = req.body as {
     email?: string; parentAssetId?: string; viewLabel?: string;
