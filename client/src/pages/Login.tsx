@@ -322,17 +322,6 @@ const FormFooter = styled.div`
   gap: 0.75rem;
 `;
 
-const GuestLink = styled.button`
-  background: none; border: none;
-  font-size: 0.85rem;
-  color: ${p => p.theme.colors.textMuted};
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  transition: color 0.15s;
-  &:hover { color: ${p => p.theme.colors.text}; }
-`;
-
 const TermsText = styled.p`
   font-size: 0.75rem;
   color: ${p => p.theme.colors.textMuted};
@@ -365,8 +354,6 @@ const Login: React.FC = () => {
     try { await signInWithEmail(email, password); navigate('/dashboard', { replace: true }); }
     catch (e: any) { setError(e.message); }
   };
-
-  const handleGuest = () => navigate('/dashboard');
 
   return (
     <Page>
@@ -410,7 +397,7 @@ const Login: React.FC = () => {
           </FormBrand>
 
           <FormTitle>Welcome back</FormTitle>
-          <FormSubtitle>Sign in to your account or create a new one</FormSubtitle>
+          <FormSubtitle>Sign in to your account</FormSubtitle>
 
           <SocialBtn onClick={handleGoogle}>
             <ProviderIcon>🌐</ProviderIcon>
@@ -436,9 +423,6 @@ const Login: React.FC = () => {
           </EmailForm>
 
           <FormFooter>
-            <GuestLink onClick={handleGuest}>
-              Continue as guest (view only)
-            </GuestLink>
             <TermsText>
               By continuing you agree to our{' '}
               <a href="#">Terms of Service</a> and{' '}

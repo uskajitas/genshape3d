@@ -54,6 +54,7 @@ import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { mountWorkersApi } from './workersApi';
+import { accessGate } from './accessGate';
 import {
   listRatingDimensions, addRatingDimension,
   getCategoryTree, listCategories,
@@ -110,6 +111,21 @@ app.use((req, res, next) => {
   if (req.method === 'POST' && BIG_BODY_POSTS.has(req.path)) return next();
   return globalJson(req, res, next);
 });
+
+// genshape3d is private: from outside, only a verified owner gets past this.
+// Sibling apps on this machine (ugen3d, ugen2d, ...) call http://localhost:8110
+// and are trusted, with the email they pass. Public: the Stripe webhook, the
+// asset reads <img>/<model-viewer> make (no headers possible), and the GPU
+// workers' routes (workers/* check WORKER_AUTH_TOKEN themselves).
+app.use('/api', accessGate({
+  publicPaths: [
+    /^\/health$/,
+    /^\/billing\/webhook$/,
+    /^\/(image|mesh)$/,
+    /^\/workers\/(register|[^/]+\/(claim|progress|complete|heartbeat))$/,
+    /^\/textures\/(pending|[^/]+\/(progress|complete|fail))$/,
+  ],
+}));
 
 // Other billing routes (after express.json is set up).
 app.get('/api/billing/packs', listPacks);
