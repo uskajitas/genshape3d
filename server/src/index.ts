@@ -707,7 +707,7 @@ const callLocalEdit = async (req: T2IRequest): Promise<{ buf: Buffer; contentTyp
     return j;
   };
   const job = await call('POST', 'jobs/submit', { type: 'image.edit', input: { image: imgs[0], prompt: req.prompt, seed: req.seed } });
-  if (job.resolution && job.resolution.ok === false) {
+  if (job.resolution && (job.resolution.ok === false || job.resolution.available === false)) {
     await call('POST', `jobs/${job.id}/fail`, { error: 'no GPU offers image.edit right now' }).catch(() => {});
     throw new Error('the local GPU editor is not available right now');
   }
