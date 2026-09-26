@@ -822,6 +822,9 @@ type T2IParsed = {
   prompt: string; provider: string; refImages: string[];
   w: number; h: number; seed: number; guidance?: number;
   email: string; sourceAssetId: string | null;
+  /** tags stamped on the asset the moment it exists — e.g. 'rig-pose', which
+   *  keeps a picture out of every gallery listing from the first instant */
+  tags: string[];
 };
 
 function parseT2I(b: any): { error: string } | { p: T2IParsed } {
@@ -853,6 +856,7 @@ function parseT2I(b: any): { error: string } | { p: T2IParsed } {
     guidance: Number.isFinite(Number(b.guidance)) ? Math.max(1, Math.min(8, Number(b.guidance))) : undefined,
     email: String(b.email || '').trim(),
     sourceAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
+    tags: cleanTags(b.tags),
   } };
 }
 
@@ -881,6 +885,9 @@ async function runT2I(p: T2IParsed) {
         readyFor3D: true,
       });
       assetId = asset.id;
+      if (p.tags.length) {
+        await dbQuery(`UPDATE genshape3d_text2image_assets SET tags = $1 WHERE id = $2`, [p.tags, assetId]);
+      }
     } catch (saveErr: any) {
       console.error('[text2image] save failed:', saveErr.message);
     }
