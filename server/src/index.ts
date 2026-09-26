@@ -683,12 +683,57 @@ const callNanoBanana = async (req: T2IRequest): Promise<{ buf: Buffer; contentTy
   return { buf: Buffer.from(await ir.arrayBuffer()), contentType: ir.headers.get('content-type') || 'image/jpeg' };
 };
 
+// Local image editing on the fleet's GPU (the RTX 3090 runs Qwen-Image-Edit
+// as the fleet job type `image.edit`). Free — no per-image charge — and used
+// for ugen2d's rig poses. The job goes through the uFleet control plane with
+// this machine's node key; the edit comes back as a data URL.
+const fleetKit = (): { cp: string; key: string } | null => {
+  try {
+    const f = process.env.UFLEET_KIT_CONFIG || 'F:/cloudflare/ufleet-kit/kit.json';
+    const c = JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
+    return { cp: String(c.controlPlane).replace(/\/+$/, ''), key: c.nodeKey };
+  } catch { return null; }
+};
+
+const callLocalEdit = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const kit = fleetKit();
+  if (!kit) throw new Error('the fleet is not configured on this machine');
+  const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
+  if (!imgs.length) throw new Error('local edit needs a picture');
+  const call = async (method: string, route: string, body?: any) => {
+    const r = await fetch(`${kit.cp}/api/${route}`, { method, headers: { 'content-type': 'application/json', 'x-node-key': kit.key }, body: body ? JSON.stringify(body) : undefined });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`fleet ${route}: ${r.status} ${j.error || ''}`);
+    return j;
+  };
+  const job = await call('POST', 'jobs/submit', { type: 'image.edit', input: { image: imgs[0], prompt: req.prompt, seed: req.seed } });
+  if (job.resolution && job.resolution.ok === false) {
+    await call('POST', `jobs/${job.id}/fail`, { error: 'no GPU offers image.edit right now' }).catch(() => {});
+    throw new Error('the local GPU editor is not available right now');
+  }
+  const until = Date.now() + 10 * 60_000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const j = await call('GET', `jobs/${job.id}/as-node`);
+    if (j.status === 'done') {
+      // only a JPEG/PNG/WebP picture is accepted back — nothing else from the job is used
+      const url = String(j.output?.image || '');
+      const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(url);
+      if (!m) throw new Error('the local editor returned no picture');
+      return { buf: Buffer.from(m[2], 'base64'), contentType: m[1] };
+    }
+    if (j.status === 'dead' || j.status === 'failed' || j.status === 'cancelled') throw new Error(`local edit failed: ${j.error || j.status}`);
+  }
+  throw new Error('the local editor took too long');
+};
+
 const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; contentType: string }>> = {
   pollinations:       callPollinations,
   'fal-flux-schnell': callFalFluxSchnell,
   'fal-flux-pro':     callFalFluxPro,
   'fal-flux-kontext': callFalKontext,
   'nano-banana':      callNanoBanana,
+  'local-edit':       callLocalEdit,
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
@@ -698,7 +743,7 @@ const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; 
 // else here is text-to-image: pollinations / flux schnell / flux pro / hf /
 // dall-e-3 ignore refImages outright, and nano-banana tolerates their absence.
 // Keep this in sync when adding a provider — see parseT2I.
-const REF_REQUIRED_PROVIDERS = new Set(['fal-flux-kontext']);
+const REF_REQUIRED_PROVIDERS = new Set(['fal-flux-kontext', 'local-edit']);
 
 app.get('/api/text2image', async (req, res) => {
   const prompt = String(req.query.prompt || '').trim();
