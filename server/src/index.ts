@@ -870,6 +870,9 @@ type T2IParsed = {
   /** tags stamped on the asset the moment it exists — e.g. 'rig-pose', which
    *  keeps a picture out of every gallery listing from the first instant */
   tags: string[];
+  /** the app that asked (ugen2d, assistant…). Stamped on the asset so each
+   *  app's gallery shows only its own pictures — '' / ugen3d is ugen3d's. */
+  source: string;
 };
 
 function parseT2I(b: any): { error: string } | { p: T2IParsed } {
@@ -902,6 +905,7 @@ function parseT2I(b: any): { error: string } | { p: T2IParsed } {
     email: String(b.email || '').trim(),
     sourceAssetId: typeof b.sourceAssetId === 'string' && b.sourceAssetId ? b.sourceAssetId : null,
     tags: cleanTags(b.tags),
+    source: /^[a-z0-9-]{1,40}$/.test(String(b.source || '').toLowerCase()) ? String(b.source).toLowerCase() : '',
   } };
 }
 
@@ -930,8 +934,11 @@ async function runT2I(p: T2IParsed) {
         readyFor3D: true,
       });
       assetId = asset.id;
-      if (p.tags.length) {
-        await dbQuery(`UPDATE genshape3d_text2image_assets SET tags = $1 WHERE id = $2`, [p.tags, assetId]);
+      if (p.tags.length || p.source) {
+        await dbQuery(
+          `UPDATE genshape3d_text2image_assets SET tags = CASE WHEN cardinality($1::text[]) > 0 THEN $1 ELSE tags END, source = CASE WHEN $2 <> '' THEN $2 ELSE source END WHERE id = $3`,
+          [p.tags, p.source, assetId],
+        );
       }
     } catch (saveErr: any) {
       console.error('[text2image] save failed:', saveErr.message);
