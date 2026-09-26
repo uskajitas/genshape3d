@@ -137,10 +137,15 @@ export async function getAssetById(id: string, email: string): Promise<T2IAsset 
   return r.rows[0] ? rowToAsset(r.rows[0]) : null;
 }
 
+/** A rigged 2D character's poses (a mouth shape, a blink) are parts of that
+ *  character, loaded by key — never pictures of their own. No gallery, in
+ *  any app, lists them. */
+const NOT_RIG_POSE = `NOT ('rig-pose' = ANY(COALESCE(tags, '{}')))`;
+
 export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
   const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
-     WHERE user_email = $1 AND deleted = false
+     WHERE user_email = $1 AND deleted = false AND ${NOT_RIG_POSE}
      ORDER BY created_at DESC LIMIT 200`,
     [email],
   );
@@ -151,7 +156,7 @@ export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
 export async function listExternalAssets(): Promise<T2IAsset[]> {
   const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
-     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false
+     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false AND ${NOT_RIG_POSE}
      ORDER BY created_at DESC LIMIT 1000`,
   );
   return r.rows.map(rowToAsset);
