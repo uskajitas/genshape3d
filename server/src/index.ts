@@ -1078,7 +1078,19 @@ app.post('/api/text2image/assets/upload', upload.single('image'), async (req, re
       params: { uploaded: true }, provider: 'upload', imageKey: uploaded.key, seed: null,
       parentAssetId: null, viewLabel: 'front', readyFor3D: true,
     });
-    res.json({ asset });
+    // A caller that knows which app the picture belongs to says so HERE, in
+    // the same request: an asset created without a source is "personal" to
+    // every gallery for as long as it takes a second request to tag it, and
+    // ugen2d's rig poses leaked into ugen3d through exactly that gap.
+    const src = String(req.body?.source || '').trim().toLowerCase().slice(0, 40);
+    let tags: string[] = [];
+    try {
+      const raw = req.body?.tags;
+      tags = cleanTags(typeof raw === 'string' && raw.trim().startsWith('[') ? JSON.parse(raw) : String(raw || '').split(',').map((t: string) => t.trim()).filter(Boolean));
+    } catch { tags = []; }
+    if (src) await dbQuery('UPDATE genshape3d_text2image_assets SET source = $1 WHERE id = $2', [src, asset.id]);
+    if (tags.length) await dbQuery('UPDATE genshape3d_text2image_assets SET tags = $1 WHERE id = $2', [tags, asset.id]);
+    res.json({ asset: { ...asset, source: src || asset.source, tags: tags.length ? tags : asset.tags } });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
