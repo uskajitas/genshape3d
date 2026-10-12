@@ -2420,16 +2420,19 @@ app.post('/api/workspaces', express.json(), async (req, res) => {
 
 // Move a picture to another workspace: its source becomes that workspace's
 // key ('personal' for the mover's own work). The sides drawn from it move
-// with it, so it never arrives without them. Tags are left alone.
+// with it, so it never arrives without them. Tags are kept; with appTag the
+// destination's key is added to them, which is how an app's own library
+// (Centrikboard, uskiano.com…) finds its pictures.
 app.patch('/api/text2image/assets/:id/source', express.json(), async (req, res) => {
   try {
     const source = String(req.body?.source || '').trim().toLowerCase();
     if (!WS_KEY.test(source)) return res.status(400).json({ error: 'not a workspace' });
     const { rows } = await dbQuery(
-      `UPDATE genshape3d_text2image_assets SET source = $1
+      `UPDATE genshape3d_text2image_assets SET source = $1,
+         tags = CASE WHEN $3::boolean AND NOT ($1 = ANY(COALESCE(tags, '{}'))) THEN array_append(COALESCE(tags, '{}'), $1) ELSE tags END
          WHERE id = $2 OR ("parentAssetId" = $2 AND "viewLabel" IS NOT NULL AND "viewLabel" <> 'front')
        RETURNING id`,
-      [source, req.params.id],
+      [source, req.params.id, req.body?.appTag === true],
     );
     if (!rows.length) return res.status(404).json({ error: 'asset not found' });
     res.json({ ok: true, moved: rows.length });
