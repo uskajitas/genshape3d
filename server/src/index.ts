@@ -435,11 +435,23 @@ interface T2IRequest {
   guidance?: number;
 }
 
+// Since 2026-10 Pollinations draws for free only up to 512x512; a larger
+// picture answers 402 Payment Required. It is then asked again at the largest
+// free size, same proportions, so the free model keeps working.
+const POLLINATIONS_FREE_PX = 512;
 const callPollinations = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(req.prompt)}` +
-    `?width=${req.width}&height=${req.height}&nologo=true&seed=${req.seed}` +
-    (req.negative ? `&negative_prompt=${encodeURIComponent(req.negative)}` : '');
-  const r = await fetch(url, { headers: { 'User-Agent': 'genshape3d/1.0' } });
+  const ask = (w: number, h: number) => fetch(
+    `https://image.pollinations.ai/prompt/${encodeURIComponent(req.prompt)}` +
+    `?width=${w}&height=${h}&nologo=true&seed=${req.seed}` +
+    (req.negative ? `&negative_prompt=${encodeURIComponent(req.negative)}` : ''),
+    { headers: { 'User-Agent': 'genshape3d/1.0' } },
+  );
+  let r = await ask(req.width, req.height);
+  if (r.status === 402 && Math.max(req.width, req.height) > POLLINATIONS_FREE_PX) {
+    const k = POLLINATIONS_FREE_PX / Math.max(req.width, req.height);
+    r = await ask(Math.max(64, Math.round(req.width * k / 8) * 8), Math.max(64, Math.round(req.height * k / 8) * 8));
+  }
+  if (r.status === 402) throw new Error('Pollinations now charges for this picture; choose another model');
   if (!r.ok) throw new Error(`pollinations ${r.status}`);
   const buf = Buffer.from(await r.arrayBuffer());
   if (buf.length === 0) throw new Error('pollinations empty response');
