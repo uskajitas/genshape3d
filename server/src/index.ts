@@ -1293,6 +1293,99 @@ app.get('/api/multiview/:id', async (req, res) => {
   }
 });
 
+// ── the other sides of a picture, MV-Adapter on the RTX 3090 ─────────────
+// Beside /api/multiview (Zero123++ inside the 3D worker), never in its place.
+// MV-Adapter draws the object at eye level all the way round: 0, 45, 90, 180,
+// 270 and 315 degrees. It runs behind the fleet service mv-sides@1; POST
+// queues it and answers the fleet job id, GET asks the fleet once and, when the
+// job is done, files the views as gallery assets under the source picture (the
+// same shape /api/multiview answers). Admin only.
+const MV_ADAPTER_LABELS: Record<string, string> = { '45': 'three_q', '90': 'side', '180': 'back', '270': 'left' };
+
+const fleetAppCall = async (method: string, route: string, body?: any): Promise<any> => {
+  const token = process.env.UFLEET_API_TOKEN || await engineSetting('ufleet.apiToken');
+  if (!token) throw new Error('the local GPU is not configured on this engine');
+  const cp = (process.env.UFLEET_CONTROL_PLANE || await engineSetting('ufleet.controlPlane') || 'https://mission-control.uskiano.com').replace(/\/+$/, '');
+  const r = await fetch(`${cp}/api/${route}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
+  const j: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`fleet ${route}: ${r.status} ${j.error || ''}`);
+  return j;
+};
+
+app.post('/api/multiview/mv-adapter', async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const parentAssetId = String(req.body?.parentAssetId || '').trim();
+  if (!email || !parentAssetId) return res.status(400).json({ error: 'email and parentAssetId required' });
+  try {
+    if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+    const parent = await getAssetById(parentAssetId, email);
+    if (!parent) return res.status(404).json({ error: 'parent asset not found' });
+    const r2 = await getR2Stream(parent.imageKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of r2.Body as any) chunks.push(Buffer.from(chunk));
+    const mime = /^image\/(png|jpeg|webp)$/.test(String(r2.ContentType)) ? String(r2.ContentType) : 'image/png';
+    const created = await fleetAppCall('POST', 'jobs', {
+      contract: 'mv-sides@1', operation: 'views.draw', title: `genshape3d · sides of ${(parent.name || 'picture').slice(0, 60)}`,
+      input: { image: `data:${mime};base64,${Buffer.concat(chunks).toString('base64')}`, ...(req.body?.seed != null ? { seed: Number(req.body.seed) } : {}) },
+    });
+    const id = created?.id || created?.job?.id;
+    if (!id) throw new Error('the fleet returned no job');
+    res.json({ job: { id: String(id), status: 'queued' } });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/multiview/mv-adapter/:id', async (req, res) => {
+  const email = String(req.query.email || '').trim();
+  const parentAssetId = String(req.query.parentAssetId || '').trim();
+  if (!email || !parentAssetId) return res.status(400).json({ error: 'email and parentAssetId required' });
+  try {
+    if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+    const d = await fleetAppCall('GET', `jobs/${encodeURIComponent(String(req.params.id))}`);
+    const job = d?.job || d || {};
+    const st = String(job.state || job.status || '');
+    if (['failed', 'dead', 'cancelled', 'canceled'].includes(st)) {
+      const raw = String(job.error || st);
+      const inner = /answered \d+: (\{[\s\S]*\})\s*$/.exec(raw);
+      let why = raw; if (inner) { try { why = JSON.parse(inner[1]).error || raw; } catch { /* keep raw */ } }
+      return res.json({ job: { id: req.params.id, status: 'failed', error: why.slice(0, 300) } });
+    }
+    if (st !== 'succeeded' && st !== 'done') return res.json({ job: { id: req.params.id, status: st || 'queued', progressPhase: st === 'running' ? 'drawing on the RTX 3090' : 'queued' } });
+    const attempts: any[] = Array.isArray(d?.attempts) ? d.attempts : [];
+    const out = job.result?.views ? job.result : job.output?.views ? job.output : attempts.slice().reverse().find((x) => x?.output?.views)?.output || {};
+    const parent = await getAssetById(parentAssetId, email);
+    if (!parent) return res.status(404).json({ error: 'parent asset not found' });
+    const siblings = (await listAssetsByUser(email)).filter(a => a.parentAssetId === parent.id);
+    const assets: any[] = [];
+    for (const [az, label] of Object.entries(MV_ADAPTER_LABELS)) {
+      // only a JPEG/PNG/WebP picture is accepted back — nothing else from the job is used
+      const m = PICTURE_URL.exec(String(out.views?.[az] || ''));
+      if (!m) continue;
+      const bytes = Buffer.from(m[2], 'base64');
+      // asked twice for the same finished job: the views are already filed
+      const filed = siblings.find(a => a.provider === 'local-mv-adapter' && a.viewLabel === label && (a.params as any)?.mvJob === req.params.id);
+      if (filed) { assets.push(filed); continue; }
+      const uploaded = await uploadToR2(bytes, `mv-adapter-${label}-${Date.now()}.${m[1].split('/')[1]}`, m[1]);
+      const existing = siblings.find(a => a.viewLabel === label && a.provider === 'local-mv-adapter');
+      if (existing) {
+        await replaceAssetImageKey(existing.id, uploaded.key);
+        await dbQuery(`UPDATE genshape3d_text2image_assets SET params = COALESCE(params, '{}'::jsonb) || $1::jsonb WHERE id = $2`, [JSON.stringify({ mvJob: req.params.id }), existing.id]).catch(() => {});
+        assets.push(await getAssetById(existing.id, email)); continue;
+      }
+      assets.push(await createAsset({
+        userEmail: email, name: `${parent.name} (${label})`, prompt: parent.prompt, finalPrompt: parent.finalPrompt,
+        params: { ...(parent.params as any || {}), mvJob: req.params.id, azimuth: Number(az) },
+        provider: 'local-mv-adapter', imageKey: uploaded.key, seed: null, parentAssetId: parent.id, viewLabel: label as any, readyFor3D: true,
+      }));
+    }
+    if (!assets.length) return res.json({ job: { id: req.params.id, status: 'failed', error: 'the RTX 3090 returned no views' } });
+    res.json({ job: { id: req.params.id, status: 'done' }, assets });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/text2image/alt-views', async (req, res) => {
   const { email, parentAssetId, viewLabel } = req.body as {
     email?: string; parentAssetId?: string; viewLabel?: string;
