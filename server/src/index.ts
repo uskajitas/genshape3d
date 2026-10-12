@@ -726,7 +726,12 @@ const engineSetting = async (key: string): Promise<string> => {
 
 const PICTURE_URL = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 
-const callFleetAppEdit = async (token: string, image: string, req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+const callFleetAppEdit = (token: string, image: string, req: T2IRequest) =>
+  callFleetApp(token, 'image-edit@1', 'image.edit', 'genshape3d · picture edit',
+    { image, prompt: req.prompt, ...(req.seed != null ? { seed: req.seed } : {}) });
+
+/** one operation job on a fleet service that answers with { image: dataURL } */
+const callFleetApp = async (token: string, contract: string, operation: string, title: string, input: any): Promise<{ buf: Buffer; contentType: string }> => {
   const cp = (process.env.UFLEET_CONTROL_PLANE || await engineSetting('ufleet.controlPlane') || 'https://mission-control.uskiano.com').replace(/\/+$/, '');
   const call = async (method: string, route: string, body?: any) => {
     const r = await fetch(`${cp}/api/${route}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -734,10 +739,7 @@ const callFleetAppEdit = async (token: string, image: string, req: T2IRequest): 
     if (!r.ok) throw new Error(`fleet ${route}: ${r.status} ${j.error || ''}`);
     return j;
   };
-  const created = await call('POST', 'jobs', {
-    contract: 'image-edit@1', operation: 'image.edit', title: 'genshape3d · picture edit',
-    input: { image, prompt: req.prompt, ...(req.seed != null ? { seed: req.seed } : {}) },
-  });
+  const created = await call('POST', 'jobs', { contract, operation, title, input });
   const id = created?.id || created?.job?.id;
   if (!id) throw new Error('the fleet returned no job');
   const until = Date.now() + 10 * 60_000;
@@ -751,17 +753,27 @@ const callFleetAppEdit = async (token: string, image: string, req: T2IRequest): 
       const out = job.result?.image ? job.result : job.output?.image ? job.output : attempts.slice().reverse().find((x) => x?.output?.image)?.output || {};
       // only a JPEG/PNG/WebP picture is accepted back — nothing else from the job is used
       const m = PICTURE_URL.exec(String(out.image || ''));
-      if (!m) throw new Error('the local editor returned no picture');
+      if (!m) throw new Error('the local GPU returned no picture');
       return { buf: Buffer.from(m[2], 'base64'), contentType: m[1] };
     }
     if (['failed', 'dead', 'cancelled', 'canceled'].includes(st)) {
       const raw = String(job.error || st);
       const inner = /answered \d+: (\{[\s\S]*\})\s*$/.exec(raw);
       let why = raw; if (inner) { try { why = JSON.parse(inner[1]).error || raw; } catch { /* keep raw */ } }
-      throw new Error(`local edit failed: ${why.slice(0, 300)}`);
+      throw new Error(`the local GPU failed: ${why.slice(0, 300)}`);
     }
   }
-  throw new Error('the local editor took too long');
+  throw new Error('the local GPU took too long');
+};
+
+// The 3090's own picture painter: SDXL-Turbo behind the fleet service
+// portrait@1. It paints ONE kind of picture, a 512x512 head-and-shoulders
+// portrait from a description, free. The user's words go through as written.
+const callLocalPortrait = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const token = process.env.UFLEET_API_TOKEN || await engineSetting('ufleet.apiToken');
+  if (!token) throw new Error('the local GPU is not configured on this engine');
+  return callFleetApp(token, 'portrait@1', 'paint', 'genshape3d · portrait',
+    { prompt: req.prompt, ...(req.seed != null ? { seed: req.seed } : {}) });
 };
 
 const callLocalEdit = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
@@ -809,6 +821,7 @@ const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; 
   'fal-flux-kontext': callFalKontext,
   'nano-banana':      callNanoBanana,
   'local-edit':       callLocalEdit,
+  'local-portrait':   callLocalPortrait,
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
