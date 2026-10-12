@@ -814,6 +814,18 @@ const callLocalEdit = async (req: T2IRequest): Promise<{ buf: Buffer; contentTyp
   throw new Error('the local editor took too long');
 };
 
+// The 3090's general picture generator (image_gen.py behind image-gen@1):
+// Qwen-Image or FLUX.1 Schnell, int4, free. The user's words go through as
+// written, at the requested size (snapped to a multiple of 16, 256-1536).
+const callLocalGenerate = async (model: 'qwen-image' | 'flux-schnell', req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const token = process.env.UFLEET_API_TOKEN || await engineSetting('ufleet.apiToken');
+  if (!token) throw new Error('the local GPU is not configured on this engine');
+  return callFleetApp(token, 'image-gen@1', 'image.generate', `genshape3d · ${model}`, {
+    prompt: req.prompt, model, width: req.width, height: req.height,
+    ...(req.seed != null ? { seed: req.seed } : {}),
+  });
+};
+
 const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; contentType: string }>> = {
   pollinations:       callPollinations,
   'fal-flux-schnell': callFalFluxSchnell,
@@ -822,6 +834,8 @@ const T2I_PROVIDERS: Record<string, (req: T2IRequest) => Promise<{ buf: Buffer; 
   'nano-banana':      callNanoBanana,
   'local-edit':       callLocalEdit,
   'local-portrait':   callLocalPortrait,
+  'local-qwen-image': (req) => callLocalGenerate('qwen-image', req),
+  'local-flux-schnell': (req) => callLocalGenerate('flux-schnell', req),
   'hf-flux-schnell':  callHFInference,
   'openai-dall-e-3':  callOpenAIDallE3,
 };
