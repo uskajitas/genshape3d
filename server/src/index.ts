@@ -710,7 +710,67 @@ const fleetKit = (): { cp: string; key: string } | null => {
   } catch { return null; }
 };
 
+// Since 2026-10-11 the fleet lives in Mission Control, which takes jobs from
+// APPLICATIONS (an API token, `Authorization: Bearer`) as operation jobs on a
+// service contract — the same way ugen2d's pose editor reaches the 3090. The
+// token and, optionally, the control plane are read from this engine's own
+// settings table (secrets shared across deploys live in the database, not in
+// .env). When no token is set, the older node-key route below is used as before.
+const engineSetting = async (key: string): Promise<string> => {
+  try {
+    await dbQuery(`CREATE TABLE IF NOT EXISTS genshape3d_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+    const r = await dbQuery(`SELECT value FROM genshape3d_settings WHERE key = $1`, [key]);
+    return String(r.rows[0]?.value || '');
+  } catch { return ''; }
+};
+
+const PICTURE_URL = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
+
+const callFleetAppEdit = async (token: string, image: string, req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const cp = (process.env.UFLEET_CONTROL_PLANE || await engineSetting('ufleet.controlPlane') || 'https://mission-control.uskiano.com').replace(/\/+$/, '');
+  const call = async (method: string, route: string, body?: any) => {
+    const r = await fetch(`${cp}/api/${route}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`fleet ${route}: ${r.status} ${j.error || ''}`);
+    return j;
+  };
+  const created = await call('POST', 'jobs', {
+    contract: 'image-edit@1', operation: 'image.edit', title: 'genshape3d · picture edit',
+    input: { image, prompt: req.prompt, ...(req.seed != null ? { seed: req.seed } : {}) },
+  });
+  const id = created?.id || created?.job?.id;
+  if (!id) throw new Error('the fleet returned no job');
+  const until = Date.now() + 10 * 60_000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const d = await call('GET', `jobs/${encodeURIComponent(id)}`);
+    const job = d?.job || d || {};
+    const st = String(job.state || job.status || '');
+    if (st === 'succeeded' || st === 'done') {
+      const attempts: any[] = Array.isArray(d?.attempts) ? d.attempts : [];
+      const out = job.result?.image ? job.result : job.output?.image ? job.output : attempts.slice().reverse().find((x) => x?.output?.image)?.output || {};
+      // only a JPEG/PNG/WebP picture is accepted back — nothing else from the job is used
+      const m = PICTURE_URL.exec(String(out.image || ''));
+      if (!m) throw new Error('the local editor returned no picture');
+      return { buf: Buffer.from(m[2], 'base64'), contentType: m[1] };
+    }
+    if (['failed', 'dead', 'cancelled', 'canceled'].includes(st)) {
+      const raw = String(job.error || st);
+      const inner = /answered \d+: (\{[\s\S]*\})\s*$/.exec(raw);
+      let why = raw; if (inner) { try { why = JSON.parse(inner[1]).error || raw; } catch { /* keep raw */ } }
+      throw new Error(`local edit failed: ${why.slice(0, 300)}`);
+    }
+  }
+  throw new Error('the local editor took too long');
+};
+
 const callLocalEdit = async (req: T2IRequest): Promise<{ buf: Buffer; contentType: string }> => {
+  const appToken = process.env.UFLEET_API_TOKEN || await engineSetting('ufleet.apiToken');
+  if (appToken) {
+    const first = ((req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[])[0];
+    if (!first) throw new Error('local edit needs a picture');
+    return callFleetAppEdit(appToken, first, req);
+  }
   const kit = fleetKit();
   if (!kit) throw new Error('the fleet is not configured on this machine');
   const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
