@@ -171,6 +171,7 @@ function routeWorker(model: string): string {
     case 'triposr':
     case 'sf3d':
     case 'hi3dgen':
+    case 'spar3d':
     case 'multiview':       return 'win-3090';  // Zero123++ on the 3090, the Bench's sides
     default:                return 'i7-1080';
   }
