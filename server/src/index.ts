@@ -2430,6 +2430,44 @@ app.post('/api/jobs/:id/materialize',
   },
 );
 
+// ── a model made in the Factory, INTO the model list ─────────────────────
+// The Factory builds parts from measurements (a rim from its diameter, width
+// and spokes), in the browser, exactly. Nothing to generate: the GLB arrives
+// finished and becomes a done job of its own (model 'factory', version 1),
+// in the workspace it was made in. Admin only, like the Factory itself.
+app.post('/api/factory/models',
+  express.raw({ type: 'model/gltf-binary', limit: '64mb' }),
+  async (req, res) => {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const bytes = req.body as Buffer;
+    if (!Buffer.isBuffer(bytes) || bytes.length < 20 || bytes.toString('ascii', 0, 4) !== 'glTF') {
+      return res.status(400).json({ error: 'GLB body required (model/gltf-binary)' });
+    }
+    try {
+      if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+      const { url: resultUrl } = await uploadToR2(bytes, 'factory.glb', 'model/gltf-binary');
+      const id = randomUUID();
+      const name = String(req.query.name || '').trim().slice(0, 120) || 'Factory part';
+      const source = String(req.query.source || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40);
+      const { rows } = await dbQuery(
+        `INSERT INTO genshape3d_jobs
+           (id, "userEmail", "imageUrl", name, prompt, style, status, "resultUrl",
+            "createdAt", "updatedAt", "startedAt", "completedAt",
+            model, "assignedWorkerId", "doTexture", "progressPct", "progressPhase",
+            "rootJobId", version, "versionLabel", "thumbUrl", source)
+         VALUES ($1,$2,'',$3,$4,'Realistic','done',$5, NOW(),NOW(),NOW(),NOW(),
+                 'factory','', false, 100,'done', $1, 1, 'factory', '', $6)
+         RETURNING *`,
+        [id, email, name, String(req.query.recipe || '').slice(0, 2000), resultUrl, source],
+      );
+      res.json({ job: rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  },
+);
+
 app.post('/api/jobs/:id/thumbnail', async (req, res) => {
   const email = String(req.body?.email || '').trim();
   const dataUrl = String(req.body?.dataUrl || '');
