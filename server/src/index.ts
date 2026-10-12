@@ -664,16 +664,31 @@ const callNanoBanana = async (req: T2IRequest): Promise<{ buf: Buffer; contentTy
   if (!key) throw new Error('FAL_KEY not configured');
   const imgs = (req.refImages && req.refImages.length ? req.refImages : [req.refImage]).filter(Boolean) as string[];
   const endpoint = imgs.length ? 'fal-ai/gemini-25-flash-image/edit' : 'fal-ai/gemini-25-flash-image';
-  const fr = await fetch(`https://fal.run/${endpoint}`, {
+  const ask = (prompt: string) => fetch(`https://fal.run/${endpoint}`, {
     method: 'POST',
     headers: { 'Authorization': `Key ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      prompt: req.prompt,
+      prompt,
       ...(imgs.length ? { image_urls: imgs } : {}),
       num_images: 1,
       output_format: 'jpeg',
     }),
   });
+  let fr = await ask(req.prompt);
+  // Gemini sometimes answers a DESCRIPTION ("a robot who tells jokes") in
+  // words instead of drawing it, and fal reports that as 422
+  // no_media_generated. Ask once more with the request spelled out as a
+  // picture to draw; the user's own words are kept, only framed.
+  if (fr.status === 422) {
+    const body = await fr.text().catch(() => '');
+    if (!/no_media_generated/.test(body)) throw new Error(`fal nano-banana 422 ${body}`);
+    fr = await ask(imgs.length
+      ? `Edit the attached image and return the edited image. Keep the character, its design and the art style. Change: ${req.prompt}`
+      : `Draw this as a single image: ${req.prompt}`);
+    if (fr.status === 422 && /no_media_generated/.test(await fr.clone().text().catch(() => ''))) {
+      throw new Error('the image model answered in words instead of drawing a picture. Describe what the picture should show or change, for example "make him smile and hold a microphone", and try again');
+    }
+  }
   if (!fr.ok) throw await falFailure('fal nano-banana', fr);
   const data = await fr.json() as { images?: { url: string }[] };
   const imgUrl = data.images?.[0]?.url;
