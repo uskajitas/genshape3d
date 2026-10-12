@@ -2386,6 +2386,56 @@ app.patch('/api/text2image/assets/:id/tags', async (req, res) => {
   }
 });
 
+// ── Workspaces people create ──────────────────────────────────────────────
+// Besides Personal and the apps, a person can make workspaces of their own.
+// A workspace is only a key: everything in it carries that key as its
+// `source`, exactly as an app's work carries the app's key. Created keys are
+// always 'ws-…', so they can never collide with an app.
+const WS_KEY = /^[a-z0-9-]{1,40}$/;
+let workspacesReady: Promise<unknown> | null = null;
+const ensureWorkspaces = () => (workspacesReady ??= dbQuery(
+  `CREATE TABLE IF NOT EXISTS genshape3d_workspaces (key TEXT PRIMARY KEY, label TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+).catch((e) => { workspacesReady = null; throw e; }));
+
+app.get('/api/workspaces', async (_req, res) => {
+  try {
+    await ensureWorkspaces();
+    const { rows } = await dbQuery(`SELECT key, label, created_by AS "createdBy", created_at AS "createdAt" FROM genshape3d_workspaces ORDER BY created_at`);
+    res.json({ workspaces: rows });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/workspaces', express.json(), async (req, res) => {
+  try {
+    const label = String(req.body?.label || '').trim().slice(0, 40);
+    if (!label) return res.status(400).json({ error: 'a workspace needs a name' });
+    await ensureWorkspaces();
+    const slug = label.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'space';
+    let key = `ws-${slug}`;
+    for (let n = 2; (await dbQuery(`SELECT 1 FROM genshape3d_workspaces WHERE key = $1`, [key])).rows.length; n++) key = `ws-${slug}-${n}`;
+    await dbQuery(`INSERT INTO genshape3d_workspaces (key, label, created_by) VALUES ($1, $2, $3)`, [key, label, String(req.body?.email || '').slice(0, 200)]);
+    res.json({ key, label });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// Move a picture to another workspace: its source becomes that workspace's
+// key ('personal' for the mover's own work). The sides drawn from it move
+// with it, so it never arrives without them. Tags are left alone.
+app.patch('/api/text2image/assets/:id/source', express.json(), async (req, res) => {
+  try {
+    const source = String(req.body?.source || '').trim().toLowerCase();
+    if (!WS_KEY.test(source)) return res.status(400).json({ error: 'not a workspace' });
+    const { rows } = await dbQuery(
+      `UPDATE genshape3d_text2image_assets SET source = $1
+         WHERE id = $2 OR ("parentAssetId" = $2 AND "viewLabel" IS NOT NULL AND "viewLabel" <> 'front')
+       RETURNING id`,
+      [source, req.params.id],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'asset not found' });
+    res.json({ ok: true, moved: rows.length });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 app.patch('/api/jobs/:id/name', async (req, res) => {
   const { name } = req.body as { name?: string };
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
