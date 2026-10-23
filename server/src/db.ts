@@ -258,6 +258,8 @@ export async function initDb(): Promise<void> {
     // folder trees rot — see the Assets page.
     `ALTER TABLE genshape3d_jobs              ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`,
     `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'`,
+    // archived: out of the gallery but kept, and brought back by unarchive (models have had this column for longer)
+    `ALTER TABLE genshape3d_text2image_assets ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false`,
     // Job-side extension for multi-view 3D submissions. Empty array = single-image
     // (legacy) job. Worker reads this to decide between v2.0 and v2.0-MV pipelines.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "auxImageUrls" JSONB NOT NULL DEFAULT '[]'::jsonb`,

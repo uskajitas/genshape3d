@@ -28,6 +28,8 @@ export interface T2IAsset {
   originalImageKey: string | null;
   tags?: string[];
   source?: string;
+  /** Out of the gallery, kept, and brought back by unarchive. */
+  archived?: boolean;
 }
 
 const rowToAsset = (r: any): T2IAsset => ({
@@ -49,6 +51,7 @@ const rowToAsset = (r: any): T2IAsset => ({
   // or no client can ever see them.
   tags:        Array.isArray(r.tags) ? r.tags : [],
   source:      r.source || '',
+  archived:    !!r.archived,
 });
 
 // Caller-side shape: most fields required, but originalImageKey is set
@@ -142,12 +145,13 @@ export async function getAssetById(id: string, email: string): Promise<T2IAsset 
  *  any app, lists them. */
 const NOT_RIG_POSE = `NOT ('rig-pose' = ANY(COALESCE(tags, '{}')))`;
 
-export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
+/** The user's pictures: the gallery, or with archived = true the ones put away. */
+export async function listAssetsByUser(email: string, archived = false): Promise<T2IAsset[]> {
   const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
-     WHERE user_email = $1 AND deleted = false AND ${NOT_RIG_POSE}
+     WHERE user_email = $1 AND deleted = false AND archived = $2 AND ${NOT_RIG_POSE}
      ORDER BY created_at DESC LIMIT 200`,
-    [email],
+    [email, archived],
   );
   return r.rows.map(rowToAsset);
 }
@@ -156,7 +160,7 @@ export async function listAssetsByUser(email: string): Promise<T2IAsset[]> {
 export async function listExternalAssets(): Promise<T2IAsset[]> {
   const r = await dbQuery(
     `SELECT * FROM genshape3d_text2image_assets
-     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false AND ${NOT_RIG_POSE}
+     WHERE source <> '' AND source <> 'ugen3d' AND deleted = false AND archived = false AND ${NOT_RIG_POSE}
      ORDER BY created_at DESC LIMIT 1000`,
   );
   return r.rows.map(rowToAsset);
@@ -167,6 +171,11 @@ export async function renameAsset(id: string, name: string): Promise<void> {
     `UPDATE genshape3d_text2image_assets SET name=$1 WHERE id=$2`,
     [name, id],
   );
+}
+
+/** Put a picture away (or bring it back). It stays; the gallery just stops listing it. */
+export async function archiveAsset(id: string, on: boolean): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_text2image_assets SET archived = $2 WHERE id = $1`, [id, on]);
 }
 
 // Soft-delete only. Generated images aren't free either — never drop the row.

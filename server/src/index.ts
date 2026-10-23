@@ -51,7 +51,7 @@ import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptio
 import { createJob, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
-import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
+import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { mountWorkersApi } from './workersApi';
 import { accessGate } from './accessGate';
@@ -1141,7 +1141,7 @@ app.get('/api/text2image/assets', async (req, res) => {
   const email = String(req.query.email || '').trim();
   if (!email) return res.status(400).json({ error: 'email required' });
   try {
-    const assets = req.query.external === '1' ? await listExternalAssets() : await listAssetsByUser(email);
+    const assets = req.query.external === '1' ? await listExternalAssets() : await listAssetsByUser(email, req.query.archived === '1');
     // signedUrl: direct-from-R2, edge-served public link — the bucket's
     // public access (r2.dev) replaced presigning 2026-09-10, so clients skip
     // both the slow tunnel streaming path AND the signed-URL 1h expiry.
@@ -1670,6 +1670,19 @@ app.patch('/api/text2image/assets/:id/name', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Put a picture away, or bring it back: its owner, or an admin.
+for (const [verb, on] of [['archive', true], ['unarchive', false]] as const) {
+  app.patch(`/api/text2image/assets/:id/${verb}`, async (req, res) => {
+    const { email } = req.body as { email?: string };
+    if (!email) return res.status(400).json({ error: 'email required' });
+    try {
+      if (!(await isAdmin(email)) && !(await getAssetById(req.params.id, email))) return res.status(403).json({ error: 'Forbidden' });
+      await archiveAsset(req.params.id, on);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+}
 
 app.delete('/api/text2image/assets/:id', async (req, res) => {
   try {
@@ -2291,30 +2304,37 @@ app.get('/api/uploads', async (req, res) => {
   }
 });
 
-// List archived jobs (admin only) — MUST be before /api/jobs/:id so Express
+// List the caller's archived jobs — MUST be before /api/jobs/:id so Express
 // doesn't treat "archived" as an ID parameter.
 app.get('/api/jobs/archived', async (req, res) => {
   const email = req.query.email as string;
-  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  if (!email) return res.status(400).json({ error: 'email required' });
   try { res.json({ jobs: await listArchivedJobs(email) }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// Archive a single job (admin only)
+// Archive a single job: its owner, or an admin
 app.patch('/api/jobs/:id/archive', async (req, res) => {
   const { email } = req.body as { email?: string };
-  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  if (!email || !(await ownsJobOrAdmin(email, req.params.id))) return res.status(403).json({ error: 'Forbidden' });
   try { await archiveJob(req.params.id); res.json({ ok: true }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// Unarchive a single job (admin only)
+// Unarchive a single job: its owner, or an admin
 app.patch('/api/jobs/:id/unarchive', async (req, res) => {
   const { email } = req.body as { email?: string };
-  if (!email || !(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  if (!email || !(await ownsJobOrAdmin(email, req.params.id))) return res.status(403).json({ error: 'Forbidden' });
   try { await unarchiveJob(req.params.id); res.json({ ok: true }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
+
+/** An archived job is still its owner's: the check reads the row whether or not it is archived. */
+async function ownsJobOrAdmin(email: string, id: string): Promise<boolean> {
+  if (await isAdmin(email)) return true;
+  const r = await dbQuery(`SELECT "userEmail" FROM genshape3d_jobs WHERE id = $1 AND deleted = false LIMIT 1`, [id]);
+  return !!r.rows[0] && String(r.rows[0].userEmail).toLowerCase() === email.toLowerCase();
+}
 
 // Archive ALL current jobs for the user (admin only)
 app.post('/api/jobs/archive-all', async (req, res) => {
