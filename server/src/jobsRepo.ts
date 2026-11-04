@@ -291,6 +291,7 @@ export async function claimNextPendingJob(workerId: string, models: string[]): P
          AND model = ANY($3::text[])
          AND ("preferredWorkerId" = '' OR "preferredWorkerId" = $1)
        ORDER BY
+         priority DESC,
          CASE WHEN "preferredWorkerId" = $1 THEN 0 ELSE 1 END,
          "createdAt" ASC
        LIMIT 1

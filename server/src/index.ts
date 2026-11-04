@@ -54,6 +54,7 @@ import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { mountWorkersApi } from './workersApi';
+import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
 import { accessGate } from './accessGate';
 import {
   listRatingDimensions, addRatingDimension,
@@ -1108,6 +1109,50 @@ app.get('/api/text2image/job/:id', (req, res) => {
   // than leaving a client polling something that will never answer
   if (!j) return res.status(404).json({ error: 'no such job' });
   res.json(j);
+});
+
+// ── batches: the two engine steps the runner calls (see batches.ts) ─────────
+mountBatchesApi(app);
+startBatchRunner({
+  // The first provider that answers wins, so a sleeping GPU does not stop a set.
+  async draw(item, batch) {
+    let last: Error | null = null;
+    for (const provider of batch.options.providers) {
+      try {
+        const prompt = [item.prompt, batch.options.style].filter(Boolean).join(', ');
+        const { assetId, imageKey } = await runT2I({
+          prompt, provider, refImages: [], w: 1024, h: 1024, seed: Math.floor(Math.random() * 1_000_000),
+          email: batch.email, sourceAssetId: null, tags: batch.options.tags, source: batch.source,
+        });
+        if (!imageKey) throw new Error('the picture was not saved');
+        await renameAsset(assetId, item.name);
+        return { assetId, imageKey };
+      } catch (e: any) { last = e; console.warn(`[batch] ${provider}: ${e.message}`); }
+    }
+    throw last || new Error('no image provider');
+  },
+  // The same preparation /api/upload gives a picture, then an ordinary job.
+  async queueModel(item, batch, imageKey) {
+    const stored = await getR2Stream(imageKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stored.Body as any) chunks.push(Buffer.from(chunk));
+    const picture = Buffer.concat(chunks);
+    const cut = await stripBackground(picture, stored.ContentType || 'image/png');
+    const { url } = cut.ok
+      ? await uploadToR2(cut.buffer, `${item.id}.png`, cut.mimetype)
+      : await uploadToR2(picture, `${item.id}.png`, stored.ContentType || 'image/png');
+    const o = batch.options;
+    const job = await createJob({
+      userEmail: batch.email, imageUrl: url, name: item.name, prompt: item.prompt, style: 'Realistic',
+      polygonBudget: 'Medium (50k-200k)', textureRes: '1K', exportFormat: 'GLB', detailLevel: 'Standard',
+      doTexture: o.texture, useMultiView: false, autoRefine: false,
+      octreeResolution: 384, targetFaceCount: o.polycount, inferenceSteps: 15, guidanceScale: 6,
+      numChunks: 0, seed: 0, model: o.model, preferredWorkerId: '', groupId: null,
+    });
+    await dbQuery(`UPDATE genshape3d_jobs SET source = $1, tags = $2, priority = $3 WHERE id = $4`,
+      [batch.source, o.tags, BATCH_PRIORITY, job.id]);
+    return job.id;
+  },
 });
 
 app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) => {

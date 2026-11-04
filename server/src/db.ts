@@ -611,6 +611,8 @@ export async function initDb(): Promise<void> {
     // card per lineage. All versions remain immutable rows.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "rootJobId" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`,
+    // Higher goes first; batches sit below people's jobs. See batches.ts.
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "versionLabel" TEXT NOT NULL DEFAULT ''`,
     `CREATE INDEX IF NOT EXISTS idx_jobs_root ON genshape3d_jobs ("rootJobId") WHERE deleted = false`,
     // Backfill: every pre-lineage job is its own root.
