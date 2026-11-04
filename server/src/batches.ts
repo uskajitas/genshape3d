@@ -41,7 +41,7 @@ export interface BatchSteps {
 }
 
 const DEFAULTS: BatchOptions = {
-  providers: ['local-qwen-image', 'fal-flux-pro'],
+  providers: ['local-qwen-image'],
   style: '',
   model: 'trellis2',
   texture: true,

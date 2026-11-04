@@ -53,6 +53,7 @@ import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from 
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
+import { waitForGpu } from './workerRegistry';
 import { mountWorkersApi } from './workersApi';
 import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
 import { accessGate } from './accessGate';
@@ -1092,7 +1093,7 @@ app.post('/api/text2image/start', express.json({ limit: '25mb' }), (req, res) =>
   res.status(202).json({ jobId });
 
   // deliberately not awaited: the reply has already gone
-  runT2I(p).then(({ assetId, imageKey }) => {
+  (p.provider.startsWith('local-') ? waitForGpu(() => runT2I(p)) : runT2I(p)).then(({ assetId, imageKey }) => {
     t2iJobs.set(jobId, {
       status: 'done', started: Date.now(),
       assetId, imageKey, seed: p.seed, provider: p.provider,
@@ -1120,10 +1121,10 @@ startBatchRunner({
     for (const provider of batch.options.providers) {
       try {
         const prompt = [item.prompt, batch.options.style].filter(Boolean).join(', ');
-        const { assetId, imageKey } = await runT2I({
+        const { assetId, imageKey } = await waitForGpu(() => runT2I({
           prompt, provider, refImages: [], w: 1024, h: 1024, seed: Math.floor(Math.random() * 1_000_000),
           email: batch.email, sourceAssetId: null, tags: batch.options.tags, source: batch.source,
-        });
+        }));
         if (!imageKey) throw new Error('the picture was not saved');
         await renameAsset(assetId, item.name);
         return { assetId, imageKey };

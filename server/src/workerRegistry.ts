@@ -46,6 +46,27 @@ export function registerWorker(input: {
   return state;
 }
 
+// A picture on the 3090 cannot start while a model holds the machine's memory.
+// While one is waiting the 3090 takes no new model, so the wait ends when the
+// model in hand does, not when the whole queue does.
+const GPU_WAIT_MS = 15 * 60_000;
+const GPU_RETRY_MS = 20_000;
+let picturesWaiting = 0;
+export const pictureWaiting = () => picturesWaiting > 0;
+
+export async function waitForGpu<T>(draw: () => Promise<T>): Promise<T> {
+  const giveUp = Date.now() + GPU_WAIT_MS;
+  picturesWaiting++;
+  try {
+    for (;;) {
+      try { return await draw(); } catch (e: any) {
+        if (!/RAM free/.test(String(e?.message)) || Date.now() > giveUp) throw e;
+        await new Promise((go) => setTimeout(go, GPU_RETRY_MS));
+      }
+    }
+  } finally { picturesWaiting--; }
+}
+
 export function getWorker(id: string): WorkerState | undefined {
   return workers.get(id);
 }

@@ -22,6 +22,7 @@ import {
   markBusy,
   markFree,
   workerToJson,
+  pictureWaiting,
 } from './workerRegistry';
 import {
   claimNextPendingJob,
@@ -86,6 +87,7 @@ export function mountWorkersApi(app: Express): void {
     }
 
     touchWorker(id);
+    if (id === 'win-3090' && pictureWaiting()) return res.status(204).end();
 
     try {
       const job = await claimNextPendingJob(id, w.models);
