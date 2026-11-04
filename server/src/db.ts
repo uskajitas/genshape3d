@@ -263,6 +263,7 @@ export async function initDb(): Promise<void> {
     // Job-side extension for multi-view 3D submissions. Empty array = single-image
     // (legacy) job. Worker reads this to decide between v2.0 and v2.0-MV pipelines.
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "auxImageUrls" JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "sealReport" JSONB NOT NULL DEFAULT '{}'`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "rawResultUrl" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "useMultiView" BOOLEAN NOT NULL DEFAULT false`,
     // Multi-model + multi-worker routing. `model` selects which image-to-3d

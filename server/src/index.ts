@@ -48,7 +48,7 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream, presignR2Get, publicR2Url } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, sealJob, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
+import { createJob, sealJob, unsealJob, pipelineJobs, sealSettings, saveSealSettings, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
@@ -2212,17 +2212,49 @@ app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
 // Submit a 3D job re-using an existing R2 upload key. Lets the user pick
 // from the gallery of already-uploaded inputs and start a fresh 3D run
 // without re-uploading the same bytes. Body: { email, key, name, ...params }.
-// Run the last pass on a model finished before it existed. Admin only; a job
-// already sealed is left alone.
+// The Pipeline page: every generation with its steps, and the hole pass's controls.
+app.get('/api/pipeline', async (req, res) => {
+  if (!(await isAdmin(String(req.query.email || '')))) return res.status(403).json({ error: 'Forbidden' });
+  const jobs = await pipelineJobs();
+  res.json({
+    settings: await sealSettings(),
+    jobs: jobs.map((j) => ({
+      ...j,
+      imageFile: j.imageUrl ? publicR2Url(j.imageUrl) : '',
+      thumbFile: j.thumbUrl ? publicR2Url(j.thumbUrl) : '',
+      resultFile: j.resultUrl ? publicR2Url(j.resultUrl) : '',
+      rawFile: j.rawResultUrl ? publicR2Url(j.rawResultUrl) : '',
+    })),
+  });
+});
+
+app.post('/api/pipeline/settings', async (req, res) => {
+  if (!(await isAdmin(String(req.body?.email || '')))) return res.status(403).json({ error: 'Forbidden' });
+  const maxRim = Math.max(3, Math.min(5000, parseInt(req.body?.maxRim) || 400));
+  await saveSealSettings({ enabled: req.body?.enabled !== false, maxRim });
+  res.json({ settings: await sealSettings() });
+});
+
+// Run the pass on one model, always from what the worker made.
 app.post('/api/jobs/:id/seal', async (req, res) => {
   const email = String(req.body?.email || '');
   if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
   const job: any = await getJobById(req.params.id);
   if (!job || job.status !== 'done' || !job.resultUrl) return res.status(404).json({ error: 'no finished model' });
-  if (job.rawResultUrl) return res.json({ sealed: false });
-  const sealed = await sealedResult(job.resultUrl);
-  if (sealed !== job.resultUrl) await sealJob(job.id, sealed, job.resultUrl);
-  res.json({ sealed: sealed !== job.resultUrl });
+  const raw = job.rawResultUrl || job.resultUrl;
+  const maxRim = parseInt(req.body?.maxRim) || (await sealSettings()).maxRim;
+  const { url, report } = await sealedResult(raw, maxRim);
+  await sealJob(job.id, url, raw, report);
+  res.json({ report });
+});
+
+app.post('/api/jobs/:id/unseal', async (req, res) => {
+  const email = String(req.body?.email || '');
+  if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  const job: any = await getJobById(req.params.id);
+  if (!job?.rawResultUrl) return res.status(404).json({ error: 'nothing to undo' });
+  await unsealJob(job.id, { ...job.sealReport, undone: true });
+  res.json({ ok: true });
 });
 
 app.post('/api/jobs/from-key', async (req, res) => {

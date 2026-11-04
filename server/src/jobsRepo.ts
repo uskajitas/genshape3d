@@ -268,10 +268,50 @@ export async function unsealedJobs(): Promise<{ id: string; resultUrl: string }[
   return rows;
 }
 
+/** The models whose pass has a story but no report yet. */
+export async function unreportedJobs(): Promise<{ id: string; rawResultUrl: string }[]> {
+  const { rows } = await dbQuery(
+    `SELECT id, "rawResultUrl" FROM genshape3d_jobs
+     WHERE "rawResultUrl" <> '' AND "sealReport" = '{}'::jsonb ORDER BY "updatedAt" DESC LIMIT 20`);
+  return rows;
+}
+
 /** The sealed model becomes the job's result; the one the worker made stays on file. */
-export async function sealJob(id: string, sealedUrl: string, rawUrl: string): Promise<void> {
-  await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
-    [rawUrl, sealedUrl, new Date().toISOString(), id]);
+export async function sealJob(id: string, sealedUrl: string, rawUrl: string, report: object): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "sealReport"=$3, "updatedAt"=$4 WHERE id=$5`,
+    [rawUrl, sealedUrl, JSON.stringify(report), new Date().toISOString(), id]);
+}
+
+export async function saveSealReport(id: string, report: object): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_jobs SET "sealReport"=$1 WHERE id=$2`, [JSON.stringify(report), id]);
+}
+
+/** Back to what the worker made. The sealed file stays in storage. */
+export async function unsealJob(id: string, report: object): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_jobs SET "resultUrl"="rawResultUrl", "sealReport"=$1, "updatedAt"=$2 WHERE id=$3 AND "rawResultUrl" <> ''`,
+    [JSON.stringify(report), new Date().toISOString(), id]);
+}
+
+/** The newest generations of anyone, for the admin's Pipeline page. */
+export async function pipelineJobs(): Promise<any[]> {
+  const { rows } = await dbQuery(
+    `SELECT * FROM genshape3d_jobs WHERE deleted = false AND "isBenchmark" = false AND model <> 'multiview'
+     ORDER BY "createdAt" DESC LIMIT 80`);
+  return rows;
+}
+
+export interface SealSettings { enabled: boolean; maxRim: number; }
+
+export async function sealSettings(): Promise<SealSettings> {
+  const { rows } = await dbQuery(`SELECT key, value FROM genshape3d_settings WHERE key IN ('seal.enabled', 'seal.maxRim')`);
+  const of = (k: string) => rows.find((x: any) => x.key === k)?.value;
+  return { enabled: of('seal.enabled') !== 'false', maxRim: parseInt(of('seal.maxRim')) || 400 };
+}
+
+export async function saveSealSettings(s: SealSettings): Promise<void> {
+  for (const [key, value] of [['seal.enabled', String(s.enabled)], ['seal.maxRim', String(s.maxRim)]]) {
+    await dbQuery(`INSERT INTO genshape3d_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`, [key, value]);
+  }
 }
 
 export async function updateJobStatus(id: string, status: Job['status'], resultUrl = ''): Promise<void> {

@@ -5,11 +5,10 @@
 // loop with triangles between its own rim points. No new points are made, so a
 // patch takes its texture and normals from the rim, and only the index list of
 // the file grows. Same file in, same file out, every time.
-import { sealJob, unsealedJobs } from './jobsRepo';
+import { saveSealReport, sealJob, sealSettings, unreportedJobs, unsealedJobs } from './jobsRepo';
 import { publicR2Url, uploadToR2 } from './r2';
 
 const SAME = 1e5;          // points closer than this fraction of a unit are one point
-const MAX_RIM = 400;       // a rim longer than this is an opening, not a hole
 const PASSES = 3;
 
 interface Edge { a: number; b: number; }
@@ -157,23 +156,47 @@ function fill(loop: Edge[], pos: Float32Array): number[] {
   return out;
 }
 
-/** The file with its holes closed, or null when there is nothing this pass can do. */
-export function sealGlb(buf: Buffer): { glb: Buffer; patched: number } | null {
+/** What the pass found and did to one model, as the Pipeline page shows it. */
+export interface SealReport {
+  holes: number; closed: number; maxRim: number;
+  rims: { tiny: number; small: number; medium: number; large: number; tooBig: number };
+  openBefore: number; openAfter: number; facesBefore: number; facesAfter: number;
+  ms: number; at: string; error?: string;
+}
+
+/** The file with its holes closed, and the report. No glb means nothing changed;
+ *  null means this pass cannot read the file. */
+export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; report: SealReport } | null {
+  const began = Date.now();
   if (buf.length < 32 || buf.toString('ascii', 0, 4) !== 'glTF') return null;
   const { json: g, bin } = readGlb(buf);
   if ((g.extensionsUsed || []).some((e: string) => /meshopt|draco/i.test(e))) return null;
   const chunks: Buffer[] = [Buffer.from(bin)];
   let length = bin.length, patched = 0;
+  const report: SealReport = {
+    holes: 0, closed: 0, maxRim, rims: { tiny: 0, small: 0, medium: 0, large: 0, tooBig: 0 },
+    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, ms: 0, at: new Date().toISOString(),
+  };
   for (const m of g.meshes || []) for (const p of m.primitives) {
     if (p.indices === undefined || (p.mode ?? 4) !== 4) continue;
     const pos = positions(g, bin, p.attributes.POSITION);
     const idx = indices(g, bin, p.indices);
     const weld = weldOf(pos);
+    const open = openEdges(idx, weld);
+    report.openBefore += open.length;
+    report.facesBefore += idx.length / 3;
+    for (const l of loopsOf(open, weld)) {
+      report.holes++;
+      const n = l.length, r = report.rims;
+      if (n > maxRim) r.tooBig++; else if (n <= 8) r.tiny++; else if (n <= 30) r.small++; else if (n <= 100) r.medium++; else r.large++;
+    }
     for (let pass = 0; pass < PASSES; pass++) {
-      const holes = loopsOf(openEdges(idx, weld), weld).filter((l) => l.length >= 3 && l.length <= MAX_RIM);
+      const holes = loopsOf(openEdges(idx, weld), weld).filter((l) => l.length >= 3 && l.length <= maxRim);
       if (!holes.length) break;
       for (const l of holes) { for (const v of fill(l, pos)) idx.push(v); patched++; }
     }
+    report.openAfter += openEdges(idx, weld).length;
+    report.facesAfter += idx.length / 3;
     const pad = (4 - (length % 4)) % 4;
     if (pad) { chunks.push(Buffer.alloc(pad)); length += pad; }
     const data = Buffer.from(Uint32Array.from(idx).buffer);
@@ -183,7 +206,9 @@ export function sealGlb(buf: Buffer): { glb: Buffer; patched: number } | null {
     chunks.push(data);
     length += data.length;
   }
-  if (!patched) return null;
+  report.closed = patched;
+  report.ms = Date.now() - began;
+  if (!patched) return { glb: null, report };
   g.buffers[0].byteLength = length;
   const binOut = Buffer.concat([...chunks, Buffer.alloc((4 - (length % 4)) % 4)]);
   let text = Buffer.from(JSON.stringify(g));
@@ -194,10 +219,34 @@ export function sealGlb(buf: Buffer): { glb: Buffer; patched: number } | null {
   jsonHead.writeUInt32LE(text.length, 0); jsonHead.write('JSON', 4);
   const binHead = Buffer.alloc(8);
   binHead.writeUInt32LE(binOut.length, 0); binHead.write('BIN\0', 4);
-  return { glb: Buffer.concat([head, jsonHead, text, binHead, binOut]), patched };
+  return { glb: Buffer.concat([head, jsonHead, text, binHead, binOut]), report };
 }
 
 const SWEEP_MS = 30_000;
+
+const failed = (error: string) => ({ holes: 0, closed: 0, error, at: new Date().toISOString() }) as SealReport;
+
+async function fileOf(url: string): Promise<Buffer> {
+  const r = await fetch(publicR2Url(url));
+  if (!r.ok) throw new Error(`could not read the model (${r.status})`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
+/** A new sealed file for a finished model; the original stays where it is.
+ *  Any failure answers with the original, so a job can never be lost to this. */
+export async function sealedResult(resultUrl: string, maxRim: number): Promise<{ url: string; report: SealReport }> {
+  try {
+    const sealed = sealGlb(await fileOf(resultUrl), maxRim);
+    if (!sealed) return { url: resultUrl, report: failed('not a model this pass can read') };
+    if (!sealed.glb) return { url: resultUrl, report: sealed.report };
+    const { url } = await uploadToR2(sealed.glb, 'sealed.glb', 'model/gltf-binary');
+    console.log(`[closeHoles] ${sealed.report.closed} holes closed`);
+    return { url, report: sealed.report };
+  } catch (e: any) {
+    console.warn('[closeHoles]', e?.message || e);
+    return { url: resultUrl, report: failed(String(e?.message || e)) };
+  }
+}
 
 /** Every finished model goes through here, whichever way it was finished. */
 export function startSealing(): void {
@@ -206,27 +255,18 @@ export function startSealing(): void {
     if (busy) return;
     busy = true;
     try {
-      for (const job of await unsealedJobs()) await sealJob(job.id, await sealedResult(job.resultUrl), job.resultUrl);
+      const { enabled, maxRim } = await sealSettings();
+      if (enabled) for (const job of await unsealedJobs()) {
+        const { url, report } = await sealedResult(job.resultUrl, maxRim);
+        await sealJob(job.id, url, job.resultUrl, report);
+      }
+      // models sealed before reports existed: the pass gives the same answer again
+      for (const job of await unreportedJobs()) {
+        const again = sealGlb(await fileOf(job.rawResultUrl), maxRim);
+        await saveSealReport(job.id, again ? again.report : failed('not a model this pass can read'));
+      }
     } catch (e: any) {
       console.warn('[closeHoles] sweep', e?.message || e);
     } finally { busy = false; }
   }, SWEEP_MS);
-}
-
-/** A new sealed file for a finished model; the original stays where it is.
- *  Any failure answers with the original, so a job can never be lost to this. */
-export async function sealedResult(resultUrl: string): Promise<string> {
-  try {
-    if (!resultUrl) return resultUrl;
-    const r = await fetch(publicR2Url(resultUrl));
-    if (!r.ok) return resultUrl;
-    const sealed = sealGlb(Buffer.from(await r.arrayBuffer()));
-    if (!sealed) return resultUrl;
-    const { url } = await uploadToR2(sealed.glb, 'sealed.glb', 'model/gltf-binary');
-    console.log(`[closeHoles] ${sealed.patched} holes closed`);
-    return url;
-  } catch (e: any) {
-    console.warn('[closeHoles]', e?.message || e);
-    return resultUrl;
-  }
 }
