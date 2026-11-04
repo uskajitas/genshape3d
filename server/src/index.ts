@@ -48,12 +48,13 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream, presignR2Get, publicR2Url } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
+import { createJob, sealJob, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { waitForGpu } from './workerRegistry';
+import { sealedResult } from './closeHoles';
 import { mountWorkersApi } from './workersApi';
 import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
 import { accessGate } from './accessGate';
@@ -2210,6 +2211,19 @@ app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
 // Submit a 3D job re-using an existing R2 upload key. Lets the user pick
 // from the gallery of already-uploaded inputs and start a fresh 3D run
 // without re-uploading the same bytes. Body: { email, key, name, ...params }.
+// Run the last pass on a model finished before it existed. Admin only; a job
+// already sealed is left alone.
+app.post('/api/jobs/:id/seal', async (req, res) => {
+  const email = String(req.body?.email || '');
+  if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  const job: any = await getJobById(req.params.id);
+  if (!job || job.status !== 'done' || !job.resultUrl) return res.status(404).json({ error: 'no finished model' });
+  if (job.rawResultUrl) return res.json({ sealed: false });
+  const sealed = await sealedResult(job.resultUrl);
+  if (sealed !== job.resultUrl) await sealJob(job.id, sealed, job.resultUrl);
+  res.json({ sealed: sealed !== job.resultUrl });
+});
+
 app.post('/api/jobs/from-key', async (req, res) => {
   const { email, key, name, prompt } = req.body as {
     email?: string; key?: string; name?: string; prompt?: string;

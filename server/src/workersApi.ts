@@ -24,11 +24,13 @@ import {
   workerToJson,
   pictureWaiting,
 } from './workerRegistry';
+import { sealedResult } from './closeHoles';
 import {
   claimNextPendingJob,
   completeJobByWorker,
   updateJobProgressByWorker,
   getCancelRequests,
+  sealJob,
 } from './jobsRepo';
 import { isAdmin } from './usersRepo';
 import { getDb, dbQuery } from './db';
@@ -150,8 +152,13 @@ export function mountWorkersApi(app: Express): void {
       // Free the slot regardless of terminal status — the worker is done with it.
       markFree(id, jobId);
       res.json({ ok: true });
+      // the last pass: close the holes. The worker has its answer already.
+      if (status === 'done' && resultUrl) {
+        const sealed = await sealedResult(resultUrl);
+        if (sealed !== resultUrl) await sealJob(jobId, sealed, resultUrl);
+      }
     } catch (e: any) {
-      res.status(500).json({ error: e?.message });
+      if (!res.headersSent) res.status(500).json({ error: e?.message });
     }
   });
 

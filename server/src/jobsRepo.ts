@@ -258,6 +258,12 @@ export async function listCancelledJobs(): Promise<Job[]> {
   return rows;
 }
 
+/** The sealed model becomes the job's result; the one the worker made stays on file. */
+export async function sealJob(id: string, sealedUrl: string, rawUrl: string): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
+    [rawUrl, sealedUrl, new Date().toISOString(), id]);
+}
+
 export async function updateJobStatus(id: string, status: Job['status'], resultUrl = ''): Promise<void> {
   await dbQuery(
     `UPDATE genshape3d_jobs SET status=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,
