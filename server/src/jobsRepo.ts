@@ -258,6 +258,16 @@ export async function listCancelledJobs(): Promise<Job[]> {
   return rows;
 }
 
+/** Finished models the last pass has not seen. Models from before it existed
+ *  stay as they are unless someone asks. */
+export async function unsealedJobs(): Promise<{ id: string; resultUrl: string }[]> {
+  const { rows } = await dbQuery(
+    `SELECT id, "resultUrl" FROM genshape3d_jobs
+     WHERE status = 'done' AND "resultUrl" <> '' AND "rawResultUrl" = '' AND "createdAt" >= '2026-11-04'
+     ORDER BY "updatedAt" ASC LIMIT 20`);
+  return rows;
+}
+
 /** The sealed model becomes the job's result; the one the worker made stays on file. */
 export async function sealJob(id: string, sealedUrl: string, rawUrl: string): Promise<void> {
   await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "updatedAt"=$3 WHERE id=$4`,

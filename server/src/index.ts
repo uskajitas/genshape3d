@@ -54,7 +54,7 @@ import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { waitForGpu } from './workerRegistry';
-import { sealedResult } from './closeHoles';
+import { sealedResult, startSealing } from './closeHoles';
 import { mountWorkersApi } from './workersApi';
 import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
 import { accessGate } from './accessGate';
@@ -1115,6 +1115,7 @@ app.get('/api/text2image/job/:id', (req, res) => {
 
 // ── batches: the two engine steps the runner calls (see batches.ts) ─────────
 mountBatchesApi(app);
+startSealing();
 startBatchRunner({
   // The first provider that answers wins, so a sleeping GPU does not stop a set.
   async draw(item, batch) {

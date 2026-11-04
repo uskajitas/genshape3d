@@ -5,6 +5,7 @@
 // loop with triangles between its own rim points. No new points are made, so a
 // patch takes its texture and normals from the rim, and only the index list of
 // the file grows. Same file in, same file out, every time.
+import { sealJob, unsealedJobs } from './jobsRepo';
 import { publicR2Url, uploadToR2 } from './r2';
 
 const SAME = 1e5;          // points closer than this fraction of a unit are one point
@@ -194,6 +195,22 @@ export function sealGlb(buf: Buffer): { glb: Buffer; patched: number } | null {
   const binHead = Buffer.alloc(8);
   binHead.writeUInt32LE(binOut.length, 0); binHead.write('BIN\0', 4);
   return { glb: Buffer.concat([head, jsonHead, text, binHead, binOut]), patched };
+}
+
+const SWEEP_MS = 30_000;
+
+/** Every finished model goes through here, whichever way it was finished. */
+export function startSealing(): void {
+  let busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      for (const job of await unsealedJobs()) await sealJob(job.id, await sealedResult(job.resultUrl), job.resultUrl);
+    } catch (e: any) {
+      console.warn('[closeHoles] sweep', e?.message || e);
+    } finally { busy = false; }
+  }, SWEEP_MS);
 }
 
 /** A new sealed file for a finished model; the original stays where it is.
