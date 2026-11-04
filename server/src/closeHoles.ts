@@ -1,8 +1,10 @@
 // closeHoles — the last pass on every generated model.
 //
-// A hole is exact, not a judgement: an edge only one face uses. Weld the points
-// that sit in the same place, walk the open edges into loops, and close each
-// loop with triangles between its own rim points. No new points are made, so a
+// A hole is exact, not a judgement: an edge used an odd number of times. One use
+// is a plain rim; three is a rim running along a seam where a third face joins.
+// Counted that way a rim can never stop halfway, every one is a closed ring. Weld
+// the points that sit in the same place, walk the open edges into loops, and close
+// each loop with triangles between its own rim points. No new points are made, so a
 // patch takes its texture and normals from the rim, and only the index list of
 // the file grows. Same file in, same file out, every time.
 import { saveSealReport, sealJob, sealSettings, unreportedJobs, unsealedJobs } from './jobsRepo';
@@ -12,7 +14,7 @@ const SAME = 1e5;          // points closer than this fraction of a unit are one
 const PASSES = 3;
 
 interface Edge { a: number; b: number; }
-interface Used extends Edge { n: number; }
+interface Used { n: number; net: number; up: Edge | null; down: Edge | null; }
 type Ints = Uint8Array | Uint16Array | Uint32Array;
 
 function readGlb(buf: Buffer) {
@@ -55,20 +57,28 @@ function weldOf(pos: Float32Array): Int32Array {
 
 const pair = (u: number, v: number) => (u < v ? u * 4294967296 + v : v * 4294967296 + u);
 
-/** the open edges of a triangle list, in the direction their face runs them */
-function openEdges(idx: number[], weld: Int32Array): Edge[] {
+/** how many faces use each edge, and which way they run it */
+function edgeUses(idx: number[], weld: Int32Array): Used[] {
   const uses = new Map<number, Used>();
   for (let t = 0; t < idx.length; t += 3) {
     const f = [idx[t], idx[t + 1], idx[t + 2]];
     if (weld[f[0]] === weld[f[1]] || weld[f[1]] === weld[f[2]] || weld[f[0]] === weld[f[2]]) continue;
     for (let e = 0; e < 3; e++) {
-      const a = f[e], b = f[(e + 1) % 3], k = pair(weld[a], weld[b]);
-      const seen = uses.get(k);
-      if (seen) seen.n++; else uses.set(k, { n: 1, a, b });
+      const a = f[e], b = f[(e + 1) % 3], k = pair(weld[a], weld[b]), up = weld[a] < weld[b];
+      let seen = uses.get(k);
+      if (!seen) { seen = { n: 0, net: 0, up: null, down: null }; uses.set(k, seen); }
+      seen.n++;
+      seen.net += up ? 1 : -1;
+      if (up) seen.up ??= { a, b }; else seen.down ??= { a, b };
     }
   }
-  return [...uses.values()].filter((e) => e.n === 1);
+  return [...uses.values()];
 }
+
+/** the open edges: used an odd number of times, in the direction most faces run them */
+const openOf = (uses: Used[]): Edge[] => uses.filter((e) => e.n % 2 === 1).map((e) => (e.net > 0 ? e.up! : e.down!));
+const openEdges = (idx: number[], weld: Int32Array) => openOf(edgeUses(idx, weld));
+const seams = (uses: Used[]) => uses.filter((e) => e.n > 2).length;
 
 /** walk open edges into closed loops; a rim that touches itself splits in two */
 function loopsOf(edges: Edge[], weld: Int32Array): Edge[][] {
@@ -161,6 +171,7 @@ export interface SealReport {
   holes: number; closed: number; maxRim: number;
   rims: { tiny: number; small: number; medium: number; large: number; tooBig: number };
   openBefore: number; openAfter: number; facesBefore: number; facesAfter: number;
+  seamsBefore: number; seamsAfter: number;   // edges shared by three faces or more
   ms: number; at: string; error?: string;
 }
 
@@ -175,15 +186,17 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
   let length = bin.length, patched = 0;
   const report: SealReport = {
     holes: 0, closed: 0, maxRim, rims: { tiny: 0, small: 0, medium: 0, large: 0, tooBig: 0 },
-    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, ms: 0, at: new Date().toISOString(),
+    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, seamsBefore: 0, seamsAfter: 0, ms: 0, at: new Date().toISOString(),
   };
   for (const m of g.meshes || []) for (const p of m.primitives) {
     if (p.indices === undefined || (p.mode ?? 4) !== 4) continue;
     const pos = positions(g, bin, p.attributes.POSITION);
     const idx = indices(g, bin, p.indices);
     const weld = weldOf(pos);
-    const open = openEdges(idx, weld);
+    const usesBefore = edgeUses(idx, weld);
+    const open = openOf(usesBefore);
     report.openBefore += open.length;
+    report.seamsBefore += seams(usesBefore);
     report.facesBefore += idx.length / 3;
     for (const l of loopsOf(open, weld)) {
       report.holes++;
@@ -195,7 +208,9 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
       if (!holes.length) break;
       for (const l of holes) { for (const v of fill(l, pos)) idx.push(v); patched++; }
     }
-    report.openAfter += openEdges(idx, weld).length;
+    const usesAfter = edgeUses(idx, weld);
+    report.openAfter += openOf(usesAfter).length;
+    report.seamsAfter += seams(usesAfter);
     report.facesAfter += idx.length / 3;
     const pad = (4 - (length % 4)) % 4;
     if (pad) { chunks.push(Buffer.alloc(pad)); length += pad; }
