@@ -278,7 +278,7 @@ export async function unreportedJobs(): Promise<{ id: string; rawResultUrl: stri
 
 /** The sealed model becomes the job's result; the one the worker made stays on file. */
 export async function sealJob(id: string, sealedUrl: string, rawUrl: string, report: object): Promise<void> {
-  await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "sealReport"=$3, "updatedAt"=$4 WHERE id=$5`,
+  await dbQuery(`UPDATE genshape3d_jobs SET "rawResultUrl"=$1, "resultUrl"=$2, "sealedUrl"=$2, "sealReport"=$3, "updatedAt"=$4 WHERE id=$5`,
     [rawUrl, sealedUrl, JSON.stringify(report), new Date().toISOString(), id]);
 }
 
@@ -286,10 +286,18 @@ export async function saveSealReport(id: string, report: object): Promise<void> 
   await dbQuery(`UPDATE genshape3d_jobs SET "sealReport"=$1 WHERE id=$2`, [JSON.stringify(report), id]);
 }
 
-/** Back to what the worker made. The sealed file stays in storage. */
-export async function unsealJob(id: string, report: object): Promise<void> {
-  await dbQuery(`UPDATE genshape3d_jobs SET "resultUrl"="rawResultUrl", "sealReport"=$1, "updatedAt"=$2 WHERE id=$3 AND "rawResultUrl" <> ''`,
-    [JSON.stringify(report), new Date().toISOString(), id]);
+/** Which file people get. Every version stays on file. */
+export async function publishJob(id: string, url: string): Promise<void> {
+  await dbQuery(`UPDATE genshape3d_jobs SET "sealedUrl" = CASE WHEN "sealedUrl" = '' AND "resultUrl" <> "rawResultUrl" THEN "resultUrl" ELSE "sealedUrl" END,
+    "resultUrl"=$1, "updatedAt"=$2 WHERE id=$3`, [url, new Date().toISOString(), id]);
+}
+
+/** The repaints of the newest generations, newest first. */
+export async function repaintsOf(ids: string[]): Promise<any[]> {
+  const { rows } = await dbQuery(
+    `SELECT id, "sourceJobId", status, "resultUrl", "errorMessage", "progressPct", "progressPhase", "assignedWorkerId", "createdAt", "startedAt", "completedAt"
+     FROM genshape3d_texture_jobs WHERE "sourceJobId" = ANY($1) AND deleted = false ORDER BY "createdAt" DESC`, [ids]);
+  return rows;
 }
 
 /** The newest generations of anyone, for the admin's Pipeline page. */

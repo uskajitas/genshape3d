@@ -48,7 +48,7 @@ import {
 } from './usersRepo';
 import { uploadToR2, getR2Stream, presignR2Get, publicR2Url } from './r2';
 import { stripBackground, warmRembg, qualityCheck, runRembgOnly, hardenWithOptions } from './bgRemoval';
-import { createJob, sealJob, unsealJob, pipelineJobs, sealSettings, saveSealSettings, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
+import { createJob, sealJob, publishJob, repaintsOf, pipelineJobs, sealSettings, saveSealSettings, getJobById, getJobsByUser, getExternalJobs, listAllJobs, listPendingJobs, listCancelledJobs, updateJobStatus, cancelJob, renameJob, deleteJob, countUserJobsSince, archiveJob, unarchiveJob, archiveAllJobs, listArchivedJobs } from './jobsRepo';
 import { createTextureJob, getTextureJobsByUser, getTextureJobsForSource } from './textureJobsRepo';
 import { listPacks, createCheckout, stripeWebhook } from './billing';
 import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteAsset, archiveAsset, getAssetById, setAssetReadyFor3D, applyAssetEdit, revertAssetEdit, replaceAssetImageKey } from './text2imageRepo';
@@ -2216,10 +2216,13 @@ app.post('/api/jobs/:id/texture-rerun', async (req, res) => {
 app.get('/api/pipeline', async (req, res) => {
   if (!(await isAdmin(String(req.query.email || '')))) return res.status(403).json({ error: 'Forbidden' });
   const jobs = await pipelineJobs();
+  const repaints = await repaintsOf(jobs.map((j) => j.id));
   res.json({
     settings: await sealSettings(),
     jobs: jobs.map((j) => ({
       ...j,
+      sealedFile: j.sealedUrl ? publicR2Url(j.sealedUrl) : (j.rawResultUrl && j.resultUrl !== j.rawResultUrl ? publicR2Url(j.resultUrl) : ''),
+      repaints: repaints.filter((t) => t.sourceJobId === j.id).map((t) => ({ ...t, file: t.resultUrl ? publicR2Url(t.resultUrl) : '' })),
       imageFile: j.imageUrl ? publicR2Url(j.imageUrl) : '',
       thumbFile: j.thumbUrl ? publicR2Url(j.thumbUrl) : '',
       resultFile: j.resultUrl ? publicR2Url(j.resultUrl) : '',
@@ -2248,12 +2251,31 @@ app.post('/api/jobs/:id/seal', async (req, res) => {
   res.json({ report });
 });
 
-app.post('/api/jobs/:id/unseal', async (req, res) => {
+// Send the fixed shape to be painted again from the original picture. Only an
+// admin's press of the button does this; nothing starts it by itself.
+app.post('/api/jobs/:id/repaint', async (req, res) => {
   const email = String(req.body?.email || '');
   if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
   const job: any = await getJobById(req.params.id);
-  if (!job?.rawResultUrl) return res.status(404).json({ error: 'nothing to undo' });
-  await unsealJob(job.id, { ...job.sealReport, undone: true });
+  if (!job || job.status !== 'done') return res.status(404).json({ error: 'no finished model' });
+  const textureJob = await createTextureJob({
+    userEmail: job.userEmail, sourceJobId: job.id, sourceModelUrl: job.sealedUrl || job.resultUrl,
+    prompt: job.prompt || '', materialPreset: 'Auto', referenceImageKey: '', textureRes: '2K',
+    variants: 1, seed: 0, strength: 65, keepShape: true, sourceImageUrl: job.imageUrl,
+  });
+  res.json({ textureJob });
+});
+
+// Choose which version people get: raw, fixed or painted.
+app.post('/api/jobs/:id/publish', async (req, res) => {
+  const email = String(req.body?.email || '');
+  if (!(await isAdmin(email))) return res.status(403).json({ error: 'Forbidden' });
+  const job: any = await getJobById(req.params.id);
+  if (!job?.rawResultUrl) return res.status(404).json({ error: 'nothing to choose from' });
+  const painted = (await repaintsOf([job.id])).find((t) => t.status === 'done' && t.resultUrl);
+  const url = ({ raw: job.rawResultUrl, fixed: job.sealedUrl || job.resultUrl, painted: painted?.resultUrl } as any)[String(req.body?.use)];
+  if (!url) return res.status(404).json({ error: 'that version does not exist yet' });
+  await publishJob(job.id, url);
   res.json({ ok: true });
 });
 
