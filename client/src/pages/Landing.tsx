@@ -844,6 +844,7 @@ const Landing: React.FC = () => {
             <FooterLink href="#access">Free access</FooterLink>
             <FooterLink href="#">Privacy</FooterLink>
             <FooterLink href="#">Terms</FooterLink>
+            <FooterLink href="https://uskiano.com" target="_blank" rel="noopener">uskiano.com</FooterLink>
           </FooterLinks>
           <FooterCopy>© 2026 GenShape3D</FooterCopy>
         </FooterInner>
