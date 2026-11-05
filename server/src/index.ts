@@ -55,6 +55,7 @@ import { createAsset, listAssetsByUser, listExternalAssets, renameAsset, deleteA
 import { callMultiView, type MultiViewLabel } from './multiViewProvider';
 import { waitForGpu } from './workerRegistry';
 import { sealedResult, startSealing } from './closeHoles';
+import { mountGenerationsApi, startRecipes } from './generations';
 import { mountWorkersApi } from './workersApi';
 import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
 import { accessGate } from './accessGate';
@@ -1115,6 +1116,8 @@ app.get('/api/text2image/job/:id', (req, res) => {
 
 // ── batches: the two engine steps the runner calls (see batches.ts) ─────────
 mountBatchesApi(app);
+mountGenerationsApi(app);
+startRecipes();
 startSealing();
 startBatchRunner({
   // The first provider that answers wins, so a sleeping GPU does not stop a set.
@@ -2259,8 +2262,9 @@ app.post('/api/jobs/:id/repaint', async (req, res) => {
   const job: any = await getJobById(req.params.id);
   if (!job || job.status !== 'done') return res.status(404).json({ error: 'no finished model' });
   const textureJob = await createTextureJob({
-    userEmail: job.userEmail, sourceJobId: job.id, sourceModelUrl: job.sealedUrl || job.resultUrl,
-    prompt: job.prompt || '', materialPreset: 'Auto', referenceImageKey: '', textureRes: '2K',
+    userEmail: job.userEmail, sourceJobId: job.id,
+    sourceModelUrl: req.body?.from === 'raw' ? job.rawResultUrl || job.resultUrl : job.sealedUrl || job.resultUrl,
+    prompt: job.prompt || '', materialPreset: 'Auto', referenceImageKey: '', textureRes: ['1K', '2K', '4K'].includes(req.body?.textureRes) ? req.body.textureRes : '2K',
     variants: 1, seed: 0, strength: 65, keepShape: true, sourceImageUrl: job.imageUrl,
   });
   res.json({ textureJob });

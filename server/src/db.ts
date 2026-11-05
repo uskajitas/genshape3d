@@ -266,6 +266,9 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "sealedUrl" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "sealReport" JSONB NOT NULL DEFAULT '{}'`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "rawResultUrl" TEXT NOT NULL DEFAULT ''`,
+    // generations.ts: the subject a run belongs to, and the steps it does after its shape
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "subjectId" TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS recipe JSONB NOT NULL DEFAULT '{}'`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "useMultiView" BOOLEAN NOT NULL DEFAULT false`,
     // Multi-model + multi-worker routing. `model` selects which image-to-3d
     // pipeline to run (hunyuan3d, triposr, sf3d, hi3dgen). `assignedWorkerId`

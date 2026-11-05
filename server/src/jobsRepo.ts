@@ -264,6 +264,7 @@ export async function unsealedJobs(): Promise<{ id: string; resultUrl: string }[
   const { rows } = await dbQuery(
     `SELECT id, "resultUrl" FROM genshape3d_jobs
      WHERE status = 'done' AND "resultUrl" <> '' AND "rawResultUrl" = '' AND "createdAt" >= '2026-11-04'
+       AND recipe = '{}'::jsonb
      ORDER BY "updatedAt" ASC LIMIT 20`);
   return rows;
 }
