@@ -54,13 +54,17 @@ const GPU_RETRY_MS = 20_000;
 let picturesWaiting = 0;
 export const pictureWaiting = () => picturesWaiting > 0;
 
-export async function waitForGpu<T>(draw: () => Promise<T>): Promise<T> {
-  const giveUp = Date.now() + GPU_WAIT_MS;
+// The 3090 refuses a picture at once while it is busy (genshape3d_nvidia/src/cardPolicy.js). A person
+// is told so straight away. A batch has nobody to tell: it passes `patient` and waits for its turn.
+const PATIENT_MS = 2 * 60 * 60_000;
+export async function waitForGpu<T>(draw: () => Promise<T>, patient = false): Promise<T> {
+  const giveUp = Date.now() + (patient ? PATIENT_MS : GPU_WAIT_MS);
   picturesWaiting++;
   try {
     for (;;) {
       try { return await draw(); } catch (e: any) {
-        if (!/RAM free|GB free/.test(String(e?.message)) || Date.now() > giveUp) throw e;
+        const wait = patient ? /RAM free|GB free|RTX 3090 is busy/ : /RAM free|GB free/;
+        if (!wait.test(String(e?.message)) || Date.now() > giveUp) throw e;
         await new Promise((go) => setTimeout(go, GPU_RETRY_MS));
       }
     }

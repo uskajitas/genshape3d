@@ -1126,7 +1126,7 @@ startBatchRunner({
         const { assetId, imageKey } = await waitForGpu(() => runT2I({
           prompt, provider, refImages: [], w: 1024, h: 1024, seed: Math.floor(Math.random() * 1_000_000),
           email: batch.email, sourceAssetId: null, tags: batch.options.tags, source: batch.source,
-        }));
+        }), true);
         if (!imageKey) throw new Error('the picture was not saved');
         await renameAsset(assetId, item.name);
         return { assetId, imageKey };
