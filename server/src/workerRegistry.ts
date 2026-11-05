@@ -60,7 +60,7 @@ export async function waitForGpu<T>(draw: () => Promise<T>): Promise<T> {
   try {
     for (;;) {
       try { return await draw(); } catch (e: any) {
-        if (!/RAM free/.test(String(e?.message)) || Date.now() > giveUp) throw e;
+        if (!/RAM free|GB free/.test(String(e?.message)) || Date.now() > giveUp) throw e;
         await new Promise((go) => setTimeout(go, GPU_RETRY_MS));
       }
     }
