@@ -4,14 +4,16 @@
 // is a plain rim; three is a rim running along a seam where a third face joins.
 // Counted that way a rim can never stop halfway, every one is a closed ring. Weld
 // the points that sit in the same place, walk the open edges into loops, and close
-// each loop with triangles between its own rim points. A patch keeps the rim's texture
-// and normals unless that stretches the paint, then it reads one colour instead (see
-// flatten). Same file in, same file out, every time.
+// each loop with a patch shaped by the surface around it (see patchHole). Faces with
+// new points, or that would stretch the paint, read one colour from beside the rim
+// (see flatten). Same file in, same file out, every time.
 import { saveSealReport, sealJob, sealSettings, unreportedJobs, unsealedJobs } from './jobsRepo';
 import { publicR2Url, uploadToR2 } from './r2';
+import { patchHole, type V } from './patchHole';
 
 const SAME = 1e5;          // points closer than this fraction of a unit are one point
 const PASSES = 3;
+const LONG_RIM = 120;      // rims longer than this start from the rough covering
 const SMEAR_TIMES = 3;      // a patch stretching its texture this many times the model's usual rate
 
 interface Edge { a: number; b: number; }
@@ -136,7 +138,7 @@ function loopsOf(edges: Edge[], weld: Int32Array): Edge[][] {
   return loops;
 }
 
-/** close one loop: repeatedly cut the sharpest corner off the rim */
+/** a rough covering for a rim too long to search: repeatedly cut the sharpest corner off */
 function fill(loop: Edge[], pos: Float32Array): number[] {
   const ring = loop.map((e) => e.a).reverse();   // a patch runs the rim the other way
   const P = (i: number) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]];
@@ -183,7 +185,7 @@ function items(g: any, bin: Buffer, i: number): { size: number; data: Buffer } {
  *  such triangle gets its own three points, all reading one spot inside a piece of
  *  the sheet next to the rim: one clean colour, no stretch. Answers the points to
  *  copy, as [source point, u, v]; idx is rewritten to use them. */
-function flatten(idx: number[], from: number, pos: Float32Array, uv: Float32Array): [number, number, number][] {
+function flatten(idx: number[], from: number, pos: Float32Array, uv: Float32Array | null, points: number, rimOf: Map<number, number>): [number, number, number][] {
   const far = (a: Float32Array, i: number, j: number, n: number) => {
     let d = 0;
     for (let k = 0; k < n; k++) d += (a[i * n + k] - a[j * n + k]) ** 2;
@@ -191,7 +193,7 @@ function flatten(idx: number[], from: number, pos: Float32Array, uv: Float32Arra
   };
   const rates: number[] = [];
   const inside = new Map<number, [number, number]>();
-  for (let t = 0; t < from; t += 3) {
+  if (uv) for (let t = 0; t < from; t += 3) {
     const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
     const size = far(pos, a, b, 3);
     if (size > 0) rates.push(far(uv, a, b, 2) / size);
@@ -201,18 +203,68 @@ function flatten(idx: number[], from: number, pos: Float32Array, uv: Float32Arra
   rates.sort((x, y) => x - y);
   const limit = (rates[rates.length >> 1] || 0) * SMEAR_TIMES;
   const copies: [number, number, number][] = [];
-  const next = pos.length / 3;
   for (let t = from; t < idx.length; t += 3) {
     const tri = [idx[t], idx[t + 1], idx[t + 2]];
-    const stretched = tri.some((v, i) => {
+    const stretched = tri.some((v) => v >= points) || (!!uv && tri.some((v, i) => {
       const w = tri[(i + 1) % 3], size = far(pos, v, w, 3);
       return size > 0 ? far(uv, v, w, 2) / size > limit : far(uv, v, w, 2) > 0;
-    });
+    }));
     if (!stretched) continue;
-    const spot = tri.map((v) => inside.get(v)).find(Boolean) || [uv[tri[0] * 2], uv[tri[0] * 2 + 1]];
-    tri.forEach((v, i) => { idx[t + i] = next + copies.length; copies.push([v, spot[0], spot[1]]); });
+    const source = tri.map((v) => (v < points ? v : rimOf.get(v)!));
+    const spot = source.map((v) => inside.get(v)).find(Boolean) || (uv ? [uv[source[0] * 2], uv[source[0] * 2 + 1]] : [0, 0]);
+    tri.forEach((v, i) => { idx[t + i] = points + copies.length; copies.push([v, spot[0], spot[1]]); });
   }
   return copies;
+}
+
+const pointAt = (pos: Float32Array, v: number): V => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+
+const normalOf = (a: V, b: V, c: V): V => {
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+};
+
+/** the surface around the holes: who touches whom, how big faces are, which way they face */
+function worldOf(idx: number[], pos: Float32Array, weld: Int32Array) {
+  const links = new Map<number, Set<number>>(), one = new Map<number, number>();
+  const normal = new Map<number, V>(), total = new Map<number, [number, number]>();
+  for (let t = 0; t < idx.length; t += 3) {
+    const f = [idx[t], idx[t + 1], idx[t + 2]];
+    const n = normalOf(pointAt(pos, f[0]), pointAt(pos, f[1]), pointAt(pos, f[2]));
+    const l = Math.hypot(...n) || 1;
+    const unit: V = [n[0] / l, n[1] / l, n[2] / l];
+    for (let e = 0; e < 3; e++) {
+      const x = f[e], y = f[(e + 1) % 3], wx = weld[x], wy = weld[y];
+      if (wx === wy) continue;
+      one.set(wx, x);
+      one.set(wy, y);
+      if (!links.has(wx)) links.set(wx, new Set());
+      if (!links.has(wy)) links.set(wy, new Set());
+      links.get(wx)!.add(wy);
+      links.get(wy)!.add(wx);
+      if (!normal.has(pair(wx, wy))) normal.set(pair(wx, wy), unit);
+      const length = Math.hypot(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1], pos[x * 3 + 2] - pos[y * 3 + 2]);
+      for (const w of [wx, wy]) { const s = total.get(w) || [0, 0]; s[0] += length; s[1]++; total.set(w, s); }
+    }
+  }
+  return { links, one, normal, size: (w: number) => { const s = total.get(w); return s ? s[0] / s[1] : 0; } };
+}
+
+/** the smooth normal of each new point, from the patch faces that use it */
+function normalsOf(idx: number[], from: number, pos: Float32Array, points: number): Float32Array {
+  const out = new Float32Array(pos.length - points * 3);
+  for (let t = from; t < idx.length; t += 3) {
+    const n = normalOf(pointAt(pos, idx[t]), pointAt(pos, idx[t + 1]), pointAt(pos, idx[t + 2]));
+    for (let k = 0; k < 3; k++) {
+      const w = idx[t + k];
+      if (w >= points) for (let i = 0; i < 3; i++) out[(w - points) * 3 + i] += n[i];
+    }
+  }
+  for (let i = 0; i < out.length; i += 3) {
+    const l = Math.hypot(out[i], out[i + 1], out[i + 2]) || 1;
+    out[i] /= l; out[i + 1] /= l; out[i + 2] /= l;
+  }
+  return out;
 }
 
 /** What the pass found and did to one model, as the Pipeline page shows it. */
@@ -221,7 +273,8 @@ export interface SealReport {
   rims: { tiny: number; small: number; medium: number; large: number; tooBig: number };
   openBefore: number; openAfter: number; facesBefore: number; facesAfter: number;
   seamsBefore: number; seamsAfter: number;   // edges shared by three faces or more
-  flattened: number;   // patch triangles whose stretched paint was replaced by one colour
+  flattened: number;   // patch triangles reading one colour from beside the rim
+  pointsAdded: number; // new points inside patches
   ms: number; at: string; error?: string;
 }
 
@@ -236,13 +289,15 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
   let length = bin.length, patched = 0;
   const report: SealReport = {
     holes: 0, closed: 0, maxRim, rims: { tiny: 0, small: 0, medium: 0, large: 0, tooBig: 0 },
-    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, seamsBefore: 0, seamsAfter: 0, flattened: 0, ms: 0, at: new Date().toISOString(),
+    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, seamsBefore: 0, seamsAfter: 0, flattened: 0, pointsAdded: 0, ms: 0, at: new Date().toISOString(),
   };
   for (const m of g.meshes || []) for (const p of m.primitives) {
     if (p.indices === undefined || (p.mode ?? 4) !== 4) continue;
-    const pos = positions(g, bin, p.attributes.POSITION);
+    let pos = positions(g, bin, p.attributes.POSITION);
     const idx = indices(g, bin, p.indices);
-    const weld = weldOf(pos);
+    let weld = weldOf(pos);
+    const points = pos.length / 3;
+    const rimOf = new Map<number, number>();   // each new point, and the rim point nearest it
     const original = idx.length;
     const usesBefore = edgeUses(idx, weld);
     const open = openOf(usesBefore);
@@ -257,7 +312,45 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
     for (let pass = 0; pass < PASSES; pass++) {
       const holes = loopsOf(openEdges(idx, weld), weld).filter((l) => l.length >= 3 && l.length <= maxRim);
       if (!holes.length) break;
-      for (const l of holes) { for (const v of fill(l, pos)) idx.push(v); patched++; }
+      const world = worldOf(idx, pos, weld);
+      const added: number[] = [];
+      let next = pos.length / 3;
+      for (const l of holes) {
+        const ring = l.map((e) => e.a).reverse();
+        const at = new Map(ring.map((v, i) => [v, i]));
+        const rough = ring.length > LONG_RIM ? fill(l, pos) : [];
+        const faces: number[][] = [];
+        for (let i = 0; i < rough.length; i += 3) faces.push([at.get(rough[i])!, at.get(rough[i + 1])!, at.get(rough[i + 2])!]);
+        const inHole = new Set(ring.map((v) => weld[v]));
+        const made = patchHole({
+          points: ring.map((v) => pointAt(pos, v)),
+          outside: ring.map((v, i) => world.normal.get(pair(weld[v], weld[ring[(i + 1) % ring.length]])) || [0, 0, 0]),
+          faceSize: ring.map((v) => world.size(weld[v])),
+          around: ring.map((v) => [...(world.links.get(weld[v]) || [])].filter((u) => !inHole.has(u)).map((u) => pointAt(pos, world.one.get(u)!))),
+          rough: faces.length ? faces : undefined,
+        });
+        const id = (i: number) => (i < ring.length ? ring[i] : next + i - ring.length);
+        for (const f of made.faces) idx.push(id(f[0]), id(f[1]), id(f[2]));
+        made.points.slice(ring.length).forEach((q, i) => {
+          added.push(q[0], q[1], q[2]);
+          const nearest = ring[made.nearest[i]];
+          rimOf.set(next + i, nearest < points ? nearest : rimOf.get(nearest)!);
+        });
+        next += made.points.length - ring.length;
+        patched++;
+      }
+      if (added.length) {
+        const grown = new Float32Array(pos.length + added.length);
+        grown.set(pos);
+        grown.set(added, pos.length);
+        const welded = new Int32Array(grown.length / 3);
+        welded.set(weld);
+        let id = 0;
+        for (let i = 0; i < weld.length; i++) if (weld[i] > id) id = weld[i];
+        for (let i = weld.length; i < welded.length; i++) welded[i] = ++id;
+        pos = grown;
+        weld = welded;
+      }
     }
     const usesAfter = edgeUses(idx, weld);
     report.openAfter += openOf(usesAfter).length;
@@ -273,20 +366,32 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
       return g.accessors.length - 1;
     };
     const uvAt = p.attributes.TEXCOORD_0;
-    if (uvAt !== undefined && g.accessors[uvAt].componentType === 5126 && idx.length > original) {
-      const uv = new Float32Array(g.accessors[uvAt].count * 2);
-      const { data: uvData } = items(g, bin, uvAt);
-      for (let n = 0; n < uv.length; n++) uv[n] = uvData.readFloatLE(n * 4);
-      const copies = flatten(idx, original, pos, uv);
+    if (idx.length > original) {
+      let uv: Float32Array | null = null;
+      if (uvAt !== undefined && g.accessors[uvAt].componentType === 5126) {
+        uv = new Float32Array(g.accessors[uvAt].count * 2);
+        const { data: uvData } = items(g, bin, uvAt);
+        for (let n = 0; n < uv.length; n++) uv[n] = uvData.readFloatLE(n * 4);
+      }
+      const facing = normalsOf(idx, original, pos, points);
+      const copies = flatten(idx, original, pos, uv, points, rimOf);
       report.flattened += copies.length / 3;
+      report.pointsAdded += pos.length / 3 - points;
       if (copies.length) for (const name of Object.keys(p.attributes)) {
         const at = p.attributes[name], { size, data } = items(g, bin, at), old = g.accessors[at];
         const more = Buffer.alloc(copies.length * size);
         copies.forEach(([v, u, w], n) => {
-          if (name === 'TEXCOORD_0') { more.writeFloatLE(u, n * size); more.writeFloatLE(w, n * size + 4); }
-          else data.copy(more, n * size, v * size, (v + 1) * size);
+          const write = (values: ArrayLike<number>, from: number) => { for (let k = 0; k < 3; k++) more.writeFloatLE(values[from + k], n * size + k * 4); };
+          if (name === 'TEXCOORD_0' && uv) { more.writeFloatLE(u, n * size); more.writeFloatLE(w, n * size + 4); }
+          else if (name === 'POSITION') write(pos, v * 3);
+          else if (name === 'NORMAL' && v >= points) write(facing, (v - points) * 3);
+          else { const from = v < points ? v : rimOf.get(v)!; data.copy(more, n * size, from * size, (from + 1) * size); }
         });
         const { byteOffset, sparse, ...rest } = old;
+        if (name === 'POSITION') {
+          rest.min = [0, 1, 2].map((k) => { let m = Infinity; for (let i = k; i < pos.length; i += 3) m = Math.min(m, pos[i]); return m; });
+          rest.max = [0, 1, 2].map((k) => { let m = -Infinity; for (let i = k; i < pos.length; i += 3) m = Math.max(m, pos[i]); return m; });
+        }
         p.attributes[name] = add(Buffer.concat([data, more]), 34962, { ...rest, count: old.count + copies.length });
       }
     }
