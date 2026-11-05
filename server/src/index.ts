@@ -58,7 +58,7 @@ import { sealedResult, startSealing } from './closeHoles';
 import { mountGenerationsApi, startRecipes } from './generations';
 import { mountWorkersApi } from './workersApi';
 import { BATCH_PRIORITY, mountBatchesApi, startBatchRunner } from './batches';
-import { accessGate } from './accessGate';
+import { accessGate } from './login/accessGate';
 import {
   listRatingDimensions, addRatingDimension,
   getCategoryTree, listCategories,

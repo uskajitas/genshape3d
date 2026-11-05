@@ -16,3 +16,4 @@ server/.env.bak.*
 server/tmp.js
 server/q.js
 *.local
+server/src/login/

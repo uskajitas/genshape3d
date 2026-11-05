@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc",
+    "dev": "node ../../uwidget/server/src/login/pull.mjs && ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "node ../../uwidget/server/src/login/pull.mjs && tsc",
     "start": "node dist/index.js"
   },
   "dependencies": {

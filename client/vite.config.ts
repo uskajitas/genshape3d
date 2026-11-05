@@ -1,5 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import { fileURLToPath } from 'node:url';
+
+// Login is uwidget's, never a copy (uwidget/docs/LOGIN.md).
+const login = fileURLToPath(new URL('../../uwidget/client/src/login', import.meta.url));
 
 export default defineConfig(({ mode }) => {
   // API_PROXY_TARGET (env var or .env.*.local) lets a dev client point at a
@@ -11,7 +15,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: { '@login': login },
+      dedupe: ['react', 'react-dom', 'react-router-dom', 'styled-components', 'firebase'],
+    },
     server: {
+      fs: { allow: ['.', login] },
       port: 3110,
       allowedHosts: ['genshape3d.com', 'localhost'],
       proxy,

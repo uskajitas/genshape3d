@@ -1,4 +1,4 @@
-import './authFetch';
+import '@login/authFetch';
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

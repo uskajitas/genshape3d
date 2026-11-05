@@ -7,6 +7,14 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@login/*": ["../../uwidget/client/src/login/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-router-dom": ["./node_modules/react-router-dom"],
+      "styled-components": ["./node_modules/styled-components"]
+    },
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
