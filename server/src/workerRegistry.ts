@@ -49,13 +49,13 @@ export function registerWorker(input: {
 // A picture on the 3090 cannot start while a model holds the machine's memory.
 // While one is waiting the 3090 takes no new model, so the wait ends when the
 // model in hand does, not when the whole queue does.
-const GPU_WAIT_MS = 15 * 60_000;
+const GPU_WAIT_MS = 60 * 60_000;
 const GPU_RETRY_MS = 20_000;
 let picturesWaiting = 0;
 export const pictureWaiting = () => picturesWaiting > 0;
 
-// The 3090 refuses a picture at once while it is busy (genshape3d_nvidia/src/cardPolicy.js). A person
-// is told so straight away. A batch has nobody to tell: it passes `patient` and waits for its turn.
+// The card has one queue (genshape3d_nvidia/src/cardPolicy.js). A picture keeps its place in it by
+// asking again. A batch has nobody watching, so it passes `patient` and waits longer.
 const PATIENT_MS = 2 * 60 * 60_000;
 export async function waitForGpu<T>(draw: () => Promise<T>, patient = false): Promise<T> {
   const giveUp = Date.now() + (patient ? PATIENT_MS : GPU_WAIT_MS);
@@ -63,8 +63,7 @@ export async function waitForGpu<T>(draw: () => Promise<T>, patient = false): Pr
   try {
     for (;;) {
       try { return await draw(); } catch (e: any) {
-        const wait = patient ? /RAM free|GB free|RTX 3090 is busy/ : /RAM free|GB free/;
-        if (!wait.test(String(e?.message)) || Date.now() > giveUp) throw e;
+        if (!/RAM free|GB free|RTX 3090 is busy/.test(String(e?.message)) || Date.now() > giveUp) throw e;
         await new Promise((go) => setTimeout(go, GPU_RETRY_MS));
       }
     }

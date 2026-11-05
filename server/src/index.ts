@@ -1163,7 +1163,7 @@ app.post('/api/text2image', express.json({ limit: '25mb' }), async (req, res) =>
   if ('error' in parsed) return res.status(400).json({ error: parsed.error });
   const p = parsed.p;
   try {
-    const { buf, contentType, assetId, imageKey } = await runT2I(p);
+    const { buf, contentType, assetId, imageKey } = await (p.provider.startsWith('local-') ? waitForGpu(() => runT2I(p)) : runT2I(p));
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Final-Prompt', encodeURIComponent(p.prompt));
