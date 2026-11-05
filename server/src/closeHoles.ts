@@ -4,14 +4,15 @@
 // is a plain rim; three is a rim running along a seam where a third face joins.
 // Counted that way a rim can never stop halfway, every one is a closed ring. Weld
 // the points that sit in the same place, walk the open edges into loops, and close
-// each loop with triangles between its own rim points. No new points are made, so a
-// patch takes its texture and normals from the rim, and only the index list of
-// the file grows. Same file in, same file out, every time.
+// each loop with triangles between its own rim points. A patch keeps the rim's texture
+// and normals unless that stretches the paint, then it reads one colour instead (see
+// flatten). Same file in, same file out, every time.
 import { saveSealReport, sealJob, sealSettings, unreportedJobs, unsealedJobs } from './jobsRepo';
 import { publicR2Url, uploadToR2 } from './r2';
 
 const SAME = 1e5;          // points closer than this fraction of a unit are one point
 const PASSES = 3;
+const SMEAR_TIMES = 3;      // a patch stretching its texture this many times the model's usual rate
 
 interface Edge { a: number; b: number; }
 interface Used { n: number; net: number; up: Edge | null; down: Edge | null; }
@@ -166,12 +167,61 @@ function fill(loop: Edge[], pos: Float32Array): number[] {
   return out;
 }
 
+/** one accessor's raw items, whatever its stride */
+function items(g: any, bin: Buffer, i: number): { size: number; data: Buffer } {
+  const a = g.accessors[i], v = g.bufferViews[a.bufferView];
+  const parts = ({ SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 } as Record<string, number>)[a.type];
+  const size = parts * ({ 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 } as Record<number, number>)[a.componentType];
+  const off = (v.byteOffset || 0) + (a.byteOffset || 0), stride = v.byteStride || size;
+  const data = Buffer.alloc(a.count * size);
+  for (let n = 0; n < a.count; n++) bin.copy(data, n * size, off + n * stride, off + n * stride + size);
+  return { size, data };
+}
+
+/** A patch reuses its rim's UVs, and a rim can touch unrelated pieces of the texture
+ *  sheet, so the triangle between them drags those colours across the hole. Each
+ *  such triangle gets its own three points, all reading one spot inside a piece of
+ *  the sheet next to the rim: one clean colour, no stretch. Answers the points to
+ *  copy, as [source point, u, v]; idx is rewritten to use them. */
+function flatten(idx: number[], from: number, pos: Float32Array, uv: Float32Array): [number, number, number][] {
+  const far = (a: Float32Array, i: number, j: number, n: number) => {
+    let d = 0;
+    for (let k = 0; k < n; k++) d += (a[i * n + k] - a[j * n + k]) ** 2;
+    return Math.sqrt(d);
+  };
+  const rates: number[] = [];
+  const inside = new Map<number, [number, number]>();
+  for (let t = 0; t < from; t += 3) {
+    const [a, b, c] = [idx[t], idx[t + 1], idx[t + 2]];
+    const size = far(pos, a, b, 3);
+    if (size > 0) rates.push(far(uv, a, b, 2) / size);
+    const mid: [number, number] = [(uv[a * 2] + uv[b * 2] + uv[c * 2]) / 3, (uv[a * 2 + 1] + uv[b * 2 + 1] + uv[c * 2 + 1]) / 3];
+    for (const v of [a, b, c]) if (!inside.has(v)) inside.set(v, mid);
+  }
+  rates.sort((x, y) => x - y);
+  const limit = (rates[rates.length >> 1] || 0) * SMEAR_TIMES;
+  const copies: [number, number, number][] = [];
+  const next = pos.length / 3;
+  for (let t = from; t < idx.length; t += 3) {
+    const tri = [idx[t], idx[t + 1], idx[t + 2]];
+    const stretched = tri.some((v, i) => {
+      const w = tri[(i + 1) % 3], size = far(pos, v, w, 3);
+      return size > 0 ? far(uv, v, w, 2) / size > limit : far(uv, v, w, 2) > 0;
+    });
+    if (!stretched) continue;
+    const spot = tri.map((v) => inside.get(v)).find(Boolean) || [uv[tri[0] * 2], uv[tri[0] * 2 + 1]];
+    tri.forEach((v, i) => { idx[t + i] = next + copies.length; copies.push([v, spot[0], spot[1]]); });
+  }
+  return copies;
+}
+
 /** What the pass found and did to one model, as the Pipeline page shows it. */
 export interface SealReport {
   holes: number; closed: number; maxRim: number;
   rims: { tiny: number; small: number; medium: number; large: number; tooBig: number };
   openBefore: number; openAfter: number; facesBefore: number; facesAfter: number;
   seamsBefore: number; seamsAfter: number;   // edges shared by three faces or more
+  flattened: number;   // patch triangles whose stretched paint was replaced by one colour
   ms: number; at: string; error?: string;
 }
 
@@ -186,13 +236,14 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
   let length = bin.length, patched = 0;
   const report: SealReport = {
     holes: 0, closed: 0, maxRim, rims: { tiny: 0, small: 0, medium: 0, large: 0, tooBig: 0 },
-    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, seamsBefore: 0, seamsAfter: 0, ms: 0, at: new Date().toISOString(),
+    openBefore: 0, openAfter: 0, facesBefore: 0, facesAfter: 0, seamsBefore: 0, seamsAfter: 0, flattened: 0, ms: 0, at: new Date().toISOString(),
   };
   for (const m of g.meshes || []) for (const p of m.primitives) {
     if (p.indices === undefined || (p.mode ?? 4) !== 4) continue;
     const pos = positions(g, bin, p.attributes.POSITION);
     const idx = indices(g, bin, p.indices);
     const weld = weldOf(pos);
+    const original = idx.length;
     const usesBefore = edgeUses(idx, weld);
     const open = openOf(usesBefore);
     report.openBefore += open.length;
@@ -212,14 +263,34 @@ export function sealGlb(buf: Buffer, maxRim: number): { glb: Buffer | null; repo
     report.openAfter += openOf(usesAfter).length;
     report.seamsAfter += seams(usesAfter);
     report.facesAfter += idx.length / 3;
-    const pad = (4 - (length % 4)) % 4;
-    if (pad) { chunks.push(Buffer.alloc(pad)); length += pad; }
-    const data = Buffer.from(Uint32Array.from(idx).buffer);
-    g.bufferViews.push({ buffer: 0, byteOffset: length, byteLength: data.length, target: 34963 });
-    g.accessors.push({ bufferView: g.bufferViews.length - 1, componentType: 5125, count: idx.length, type: 'SCALAR' });
-    p.indices = g.accessors.length - 1;
-    chunks.push(data);
-    length += data.length;
+    const add = (data: Buffer, target: number, accessor: object) => {
+      const pad = (4 - (length % 4)) % 4;
+      if (pad) { chunks.push(Buffer.alloc(pad)); length += pad; }
+      g.bufferViews.push({ buffer: 0, byteOffset: length, byteLength: data.length, target });
+      g.accessors.push({ ...accessor, bufferView: g.bufferViews.length - 1 });
+      chunks.push(data);
+      length += data.length;
+      return g.accessors.length - 1;
+    };
+    const uvAt = p.attributes.TEXCOORD_0;
+    if (uvAt !== undefined && g.accessors[uvAt].componentType === 5126 && idx.length > original) {
+      const uv = new Float32Array(g.accessors[uvAt].count * 2);
+      const { data: uvData } = items(g, bin, uvAt);
+      for (let n = 0; n < uv.length; n++) uv[n] = uvData.readFloatLE(n * 4);
+      const copies = flatten(idx, original, pos, uv);
+      report.flattened += copies.length / 3;
+      if (copies.length) for (const name of Object.keys(p.attributes)) {
+        const at = p.attributes[name], { size, data } = items(g, bin, at), old = g.accessors[at];
+        const more = Buffer.alloc(copies.length * size);
+        copies.forEach(([v, u, w], n) => {
+          if (name === 'TEXCOORD_0') { more.writeFloatLE(u, n * size); more.writeFloatLE(w, n * size + 4); }
+          else data.copy(more, n * size, v * size, (v + 1) * size);
+        });
+        const { byteOffset, sparse, ...rest } = old;
+        p.attributes[name] = add(Buffer.concat([data, more]), 34962, { ...rest, count: old.count + copies.length });
+      }
+    }
+    p.indices = add(Buffer.from(Uint32Array.from(idx).buffer), 34963, { componentType: 5125, count: idx.length, type: 'SCALAR' });
   }
   report.closed = patched;
   report.ms = Date.now() - began;
