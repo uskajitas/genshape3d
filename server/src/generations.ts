@@ -63,18 +63,43 @@ async function subjects() {
         const done = j.status === 'done';
         return {
           id: j.id, model: j.model, status: j.status, progressPct: j.progressPct, errorMessage: j.errorMessage,
-          createdAt: j.createdAt, startedAt: j.startedAt, completedAt: j.completedAt,
+          createdAt: j.createdAt, startedAt: j.startedAt, completedAt: j.completedAt, phase: j.progressPhase || '', phases: j.phaseLog || [],
           machine: j.assignedWorkerId, gpuMemPeakMB: j.gpuMemPeakMB, paintBuiltIn: !!j.doTexture, recipe: j.recipe || {},
           references: [{ label: 'Front', file: publicR2Url(j.imageUrl) },
             ...views.map((u) => ({ label: VIEW.exec(u)![1].replace(/^./, (c) => c.toUpperCase()), file: publicR2Url(u.replace(/^https?:\/\/[^/]+\//, '').replace(/^genshape3d\//, '')) }))],
           rawFile: done ? publicR2Url(rawOf(j)) : '', fixedFile: done && fixedOf(j) ? publicR2Url(fixedOf(j)) : '',
           paintedFile: painted ? publicR2Url(painted.resultUrl) : '',
-          repaint: repaint ? { status: repaint.status, progressPct: repaint.progressPct, errorMessage: repaint.errorMessage, machine: repaint.assignedWorkerId, startedAt: repaint.startedAt, completedAt: repaint.completedAt } : null,
+          repaint: repaint ? { status: repaint.status, progressPct: repaint.progressPct, errorMessage: repaint.errorMessage, machine: repaint.assignedWorkerId, createdAt: repaint.createdAt, startedAt: repaint.startedAt, completedAt: repaint.completedAt, phase: repaint.progressPhase || '', phases: repaint.phaseLog || [] } : null,
           sealReport: j.sealReport || {},
         };
       }),
     };
   });
+}
+
+/** What the machines are doing now and what waits for them, and how long each builder usually takes. */
+async function queue() {
+  const waiting = `status IN ('pending', 'processing') AND deleted = false`;
+  const [shapes, paints, usual] = await Promise.all([
+    dbQuery(`SELECT id, name, model, source, status, "progressPct", "progressPhase", "assignedWorkerId", "createdAt", "startedAt"
+             FROM genshape3d_jobs WHERE ${waiting} ORDER BY status DESC, "createdAt" ASC LIMIT 100`),
+    dbQuery(`SELECT t.id, j.name, t.status, t."progressPct", t."progressPhase", t."assignedWorkerId", t."createdAt", t."startedAt"
+             FROM genshape3d_texture_jobs t LEFT JOIN genshape3d_jobs j ON j.id::text = t."sourceJobId"::text
+             WHERE t.status IN ('pending', 'processing') AND t.deleted = false ORDER BY t.status DESC, t."createdAt" ASC LIMIT 100`),
+    dbQuery(`SELECT model, round(avg(s))::int AS seconds, count(*)::int AS runs FROM (
+               SELECT model, extract(epoch FROM "completedAt"::timestamptz - "startedAt"::timestamptz) AS s,
+                      row_number() OVER (PARTITION BY model ORDER BY "completedAt" DESC) AS n
+               FROM genshape3d_jobs WHERE status = 'done' AND "startedAt" IS NOT NULL AND "completedAt" IS NOT NULL) d
+             WHERE n <= 20 GROUP BY model`),
+  ]);
+  const row = (kind: string) => (j: any) => ({
+    id: j.id, kind, name: j.name || 'Model', model: j.model || '', source: j.source || '', status: j.status, progressPct: j.progressPct,
+    phase: j.progressPhase || '', machine: j.assignedWorkerId || '', createdAt: j.createdAt, startedAt: j.startedAt,
+  });
+  return {
+    jobs: [...shapes.rows.map(row('shape')), ...paints.rows.map(row('paint'))],
+    usual: Object.fromEntries(usual.rows.map((u: any) => [u.model, u.seconds])),
+  };
 }
 
 /** What people get for a subject becomes this file. The job's own files stay on record. */
@@ -154,7 +179,7 @@ export function mountGenerationsApi(app: Express): void {
 
   app.get('/api/generations', async (req, res) => {
     if (!(await admin(req.query.email))) return res.status(403).json({ error: 'Forbidden' });
-    try { res.json({ settings: await sealSettings(), subjects: await subjects() }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    try { res.json({ settings: await sealSettings(), subjects: await subjects(), queue: await queue().catch(() => ({ jobs: [], usual: {} })) }); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // { email, fromRunId, runs: [{ model, references, paint, repair, publish }] }

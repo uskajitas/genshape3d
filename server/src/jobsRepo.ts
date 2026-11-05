@@ -296,7 +296,7 @@ export async function publishJob(id: string, url: string): Promise<void> {
 /** The repaints of the newest generations, newest first. */
 export async function repaintsOf(ids: string[]): Promise<any[]> {
   const { rows } = await dbQuery(
-    `SELECT id, "sourceJobId", status, "resultUrl", "errorMessage", "progressPct", "progressPhase", "assignedWorkerId", "createdAt", "startedAt", "completedAt"
+    `SELECT id, "sourceJobId", status, "resultUrl", "errorMessage", "progressPct", "progressPhase", "phaseLog", "assignedWorkerId", "createdAt", "startedAt", "completedAt"
      FROM genshape3d_texture_jobs WHERE "sourceJobId" = ANY($1) AND deleted = false ORDER BY "createdAt" DESC`, [ids]);
   return rows;
 }

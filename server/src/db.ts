@@ -269,6 +269,29 @@ export async function initDb(): Promise<void> {
     // generations.ts: the subject a run belongs to, and the steps it does after its shape
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "subjectId" TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS recipe JSONB NOT NULL DEFAULT '{}'`,
+    // when each part of a job began: [{ phase, at }], written by the trigger below
+    // because the workers write their progress straight to these tables
+    `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "phaseLog" JSONB NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE genshape3d_texture_jobs ADD COLUMN IF NOT EXISTS "phaseLog" JSONB NOT NULL DEFAULT '[]'`,
+    `CREATE OR REPLACE FUNCTION genshape3d_phase_log() RETURNS trigger AS $fn$
+     BEGIN
+       BEGIN
+         IF NEW.status = 'pending' AND OLD.status <> 'pending' THEN
+           NEW."phaseLog" := '[]'::jsonb;
+         ELSIF NEW."progressPhase" <> ''
+           AND regexp_replace(NEW."progressPhase", '[0-9]+ ?(/ ?[0-9]+|%)', '', 'g') IS DISTINCT FROM regexp_replace(OLD."progressPhase", '[0-9]+ ?(/ ?[0-9]+|%)', '', 'g')
+           AND jsonb_array_length(NEW."phaseLog") < 80 THEN
+           NEW."phaseLog" := NEW."phaseLog" || jsonb_build_array(jsonb_build_object(
+             'phase', NEW."progressPhase", 'at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')));
+         END IF;
+       EXCEPTION WHEN OTHERS THEN NULL;   -- a job is never held up by its own log
+       END;
+       RETURN NEW;
+     END $fn$ LANGUAGE plpgsql`,
+    `DROP TRIGGER IF EXISTS genshape3d_jobs_phase_log ON genshape3d_jobs`,
+    `CREATE TRIGGER genshape3d_jobs_phase_log BEFORE UPDATE ON genshape3d_jobs FOR EACH ROW EXECUTE FUNCTION genshape3d_phase_log()`,
+    `DROP TRIGGER IF EXISTS genshape3d_texture_jobs_phase_log ON genshape3d_texture_jobs`,
+    `CREATE TRIGGER genshape3d_texture_jobs_phase_log BEFORE UPDATE ON genshape3d_texture_jobs FOR EACH ROW EXECUTE FUNCTION genshape3d_phase_log()`,
     `ALTER TABLE genshape3d_jobs ADD COLUMN IF NOT EXISTS "useMultiView" BOOLEAN NOT NULL DEFAULT false`,
     // Multi-model + multi-worker routing. `model` selects which image-to-3d
     // pipeline to run (hunyuan3d, triposr, sf3d, hi3dgen). `assignedWorkerId`
