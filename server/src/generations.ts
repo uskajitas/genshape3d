@@ -50,7 +50,7 @@ async function subjects() {
     let published: { runId: string; version: string } | null = null;
     for (const j of jobs) {
       if (j.status !== 'done' || published) continue;
-      const version = shown.resultUrl === rawOf(j) ? 'raw' : shown.resultUrl === fixedOf(j) ? 'fixed'
+      const version = shown.resultUrl === fixedOf(j) ? 'fixed' : shown.resultUrl === rawOf(j) ? 'raw'
         : repaints.some((t) => t.sourceJobId === j.id && t.resultUrl === shown.resultUrl) ? 'painted' : '';
       if (version) published = { runId: j.id, version };
     }
