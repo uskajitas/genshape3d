@@ -21,7 +21,7 @@ const BUILDERS = ['trellis2', 'hunyuan3d', 'hunyuan3d-2-1', 'hi3dgen', 'partcraf
 const READS_VIEWS = 'hunyuan3d';     // the one builder that reads more than one picture
 const VIEW = /(back|left|right)[^/]*\.png$/i;
 
-export interface Recipe { repair?: boolean; paint?: 'builtin' | 'later' | 'none'; publish?: boolean; paintJob?: string; finished?: boolean; error?: string; }
+export interface Recipe { views?: string[]; repair?: boolean; paint?: 'builtin' | 'later' | 'none'; publish?: boolean; paintJob?: string; finished?: boolean; error?: string; }
 
 const keyOf = (j: any): string =>
   j.subjectId || (j.name ? `${String(j.name).toLowerCase().replace(/[_\s]+/g, ' ').trim()}|${j.userEmail}` : j.id);
@@ -186,7 +186,8 @@ export function mountGenerationsApi(app: Express): void {
           useMultiView: w.references === 3,
           auxImageUrls: w.model === READS_VIEWS && w.references === 1 ? [from.imageUrl] : [],
         });
-        const recipe: Recipe = { repair: w.repair !== false, paint, publish: w.publish === true };
+        // the worker draws these views itself; one that predates recipe.views follows useMultiView and the given picture above
+        const recipe: Recipe = { views: ['back', 'left'].slice(0, w.references - 1), repair: w.repair !== false, paint, publish: w.publish === true };
         await dbQuery(`UPDATE genshape3d_jobs SET "subjectId" = $1, recipe = $2::jsonb, source = $3 WHERE id = $4`,
           [keyOf(from), JSON.stringify(recipe), SOURCE, job.id]);
         made.push(job.id);
@@ -200,7 +201,7 @@ export function mountGenerationsApi(app: Express): void {
     if (!(await admin(req.body?.email))) return res.status(403).json({ error: 'Forbidden' });
     const job: any = await getJobById(String(req.body?.runId || ''));
     if (!job || job.status !== 'done') return res.status(404).json({ error: 'no finished run' });
-    await saveRecipe(job.id, { repair: req.body.repair === true, paint: req.body.paint === 'later' ? 'later' : 'none', publish: req.body.publish === true });
+    await saveRecipe(job.id, { views: job.recipe?.views, repair: req.body.repair === true, paint: req.body.paint === 'later' ? 'later' : 'none', publish: req.body.publish === true });
     res.json({ ok: true });
   });
 
