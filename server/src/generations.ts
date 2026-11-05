@@ -57,7 +57,7 @@ async function subjects() {
     return {
       id, name: shown.name || 'Model', owner: shown.userEmail, picture: publicR2Url(shown.imageUrl), shownJobId: shown.id, published,
       runs: jobs.map((j) => {
-        const views = ((j.auxImageUrls || []) as string[]).filter((u) => VIEW.test(u));
+        const views = (Array.isArray(j.auxImageUrls) ? j.auxImageUrls as string[] : []).filter((u) => typeof u === "string" && VIEW.test(u));
         const repaint = repaints.find((t) => t.sourceJobId === j.id);
         const painted = paintedOf(j);
         const done = j.status === 'done';
