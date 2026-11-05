@@ -2279,6 +2279,87 @@ app.post('/api/jobs/:id/publish', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── every picture of one object, for the admin's first step ─────────────────
+// What the model was built from, the original, the sides and new options. Nothing
+// here reaches the 3090 unless asked, and nothing here is paid.
+const OPTIONS_SOURCE = 'picture-options';
+const OPTIONS_MOST = 6;
+const OPTION_LOOK = 'one single isolated object, whole object visible with space around it, centered, three quarter front view, plain solid black background, soft studio lighting, highly detailed stylized 3D game asset, rich saturated colors, clean silhouette';
+const optionsDrawing = new Map<string, number>();
+const optionsTag = (jobId: string) => `options-of:${jobId}`;
+
+app.get('/api/jobs/:id/pictures', async (req, res) => {
+  if (!(await isAdmin(String(req.query.email || '')))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const job = await getJobById(req.params.id);
+    if (!job) return res.status(404).json({ error: 'no such job' });
+    const assets = await listAssetsByUser(job.userEmail);
+    const { rows: drawn } = await dbQuery(`SELECT asset_id FROM genshape3d_batch_items WHERE job_id = $1 LIMIT 1`, [job.id]).catch(() => ({ rows: [] as any[] }));
+    const original = assets.find((a) => a.id === drawn[0]?.asset_id)
+      || assets.find((a) => a.name === job.name && !a.parentAssetId && a.source !== OPTIONS_SOURCE);
+    const pictures: { id: string; file: string; label: string }[] = [{ id: 'built', file: publicR2Url(job.imageUrl), label: 'Built from (background cut)' }];
+    if (original) {
+      pictures.push({ id: original.id, file: publicR2Url(original.imageKey), label: 'Original picture' });
+      for (const a of assets.filter((x) => x.parentAssetId === original.id)) pictures.push({ id: a.id, file: publicR2Url(a.imageKey), label: a.viewLabel && a.viewLabel !== 'front' ? `Side: ${a.viewLabel}` : 'Edit' });
+    }
+    const { rows: sides } = await dbQuery(
+      `SELECT id, status, "auxImageUrls" FROM genshape3d_jobs WHERE model = 'multiview' AND "imageUrl" = $1 ORDER BY "createdAt" DESC`, [job.imageUrl]);
+    const newest = sides.find((s: any) => s.status === 'done');
+    for (const u of (newest?.auxImageUrls || []) as string[]) {
+      const label = /([a-z_0-9]+)\.png$/i.exec(u)?.[1] || 'view';
+      pictures.push({ id: `side-${label}`, file: publicR2Url(u.replace(/^https?:\/\/[^/]+\//, '').replace(/^genshape3d\//, '')), label: `Side: ${label.replace('_', ' ')}` });
+    }
+    assets.filter((a) => (a.tags || []).includes(optionsTag(job.id))).reverse()
+      .forEach((a, i) => pictures.push({ id: a.id, file: publicR2Url(a.imageKey), label: `Option ${i + 1}` }));
+    res.json({
+      pictures,
+      drawing: { sides: sides.some((s: any) => s.status === 'pending' || s.status === 'processing'), options: optionsDrawing.get(job.id) || 0 },
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/jobs/:id/sides', async (req, res) => {
+  if (!(await isAdmin(String(req.body?.email || '')))) return res.status(403).json({ error: 'Forbidden' });
+  const job = await getJobById(req.params.id);
+  if (!job) return res.status(404).json({ error: 'no such job' });
+  const side = await createJob({
+    userEmail: job.userEmail, imageUrl: job.imageUrl, name: `[sides] ${job.name || 'picture'}`,
+    prompt: job.prompt || '', model: 'multiview', doTexture: false, preferredWorkerId: 'win-3090',
+  } as any);
+  await dbQuery(`UPDATE genshape3d_jobs SET archived = true, "rootJobId" = id WHERE id = $1`, [side.id]);
+  res.json({ ok: true });
+});
+
+// A job that started with words gets new drawings; a picture without words gets
+// edited, so it stays the same object.
+app.post('/api/jobs/:id/options', async (req, res) => {
+  if (!(await isAdmin(String(req.body?.email || '')))) return res.status(403).json({ error: 'Forbidden' });
+  const words = String(req.body?.prompt || '').trim();
+  if (!words) return res.status(400).json({ error: 'words required' });
+  const job = await getJobById(req.params.id);
+  if (!job) return res.status(404).json({ error: 'no such job' });
+  const count = Math.max(1, Math.min(OPTIONS_MOST, parseInt(req.body?.count) || 3));
+  res.json({ ok: true });
+  optionsDrawing.set(job.id, (optionsDrawing.get(job.id) || 0) + count);
+  (async () => {
+    let refImages: string[] = [];
+    if (!job.prompt) {
+      const stored = await fetch(publicR2Url(job.imageUrl));
+      refImages = [`data:${stored.headers.get('content-type') || 'image/png'};base64,${Buffer.from(await stored.arrayBuffer()).toString('base64')}`];
+    }
+    for (let i = 0; i < count; i++) {
+      try {
+        const { assetId } = await waitForGpu(() => runT2I({
+          prompt: `${words}, ${OPTION_LOOK}`, provider: refImages.length ? 'local-edit' : 'local-qwen-image', refImages, w: 1024, h: 1024,
+          seed: Math.floor(Math.random() * 1_000_000_000), email: job.userEmail, sourceAssetId: null, tags: [optionsTag(job.id)], source: OPTIONS_SOURCE,
+        }));
+        if (assetId) await renameAsset(assetId, `${job.name} option`);
+      } catch (e: any) { console.error('[options]', job.id, e.message); }
+      optionsDrawing.set(job.id, Math.max(0, (optionsDrawing.get(job.id) || 1) - 1));
+    }
+  })().catch((e) => { optionsDrawing.delete(job.id); console.error('[options]', e.message); });
+});
+
 app.post('/api/jobs/from-key', async (req, res) => {
   const { email, key, name, prompt } = req.body as {
     email?: string; key?: string; name?: string; prompt?: string;
